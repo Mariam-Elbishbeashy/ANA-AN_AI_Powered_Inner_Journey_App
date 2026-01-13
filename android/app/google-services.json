@@ -1,0 +1,46 @@
+{
+  "project_info": {
+    "project_number": "751671378692",
+    "project_id": "ana-app-94bf3",
+    "storage_bucket": "ana-app-94bf3.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:751671378692:android:dbf34f69495c1185e44651",
+        "android_client_info": {
+          "package_name": "com.ANATeam.ana_ifs_app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "751671378692-m846tlt3o1hh80q948j1cbgcbsjg27c9.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCcykTNZl3x_kfyQrVl4ltocu4pvjVHIso"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "751671378692-m846tlt3o1hh80q948j1cbgcbsjg27c9.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "751671378692-npdrnlmt0u245jh0u89bbn0ke959drvp.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.ANATeam.anaIfsApp"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
