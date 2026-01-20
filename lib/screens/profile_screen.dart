@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/user_character_model.dart';
 import '../services/firestore_service.dart';
+import '../l10n/app_strings.dart';
 
 class ProfileScreen extends StatefulWidget {
   final User? user;
@@ -24,25 +25,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
   late List<UserCharacter> _userCharacters;
   bool _isLoading = false;
   final FirestoreService _firestoreService = FirestoreService();
-  String? _userLanguage;
 
   @override
   void initState() {
     super.initState();
     _userCharacters = widget.initialUserCharacters;
-    _loadUserLanguage();
     // Refresh characters if needed
     if (_userCharacters.isEmpty) {
       _refreshCharacters();
-    }
-  }
-
-  Future<void> _loadUserLanguage() async {
-    try {
-      _userLanguage = await _firestoreService.getUserLanguage();
-      setState(() {});
-    } catch (e) {
-      print('Error loading user language: $e');
     }
   }
 
@@ -91,7 +81,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isArabic = _userLanguage == 'ar';
+    final isArabicValue = isArabic(context);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF9F6FF),
@@ -100,7 +90,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           SliverAppBar(
             backgroundColor: Colors.transparent,
             elevation: 0,
-            expandedHeight: 220,
+            expandedHeight: 240,
             flexibleSpace: FlexibleSpaceBar(
               background: Container(
                 decoration: BoxDecoration(
@@ -113,71 +103,74 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ],
                   ),
                 ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const SizedBox(height: 60),
-                    CircleAvatar(
-                      radius: 50,
-                      backgroundColor: Colors.white,
-                      child: widget.user?.photoURL != null
-                          ? ClipOval(
-                              child: Image.network(
-                                widget.user!.photoURL!,
-                                width: 100,
-                                height: 100,
-                                fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) {
-                                  return _buildDefaultAvatar();
-                                },
-                              ),
-                            )
-                          : _buildDefaultAvatar(),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      _getFormattedName(),
-                      style: const TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.white,
-                      ),
-                    ),
-                    if (widget.user?.email != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: Text(
-                          widget.user!.email!,
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.white.withOpacity(0.9),
+                child: SafeArea(
+                  bottom: false,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const SizedBox(height: 8),
+                      CircleAvatar(
+                        radius: 48,
+                        backgroundColor: Colors.white,
+                        child: widget.user?.photoURL != null
+                            ? ClipOval(
+                          child: Image.network(
+                            widget.user!.photoURL!,
+                            width: 100,
+                            height: 100,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) {
+                              return _buildDefaultAvatar();
+                            },
                           ),
+                        )
+                            : _buildDefaultAvatar(),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        _getFormattedName(),
+                        style: const TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
                         ),
                       ),
-                    // Language indicator
-                    if (_userLanguage != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.3),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
+                      if (widget.user?.email != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
                           child: Text(
-                            _userLanguage == 'ar' ? 'العربية' : 'English',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.white,
+                            widget.user!.email!,
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.white.withOpacity(0.9),
                             ),
                           ),
                         ),
-                      ),
-                  ],
+                      // Language indicator
+                    if (true)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.3),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                            isArabicValue ? 'العربية' : 'English',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -208,17 +201,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         children: [
                           _StatItem(
                             value: _userCharacters.length.toString(),
-                            label: isArabic ? 'شخصيات' : 'Characters',
+                            label: isArabicValue ? 'شخصيات' : 'Characters',
                             icon: Icons.psychology_rounded,
                           ),
                           _StatItem(
                             value: '13',
-                            label: isArabic ? 'أسئلة' : 'Questions',
+                            label: isArabicValue ? 'أسئلة' : 'Questions',
                             icon: Icons.help_outline_rounded,
                           ),
                           _StatItem(
                             value: _getDaysActive(),
-                            label: isArabic ? 'أيام نشاط' : 'Days Active',
+                            label: isArabicValue ? 'أيام نشاط' : 'Days Active',
                             icon: Icons.calendar_today_rounded,
                           ),
                         ],
@@ -232,7 +225,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          isArabic ? 'شخصياتي الداخلية' : 'My Inner Characters',
+                          isArabicValue ? 'شخصياتي الداخلية' : 'My Inner Characters',
                           style: const TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.w800,
@@ -258,7 +251,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               color: Color(0xFF8E7CFF),
                             ),
                             onPressed: _refreshCharacters,
-                            tooltip: isArabic ? 'تحديث' : 'Refresh',
+                            tooltip: isArabicValue ? 'تحديث' : 'Refresh',
                           ),
                       ],
                     ),
@@ -280,7 +273,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             ),
                             const SizedBox(height: 16),
                             Text(
-                              isArabic
+                              isArabicValue
                                   ? 'لم يتم تحديد شخصيات بعد'
                                   : 'No characters identified yet',
                               style: const TextStyle(
@@ -291,7 +284,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             ),
                             const SizedBox(height: 8),
                             Text(
-                              isArabic
+                              isArabicValue
                                   ? 'أكمل الاستبيان لاكتشاف شخصياتك الداخلية'
                                   : 'Complete the questionnaire to discover your inner characters',
                               textAlign: TextAlign.center,
@@ -304,7 +297,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 Navigator.of(context).pushReplacement(
                                   MaterialPageRoute(
                                     builder: (_) =>
-                                        const InitialMotivationScreen(),
+                                    const InitialMotivationScreen(),
                                   ),
                                 );
                               },
@@ -313,7 +306,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 foregroundColor: Colors.white,
                               ),
                               child: Text(
-                                isArabic
+                                isArabicValue
                                     ? 'بدء الاستبيان'
                                     : 'Take Questionnaire',
                               ),
@@ -345,7 +338,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
                     // Account Settings
                     Text(
-                      isArabic ? 'إعدادات الحساب' : 'Account Settings',
+                      isArabicValue ? 'إعدادات الحساب' : 'Account Settings',
                       style: const TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.w800,
@@ -356,34 +349,34 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
                     _SettingsItem(
                       icon: Icons.notifications_rounded,
-                      title: isArabic ? 'الإشعارات' : 'Notifications',
-                      subtitle: isArabic
+                      title: isArabicValue ? 'الإشعارات' : 'Notifications',
+                      subtitle: isArabicValue
                           ? 'إدارة تفضيلات الإشعارات الخاصة بك'
                           : 'Manage your notification preferences',
                       onTap: () {},
                     ),
                     _SettingsItem(
                       icon: Icons.privacy_tip_rounded,
-                      title: isArabic
+                      title: isArabicValue
                           ? 'الخصوصية والأمان'
                           : 'Privacy & Security',
-                      subtitle: isArabic
+                      subtitle: isArabicValue
                           ? 'التحكم في بياناتك وإعدادات الأمان'
                           : 'Control your data and security settings',
                       onTap: () {},
                     ),
                     _SettingsItem(
                       icon: Icons.help_rounded,
-                      title: isArabic ? 'المساعدة والدعم' : 'Help & Support',
-                      subtitle: isArabic
+                      title: isArabicValue ? 'المساعدة والدعم' : 'Help & Support',
+                      subtitle: isArabicValue
                           ? 'احصل على المساعدة أو اتصل بالدعم'
                           : 'Get help or contact support',
                       onTap: () {},
                     ),
                     _SettingsItem(
                       icon: Icons.info_rounded,
-                      title: isArabic ? 'عن تطبيق ANA' : 'About ANA',
-                      subtitle: isArabic
+                      title: isArabicValue ? 'عن تطبيق ANA' : 'About ANA',
+                      subtitle: isArabicValue
                           ? 'تعرف على المزيد حول التطبيق'
                           : 'Learn more about the app',
                       onTap: () {},
@@ -403,19 +396,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               context: context,
                               builder: (context) => AlertDialog(
                                 title: Text(
-                                  isArabic
+                                  isArabicValue
                                       ? 'إعادة الاستبيان'
                                       : 'Retake Questionnaire',
                                 ),
                                 content: Text(
-                                  isArabic
+                                  isArabicValue
                                       ? 'هل تريد إعادة الاستبيان؟ سيتم حذف النتائج الحالية.'
                                       : 'Do you want to retake the questionnaire? Your current results will be deleted.',
                                 ),
                                 actions: [
                                   TextButton(
                                     onPressed: () => Navigator.pop(context),
-                                    child: Text(isArabic ? 'إلغاء' : 'Cancel'),
+                                    child: Text(isArabicValue ? 'إلغاء' : 'Cancel'),
                                   ),
                                   TextButton(
                                     onPressed: () async {
@@ -427,7 +420,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                         Navigator.of(context).pushReplacement(
                                           MaterialPageRoute(
                                             builder: (_) =>
-                                                const InitialMotivationScreen(),
+                                            const InitialMotivationScreen(),
                                           ),
                                         );
                                       } catch (e) {
@@ -436,7 +429,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                         ).showSnackBar(
                                           SnackBar(
                                             content: Text(
-                                              isArabic
+                                              isArabicValue
                                                   ? 'خطأ في إعادة الاستبيان'
                                                   : 'Error retaking questionnaire',
                                             ),
@@ -445,7 +438,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                         );
                                       }
                                     },
-                                    child: Text(isArabic ? 'إعادة' : 'Retake'),
+                                    child:
+                                        Text(isArabicValue ? 'إعادة' : 'Retake'),
                                   ),
                                 ],
                               ),
@@ -464,7 +458,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               const Icon(Icons.replay_rounded, size: 20),
                               const SizedBox(width: 12),
                               Text(
-                                isArabic
+                                isArabicValue
                                     ? 'إعادة الاستبيان'
                                     : 'Retake Questionnaire',
                                 style: const TextStyle(
@@ -486,16 +480,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           showDialog(
                             context: context,
                             builder: (context) => AlertDialog(
-                              title: Text(isArabic ? 'تسجيل الخروج' : 'Logout'),
+                              title: Text(
+                                isArabicValue ? 'تسجيل الخروج' : 'Logout',
+                              ),
                               content: Text(
-                                isArabic
+                                isArabicValue
                                     ? 'هل أنت متأكد أنك تريد تسجيل الخروج؟'
                                     : 'Are you sure you want to logout?',
                               ),
                               actions: [
                                 TextButton(
                                   onPressed: () => Navigator.pop(context),
-                                  child: Text(isArabic ? 'إلغاء' : 'Cancel'),
+                                  child:
+                                      Text(isArabicValue ? 'إلغاء' : 'Cancel'),
                                 ),
                                 TextButton(
                                   onPressed: () {
@@ -503,7 +500,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                     widget.onLogout();
                                   },
                                   child: Text(
-                                    isArabic ? 'تسجيل الخروج' : 'Logout',
+                                    isArabicValue ? 'تسجيل الخروج' : 'Logout',
                                   ),
                                 ),
                               ],
@@ -526,7 +523,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             const Icon(Icons.logout_rounded, size: 20),
                             const SizedBox(width: 12),
                             Text(
-                              isArabic ? 'تسجيل الخروج' : 'Logout',
+                              isArabicValue ? 'تسجيل الخروج' : 'Logout',
                               style: const TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w700,
@@ -609,6 +606,46 @@ class _CharacterCard extends StatelessWidget {
 
   const _CharacterCard({required this.character});
 
+  String _getImagePathForCharacter(String characterName) {
+    final imageMap = {
+      'Inner Critic': 'inner_critic.png',
+      'People Pleaser': 'people_pleaser.png',
+      'Lonely Part': 'lonely.png',
+      'Jealous Part': 'jealous.png',
+      'Ashamed Part': 'ashamed.png',
+      'Workaholic': 'workaholic.png',
+      'Perfectionist': 'perfictionist.png',
+      'Procrastinator': 'procrastinator.png',
+      'Excessive Gamer': 'excessive_gamer.png',
+      'Confused Part': 'confused.png',
+      'Dependent Part': 'dependant.png',
+      'Fearful Part': 'fearful.png',
+      'Neglected Part': 'neglected.png',
+      'Overeater': 'overeater_binger.png',
+      'Binger': 'overeater_binger.png',
+      'Overeater/Binger': 'overeater_binger.png',
+      'Overwhelmed Part': 'overwhelmed.png',
+      'Stoic Part': 'stoic.png',
+      'Wounded Child': 'wounded_child.png',
+      'Controller': 'controller.png',
+      'Controller Part': 'controller.png',
+    };
+
+    if (imageMap.containsKey(characterName)) {
+      return 'assets/images/${imageMap[characterName]}';
+    }
+
+    final lowerName = characterName.toLowerCase();
+    for (final entry in imageMap.entries) {
+      if (lowerName.contains(entry.key.toLowerCase()) ||
+          entry.key.toLowerCase().contains(lowerName)) {
+        return 'assets/images/${entry.value}';
+      }
+    }
+
+    return 'assets/images/inner_critic.png';
+  }
+
   Color _getArchetypeColor(String archetype) {
     switch (archetype.toLowerCase()) {
       case 'manager':
@@ -622,15 +659,15 @@ class _CharacterCard extends StatelessWidget {
     }
   }
 
-  String _getLocalizedArchetype(String archetype) {
+  String _getLocalizedArchetype(BuildContext context, String archetype) {
     // Add language detection logic if needed
     switch (archetype.toLowerCase()) {
       case 'manager':
-        return 'MANAGER';
+        return tr(context, 'MANAGER', 'مدير');
       case 'firefighter':
-        return 'FIREFIGHTER';
+        return tr(context, 'FIREFIGHTER', 'إطفائي');
       case 'exile':
-        return 'EXILE';
+        return tr(context, 'EXILE', 'منفى');
       default:
         return archetype.toUpperCase();
     }
@@ -639,6 +676,7 @@ class _CharacterCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = _getArchetypeColor(character.archetype);
+    final imagePath = _getImagePathForCharacter(character.characterName);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -657,17 +695,19 @@ class _CharacterCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Container(
-            width: 50,
-            height: 50,
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              _getCharacterIcon(character.archetype),
-              color: color,
-              size: 24,
+          CircleAvatar(
+            radius: 25,
+            backgroundColor: color.withOpacity(0.1),
+            child: Padding(
+              padding: const EdgeInsets.all(4),
+              child: ClipOval(
+                child: Image.asset(
+                  imagePath,
+                  width: 50,
+                  height: 50,
+                  fit: BoxFit.contain,
+                ),
+              ),
             ),
           ),
           const SizedBox(width: 16),
@@ -711,7 +751,7 @@ class _CharacterCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
-                    _getLocalizedArchetype(character.archetype),
+                    _getLocalizedArchetype(context, character.archetype),
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w700,

@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../services/firestore_service.dart';
 import 'login_screen.dart';
+import 'welcome_screen.dart';
+import '../l10n/app_strings.dart';
 
 class SignUpScreen extends StatefulWidget {
   const SignUpScreen({super.key});
@@ -32,15 +34,15 @@ class _SignUpScreenState extends State<SignUpScreen> {
     final confirm = _confirm.text;
 
     if (email.isEmpty || pass.isEmpty || confirm.isEmpty) {
-      _snack("Please fill all fields.");
+      _snack(tr(context, "Please fill all fields.", "يرجى تعبئة جميع الحقول."));
       return;
     }
     if (pass.length < 6) {
-      _snack("Password must be at least 6 characters.");
+      _snack(tr(context, "Password must be at least 6 characters.", "كلمة المرور يجب أن تكون 6 أحرف على الأقل."));
       return;
     }
     if (pass != confirm) {
-      _snack("Passwords do not match.");
+      _snack(tr(context, "Passwords do not match.", "كلمتا المرور غير متطابقتين."));
       return;
     }
 
@@ -55,7 +57,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
         (route) => false,
       );
     } catch (e) {
-      _snack("Sign up failed: ${e.toString()}");
+      _snack(tr(context, "Sign up failed: ${e.toString()}", "فشل إنشاء الحساب: ${e.toString()}"));
       setState(() => _loading = false);
     }
   }
@@ -94,7 +96,11 @@ class _SignUpScreenState extends State<SignUpScreen> {
                     Icons.arrow_back_ios_new_rounded,
                     color: Color(0xFF6A5CFF),
                   ),
-                  onPressed: () => Navigator.pop(context),
+                  onPressed: () {
+                    Navigator.of(context).pushReplacement(
+                      MaterialPageRoute(builder: (_) => const AnaWelcomeScreen()),
+                    );
+                  },
                 ),
               ),
 
@@ -134,11 +140,14 @@ class _SignUpScreenState extends State<SignUpScreen> {
                         ),
                         const SizedBox(height: 12),
 
-                        const Text(
-                          "Take a deep breath,\n"
-                          " Reset your mind",
+                        Text(
+                          tr(
+                            context,
+                            "Take a deep breath,\n Reset your mind",
+                            "خذ نفساً عميقاً،\n وأعد ضبط ذهنك",
+                          ),
                           textAlign: TextAlign.center,
-                          style: TextStyle(
+                          style: const TextStyle(
                             fontSize: 26,
                             height: 1.3,
                             fontWeight: FontWeight.w900,
@@ -149,7 +158,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
                         _buildTextField(
                           _email,
-                          "Email address",
+                          tr(context, "Email address", "البريد الإلكتروني"),
                           Icons.mail_outline_rounded,
                           false,
                         ),
@@ -157,7 +166,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
                         _buildTextField(
                           _pass,
-                          "Password",
+                          tr(context, "Password", "كلمة المرور"),
                           Icons.lock_outline_rounded,
                           _obscurePass,
                           suffix: IconButton(
@@ -174,7 +183,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
                         _buildTextField(
                           _confirm,
-                          "Confirm password",
+                          tr(context, "Confirm password", "تأكيد كلمة المرور"),
                           Icons.lock_outline_rounded,
                           _obscureConfirm,
                           suffix: IconButton(
@@ -222,9 +231,9 @@ class _SignUpScreenState extends State<SignUpScreen> {
                                           color: Colors.white,
                                         ),
                                       )
-                                    : const Text(
-                                        "Sign Up",
-                                        style: TextStyle(
+                                    : Text(
+                                        tr(context, "Sign Up", "إنشاء حساب"),
+                                        style: const TextStyle(
                                           color: Colors.white,
                                           fontSize: 16,
                                           fontWeight: FontWeight.w900,
@@ -240,7 +249,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            const Text("Already have an account? "),
+                            Text(tr(context, "Already have an account? ", "هل لديك حساب؟ ")),
                             TextButton(
                               onPressed: _loading
                                   ? null
@@ -251,7 +260,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                                         ),
                                       );
                                     },
-                              child: const Text("Log in"),
+                              child: Text(tr(context, "Log in", "تسجيل الدخول")),
                             ),
                           ],
                         ),

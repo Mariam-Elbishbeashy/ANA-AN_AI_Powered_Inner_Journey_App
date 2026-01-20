@@ -1,10 +1,12 @@
 import 'package:ana_ifs_app/screens/shell_screen.dart';
 import 'package:ana_ifs_app/screens/welcome_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import 'firebase_options.dart';
+import 'providers/app_language_provider.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -17,15 +19,18 @@ class AnaApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'ANA',
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF8E7CFF)),
-        scaffoldBackgroundColor: const Color(0xFFF9F6FF),
+    return ChangeNotifierProvider(
+      create: (_) => AppLanguageProvider(),
+      child: MaterialApp(
+        debugShowCheckedModeBanner: false,
+        title: 'ANA',
+        theme: ThemeData(
+          useMaterial3: true,
+          colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF8E7CFF)),
+          scaffoldBackgroundColor: const Color(0xFFF9F6FF),
+        ),
+        home: const WelcomeScreenWrapper(),
       ),
-      home: const WelcomeScreenWrapper(),
     );
   }
 }
@@ -42,9 +47,9 @@ class WelcomeScreenWrapper extends StatelessWidget {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return _buildWelcomeScreenWithLoading();
         }
-        // if (snapshot.hasData) {
-        //   return const AnaShell();
-        // }
+        if (snapshot.hasData) {
+          return const AnaShell();
+        }
 
         // If user is logged in, show main app wrapper
         if (snapshot.hasData && snapshot.data != null) {

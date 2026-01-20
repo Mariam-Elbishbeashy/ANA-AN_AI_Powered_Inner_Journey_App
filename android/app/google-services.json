@@ -14,6 +14,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "751671378692-k8soqedqvkgcte38i8qreql97p1ujdoc.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.ANATeam.ana_ifs_app",
+            "certificate_hash": "0041a34b8bfd08f4476b4610a647afdc449204b3"
+          }
+        },
+        {
           "client_id": "751671378692-m846tlt3o1hh80q948j1cbgcbsjg27c9.apps.googleusercontent.com",
           "client_type": 3
         }
