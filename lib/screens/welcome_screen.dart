@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'login_screen.dart';
 import 'signup_screen.dart';
+import '../l10n/app_strings.dart';
 
 
 class AnaWelcomeScreen extends StatelessWidget {
@@ -42,9 +43,9 @@ class AnaWelcomeScreen extends StatelessWidget {
                   children: [
                     const SizedBox(height: 80),
 
-                    const Text(
-                      "Hi there, I’m ANA.",
-                      style: TextStyle(
+                    Text(
+                      tr(context, "Hi there, I’m ANA.", "مرحباً، أنا آنا."),
+                      style: const TextStyle(
                         fontSize: 18,
                         height: 1.3,
                         color: Color(0xFF2E2442),
@@ -54,17 +55,23 @@ class AnaWelcomeScreen extends StatelessWidget {
                     const SizedBox(height: 10),
 
                     RichText(
-                      text: const TextSpan(
-                        style: TextStyle(
+                      text: TextSpan(
+                        style: const TextStyle(
                           fontSize: 38,
                           height: 1.18,
                           color: Color(0xFF2A1E3B),
                         ),
                         children: [
-                          TextSpan(text: "I’m here to support your\n"),
                           TextSpan(
-                            text: "inner journey.",
-                            style: TextStyle(fontWeight: FontWeight.w800),
+                            text: tr(
+                              context,
+                              "I’m here to support your\n",
+                              "أنا هنا لدعم رحلتك\n",
+                            ),
+                          ),
+                          TextSpan(
+                            text: tr(context, "inner journey.", "الداخلية."),
+                            style: const TextStyle(fontWeight: FontWeight.w800),
                           ),
                         ],
                       ),
@@ -72,9 +79,13 @@ class AnaWelcomeScreen extends StatelessWidget {
 
                     const SizedBox(height: 18),
 
-                    const Text(
-                      "You’re safe here. Let’s begin — one gentle step at a time.",
-                      style: TextStyle(
+                    Text(
+                      tr(
+                        context,
+                        "You’re safe here. Let’s begin — one gentle step at a time.",
+                        "أنتِ بأمان هنا. لنبدأ خطوة لطيفة في كل مرة.",
+                      ),
+                      style: const TextStyle(
                         fontSize: 18,
                         height: 1.5,
                         color: Color(0xFF3B2E55),
@@ -113,9 +124,9 @@ class AnaWelcomeScreen extends StatelessWidget {
                           ),
                           elevation: 0,
                         ),
-                        child: const Text(
-                          "Get started",
-                          style: TextStyle(
+                        child: Text(
+                          tr(context, "Get started", "ابدأ الآن"),
+                          style: const TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.w700,
                           ),
@@ -134,17 +145,23 @@ class AnaWelcomeScreen extends StatelessWidget {
                           );
                         },
                         child: RichText(
-                          text: const TextSpan(
-                            style: TextStyle(
+                          text: TextSpan(
+                            style: const TextStyle(
                               fontSize: 15,
                               color: Color(0xFF4B3A66),
                               height: 1.4,
                             ),
                             children: [
-                              TextSpan(text: "Already have an account? "),
                               TextSpan(
-                                text: "Log in",
-                                style: TextStyle(
+                                text: tr(
+                                  context,
+                                  "Already have an account? ",
+                                  "هل لديك حساب بالفعل؟ ",
+                                ),
+                              ),
+                              TextSpan(
+                                text: tr(context, "Log in", "تسجيل الدخول"),
+                                style: const TextStyle(
                                   color: Color(0xFF8E7CFF),
                                   fontWeight: FontWeight.w700,
                                 ),
@@ -157,10 +174,10 @@ class AnaWelcomeScreen extends StatelessWidget {
 
                     const SizedBox(height: 10),
 
-                    const Center(
+                    Center(
                       child: Text(
                         "v0.1.0",
-                        style: TextStyle(
+                        style: const TextStyle(
                           fontSize: 13,
                           color: Color(0xFF9C90B3),
                         ),

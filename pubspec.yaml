@@ -61,7 +61,10 @@ flutter:
   # To add assets to your application, add an assets section, like this:
   assets:
      - assets/animations/meditation.gif
-     - assets/images/ANA's-logo.png
+     - assets/animations/guider.gif
+     - assets/animations/guider_chat.gif
+     - assets/animations/voice_sphere.gif
+     - assets/images/
      - assets/models/
 
   # An image asset can refer to one or more resolution-specific "variants", see

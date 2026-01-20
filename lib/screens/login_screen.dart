@@ -2,11 +2,13 @@ import 'package:ana_ifs_app/screens/questionnaire/initial_motivation_screen.dart
 import 'package:ana_ifs_app/screens/questionnaire/questionnaire_screen.dart';
 import 'package:ana_ifs_app/screens/shell_screen.dart';
 import 'package:ana_ifs_app/screens/signup_screen.dart';
+import 'package:ana_ifs_app/screens/welcome_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:sign_in_button/sign_in_button.dart';
 
 import '../services/auth_service.dart';
 import '../services/firestore_service.dart';
+import '../l10n/app_strings.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -33,7 +35,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final pass = _pass.text;
 
     if (email.isEmpty || pass.isEmpty) {
-      _snack("Please enter email and password.");
+      _snack(tr(context, "Please enter email and password.", "يرجى إدخال البريد الإلكتروني وكلمة المرور."));
       return;
     }
 
@@ -44,7 +46,7 @@ class _LoginScreenState extends State<LoginScreen> {
       // After successful login, check if user needs to complete questionnaire
       await _navigateAfterLogin();
     } catch (e) {
-      _snack("Login failed: ${e.toString()}");
+      _snack(tr(context, "Login failed: ${e.toString()}", "فشل تسجيل الدخول: ${e.toString()}"));
       setState(() => _loading = false);
     }
   }
@@ -81,7 +83,7 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     } catch (e) {
       if (!mounted) return;
-      _snack("Error checking your status. Please try again.");
+      _snack(tr(context, "Error checking your status. Please try again.", "حدث خطأ أثناء التحقق. حاول مرة أخرى."));
       setState(() => _loading = false);
     }
   }
@@ -93,7 +95,7 @@ class _LoginScreenState extends State<LoginScreen> {
       await _navigateAfterLogin();
     } catch (e) {
       if (!mounted) return;
-      _snack("Google sign-in cancelled or failed.");
+      _snack(tr(context, "Google sign-in cancelled or failed.", "تم إلغاء تسجيل الدخول عبر جوجل أو فشل."));
       setState(() => _loading = false);
     }
   }
@@ -131,7 +133,11 @@ class _LoginScreenState extends State<LoginScreen> {
                     Icons.arrow_back_ios_new_rounded,
                     color: Color(0xFF6A5CFF),
                   ),
-                  onPressed: () => Navigator.pop(context),
+                  onPressed: () {
+                    Navigator.of(context).pushReplacement(
+                      MaterialPageRoute(builder: (_) => const AnaWelcomeScreen()),
+                    );
+                  },
                 ),
               ),
 
@@ -186,7 +192,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         // Email
                         _buildTextField(
                           _email,
-                          "Email address",
+                          tr(context, "Email address", "البريد الإلكتروني"),
                           Icons.mail_outline_rounded,
                           false,
                         ),
@@ -195,7 +201,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         // Password
                         _buildTextField(
                           _pass,
-                          "Password",
+                          tr(context, "Password", "كلمة المرور"),
                           Icons.lock_outline_rounded,
                           _obscure,
                           suffix: IconButton(
@@ -243,9 +249,9 @@ class _LoginScreenState extends State<LoginScreen> {
                                         color: Colors.white,
                                         strokeWidth: 2.4,
                                       )
-                                    : const Text(
-                                        "Log In",
-                                        style: TextStyle(
+                                    : Text(
+                                        tr(context, "Log In", "تسجيل الدخول"),
+                                        style: const TextStyle(
                                           color: Colors.white,
                                           fontSize: 16,
                                           fontWeight: FontWeight.w900,
@@ -296,7 +302,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             height: 58,
                             child: SignInButton(
                               Buttons.google,
-                              text: "Continue with Google",
+                              text: tr(context, "Continue with Google", "تابع عبر جوجل"),
                               onPressed: () {
                                 if (_loading) return;
                                 _googleLogin();
@@ -310,7 +316,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            const Text("No account? "),
+                            Text(tr(context, "No account? ", "لا تملك حساباً؟ ")),
                             TextButton(
                               onPressed: _loading
                                   ? null
@@ -322,7 +328,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                         ),
                                       );
                                     },
-                              child: const Text("Sign up"),
+                              child: Text(tr(context, "Sign up", "إنشاء حساب")),
                             ),
                           ],
                         ),
@@ -373,3 +379,4 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 }
+
