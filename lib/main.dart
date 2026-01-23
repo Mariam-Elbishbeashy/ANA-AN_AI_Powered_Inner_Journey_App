@@ -1,12 +1,13 @@
-import 'package:ana_ifs_app/screens/shell_screen.dart';
-import 'package:ana_ifs_app/screens/welcome_screen.dart';
+import 'package:ana_ifs_app/app/shell/ana_shell.dart';
+import 'package:ana_ifs_app/features/onboarding/presentation/screens/welcome_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import 'firebase_options.dart';
-import 'providers/app_language_provider.dart';
+import 'core/localization/app_language_provider.dart';
+import 'core/theme/app_theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -24,11 +25,7 @@ class AnaApp extends StatelessWidget {
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
         title: 'ANA',
-        theme: ThemeData(
-          useMaterial3: true,
-          colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF8E7CFF)),
-          scaffoldBackgroundColor: const Color(0xFFF9F6FF),
-        ),
+        theme: AppTheme.lightTheme,
         home: const WelcomeScreenWrapper(),
       ),
     );
