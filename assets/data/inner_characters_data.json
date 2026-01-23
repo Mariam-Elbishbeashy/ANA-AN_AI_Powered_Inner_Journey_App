@@ -1,0 +1,506 @@
+[
+  {
+    "id": "overwhelmed",
+    "displayName": "The Overwhelmed Part",
+    "displayNameAr": "المرهَق",
+    "role": "Exile",
+    "shortDescription": "Holds emotional overload and unmet needs.",
+    "shortDescriptionAr": "يحمل إرهاقًا عاطفيًا واحتياجات غير مُلبّاة.",
+    "whyIExist": "I carry feelings that were once too much to handle alone. I appear when everything piles up and there is no space left inside.",
+    "whyIExistAr": "أحمل مشاعر كانت أكبر من أن تُحتمل وحدها. أظهر عندما تتراكم الأمور ولا يبقى متسع داخلك.",
+    "triggers": ["Too many responsibilities", "Pressure", "Expectations"],
+    "triggersAr": ["كثرة المسؤوليات", "الضغط", "التوقعات"],
+    "coreBelief": "I can’t handle this anymore.",
+    "coreBeliefAr": "لا أستطيع تحمّل هذا بعد الآن.",
+    "intention": "To slow everything down.",
+    "intentionAr": "إبطاء كل شيء.",
+    "fear": "Being ignored until breaking point.",
+    "fearAr": "أن يتم تجاهلي حتى الانهيار.",
+    "howIShowUp": [
+      "Mental shutdown",
+      "Crying without knowing why",
+      "Avoiding tasks",
+      "Feeling frozen or stuck"
+    ],
+    "howIShowUpAr": [
+      "انطفاء ذهني",
+      "بكاء دون معرفة السبب",
+      "تجنب المهام",
+      "الشعور بالتجمّد أو العجز"
+    ],
+    "whatINeed": [
+      "Slowness",
+      "Permission to pause",
+      "Gentle reassurance"
+    ],
+    "whatINeedAr": [
+      "التمهّل",
+      "إذن بالتوقف",
+      "طمأنة لطيفة"
+    ]
+  },
+
+  {
+    "id": "overater_binger",
+    "displayName": "The Overeater / Binger",
+    "displayNameAr": "الآكل",
+    "role": "Firefighter",
+    "shortDescription": "Uses food to quickly soothe emotional pain.",
+    "shortDescriptionAr": "يستخدم الطعام لتهدئة الألم العاطفي بسرعة.",
+    "whyIExist": "I step in when emotions feel unbearable. Food brings comfort when nothing else feels safe.",
+    "whyIExistAr": "أتدخل عندما تصبح المشاعر لا تُحتمل. الطعام يمنح راحة حين لا يبدو شيء آخر آمنًا.",
+    "triggers": ["Loneliness", "Emotional pain", "Stress"],
+    "triggersAr": ["الوحدة", "الألم العاطفي", "التوتر"],
+    "coreBelief": "Comfort is urgent.",
+    "coreBeliefAr": "الراحة أمر عاجل.",
+    "intention": "To numb emotional pain quickly.",
+    "intentionAr": "تخدير الألم العاطفي بسرعة.",
+    "fear": "Facing feelings directly.",
+    "fearAr": "مواجهة المشاعر مباشرة.",
+    "howIShowUp": [
+      "Emotional eating",
+      "Loss of control around food",
+      "Eating in secret"
+    ],
+    "howIShowUpAr": [
+      "أكل عاطفي",
+      "فقدان السيطرة مع الطعام",
+      "الأكل بسرية"
+    ],
+    "whatINeed": [
+      "Compassion instead of shame",
+      "Safer ways to self-soothe"
+    ],
+    "whatINeedAr": [
+      "تعاطف بدل العار",
+      "طرق أكثر أمانًا للتهدئة الذاتية"
+    ]
+  },
+
+  {
+    "id": "inner_critic",
+    "displayName": "The Inner Critic",
+    "displayNameAr": "الناقد الداخلي",
+    "role": "Manager",
+    "shortDescription": "Uses criticism to prevent failure or rejection.",
+    "shortDescriptionAr": "يستخدم النقد لمنع الفشل أو الرفض.",
+    "whyIExist": "I believe that being harsh will keep you safe and accepted.",
+    "whyIExistAr": "أؤمن أن القسوة تُبقيك آمنًا ومقبولًا.",
+    "triggers": ["Mistakes", "Comparison", "Judgment"],
+    "triggersAr": ["الأخطاء", "المقارنة", "الحكم"],
+    "coreBelief": "If you’re not perfect, you’ll be rejected.",
+    "coreBeliefAr": "إذا لم تكن مثاليًا فسيتم رفضك.",
+    "intention": "To push you to do better.",
+    "intentionAr": "دفعك لتكون أفضل.",
+    "fear": "Failure and rejection.",
+    "fearAr": "الفشل والرفض.",
+    "howIShowUp": [
+      "Harsh self-talk",
+      "Perfectionism",
+      "Constant self-judgment"
+    ],
+    "howIShowUpAr": [
+      "حديث ذاتي قاسٍ",
+      "الكمالية",
+      "حكم ذاتي مستمر"
+    ],
+    "whatINeed": [
+      "Reassurance",
+      "Trust in self-compassion"
+    ],
+    "whatINeedAr": [
+      "طمأنة",
+      "ثقة بالتعاطف مع الذات"
+    ]
+  },
+
+  {
+    "id": "people_pleaser",
+    "displayName": "The People Pleaser",
+    "displayNameAr": "مُرضي الآخرين",
+    "role": "Manager",
+    "shortDescription": "Keeps others happy to maintain connection.",
+    "shortDescriptionAr": "يبقي الآخرين سعداء للحفاظ على التواصل.",
+    "whyIExist": "I learned that love comes from meeting others’ needs.",
+    "whyIExistAr": "تعلمت أن الحب يأتي من تلبية احتياجات الآخرين.",
+    "triggers": ["Conflict", "Disapproval"],
+    "triggersAr": ["الصراع", "عدم الاستحسان"],
+    "coreBelief": "My needs don’t matter.",
+    "coreBeliefAr": "احتياجاتي لا تهم.",
+    "intention": "To keep relationships safe.",
+    "intentionAr": "حماية العلاقات.",
+    "fear": "Abandonment.",
+    "fearAr": "الهجر.",
+    "howIShowUp": [
+      "Saying yes when wanting no",
+      "Ignoring personal needs"
+    ],
+    "howIShowUpAr": [
+      "قول نعم عندما أرغب بلا",
+      "تجاهل الاحتياجات الشخصية"
+    ],
+    "whatINeed": [
+      "Boundaries",
+      "Permission to say no"
+    ],
+    "whatINeedAr": [
+      "حدود واضحة",
+      "إذن بالرفض"
+    ]
+  },
+
+  {
+    "id": "jealous",
+    "displayName": "The Jealous Part",
+    "displayNameAr": "الغيور",
+    "role": "Exile",
+    "shortDescription": "Holds fear of being replaced or forgotten.",
+    "shortDescriptionAr": "يحمل خوفًا من الاستبدال أو النسيان.",
+    "whyIExist": "I show up when connection feels threatened.",
+    "whyIExistAr": "أظهر عندما يشعر الاتصال بالتهديد.",
+    "triggers": ["Comparison", "Feeling left out"],
+    "triggersAr": ["المقارنة", "الشعور بالتجاهل"],
+    "coreBelief": "I am not enough.",
+    "coreBeliefAr": "لست كافيًا.",
+    "intention": "To protect attachment.",
+    "intentionAr": "حماية التعلق.",
+    "fear": "Being replaced.",
+    "fearAr": "أن يتم استبدالي.",
+    "howIShowUp": [
+      "Suspicion",
+      "Insecurity",
+      "Comparison"
+    ],
+    "howIShowUpAr": [
+      "شك",
+      "عدم أمان",
+      "مقارنة"
+    ],
+    "whatINeed": [
+      "Reassurance",
+      "Security"
+    ],
+    "whatINeedAr": [
+      "طمأنة",
+      "أمان"
+    ]
+  },
+
+  {
+    "id": "lonely",
+    "displayName": "The Lonely Part",
+    "displayNameAr": "الوحيد",
+    "role": "Exile",
+    "shortDescription": "Carries deep feelings of isolation.",
+    "shortDescriptionAr": "يحمل مشاعر عميقة من العزلة.",
+    "whyIExist": "I hold the pain of feeling unseen and disconnected.",
+    "whyIExistAr": "أحمل ألم الشعور بعدم الرؤية والانفصال.",
+    "triggers": ["Isolation", "Emotional distance"],
+    "triggersAr": ["العزلة", "البرود العاطفي"],
+    "coreBelief": "I am alone.",
+    "coreBeliefAr": "أنا وحدي.",
+    "intention": "To seek connection.",
+    "intentionAr": "السعي للاتصال.",
+    "fear": "Permanent isolation.",
+    "fearAr": "العزلة الدائمة.",
+    "howIShowUp": [
+      "Sadness",
+      "Withdrawal"
+    ],
+    "howIShowUpAr": [
+      "حزن",
+      "انسحاب"
+    ],
+    "whatINeed": [
+      "Connection",
+      "Presence"
+    ],
+    "whatINeedAr": [
+      "اتصال",
+      "حضور"
+    ]
+  },
+
+  {
+    "id": "wounded_child",
+    "displayName": "The Wounded Child",
+    "displayNameAr": "الطفل الجريح",
+    "role": "Exile",
+    "shortDescription": "Holds early emotional pain and unmet needs.",
+    "shortDescriptionAr": "يحمل ألمًا عاطفيًا مبكرًا واحتياجات غير مُلبّاة.",
+    "whyIExist": "I carry memories of times when safety and love were missing.",
+    "whyIExistAr": "أحمل ذكريات أوقات غاب فيها الأمان والحب.",
+    "triggers": ["Criticism", "Abandonment"],
+    "triggersAr": ["النقد", "الهجر"],
+    "coreBelief": "Something is wrong with me.",
+    "coreBeliefAr": "هناك خطأ فيَّ.",
+    "intention": "To be seen and cared for.",
+    "intentionAr": "أن أُرى وأن تتم رعايتي.",
+    "fear": "Being hurt again.",
+    "fearAr": "التعرّض للأذى مجددًا.",
+    "howIShowUp": [
+      "Emotional vulnerability",
+      "Regression"
+    ],
+    "howIShowUpAr": [
+      "هشاشة عاطفية",
+      "رجوع لسلوكيات طفولية"
+    ],
+    "whatINeed": [
+      "Safety",
+      "Gentleness"
+    ],
+    "whatINeedAr": [
+      "أمان",
+      "لطف"
+    ]
+  },
+
+  {
+    "id": "procrastinator",
+    "displayName": "The Procrastinator",
+    "displayNameAr": "المؤجِّل",
+    "role": "Firefighter",
+    "shortDescription": "Avoids tasks to reduce anxiety.",
+    "shortDescriptionAr": "يتجنب المهام لتقليل القلق.",
+    "whyIExist": "I delay action to protect you from stress.",
+    "whyIExistAr": "أؤخر الفعل لأحميك من التوتر.",
+    "triggers": ["Pressure", "Fear of failure"],
+    "triggersAr": ["الضغط", "الخوف من الفشل"],
+    "coreBelief": "I can’t do this right now.",
+    "coreBeliefAr": "لا أستطيع فعل هذا الآن.",
+    "intention": "To avoid discomfort.",
+    "intentionAr": "تجنب الانزعاج.",
+    "fear": "Overwhelm.",
+    "fearAr": "الإرهاق.",
+    "howIShowUp": [
+      "Avoidance",
+      "Delay"
+    ],
+    "howIShowUpAr": [
+      "تجنب",
+      "تأجيل"
+    ],
+    "whatINeed": [
+      "Small steps",
+      "Reduced pressure"
+    ],
+    "whatINeedAr": [
+      "خطوات صغيرة",
+      "ضغط أقل"
+    ]
+  },
+
+  {
+    "id": "workaholic",
+    "displayName": "The Workaholic",
+    "displayNameAr": "مدمن العمل",
+    "role": "Manager",
+    "shortDescription": "Uses productivity to feel worthy.",
+    "shortDescriptionAr": "يستخدم الإنتاجية للشعور بالقيمة.",
+    "whyIExist": "I believe rest equals danger.",
+    "whyIExistAr": "أعتقد أن الراحة تعني الخطر.",
+    "triggers": ["Idle time"],
+    "triggersAr": ["وقت فراغ"],
+    "coreBelief": "My value comes from productivity.",
+    "coreBeliefAr": "قيمتي تأتي من الإنتاجية.",
+    "intention": "To stay in control.",
+    "intentionAr": "البقاء مسيطرًا.",
+    "fear": "Feeling useless.",
+    "fearAr": "الشعور بعدم الجدوى.",
+    "howIShowUp": [
+      "Overworking",
+      "Ignoring rest"
+    ],
+    "howIShowUpAr": [
+      "إفراط في العمل",
+      "تجاهل الراحة"
+    ],
+    "whatINeed": [
+      "Permission to rest",
+      "Balance"
+    ],
+    "whatINeedAr": [
+      "إذن بالراحة",
+      "توازن"
+    ]
+  },
+
+  {
+    "id": "perfectionist",
+    "displayName": "The Perfectionist",
+    "displayNameAr": "الكمالي",
+    "role": "Manager",
+    "shortDescription": "Strives for flawlessness to prevent shame.",
+    "shortDescriptionAr": "يسعى إلى الكمال لتجنب العار.",
+    "whyIExist": "I try to make everything perfect so nothing goes wrong.",
+    "whyIExistAr": "أحاول جعل كل شيء مثاليًا حتى لا يحدث خطأ.",
+    "triggers": ["Mistakes"],
+    "triggersAr": ["الأخطاء"],
+    "coreBelief": "Mistakes are dangerous.",
+    "coreBeliefAr": "الأخطاء خطيرة.",
+    "intention": "To avoid criticism.",
+    "intentionAr": "تجنب النقد.",
+    "fear": "Shame.",
+    "fearAr": "العار.",
+    "howIShowUp": [
+      "Over-preparing",
+      "Rigidity"
+    ],
+    "howIShowUpAr": [
+      "تحضير مفرط",
+      "جمود"
+    ],
+    "whatINeed": [
+      "Flexibility",
+      "Self-acceptance"
+    ],
+    "whatINeedAr": [
+      "مرونة",
+      "تقبّل الذات"
+    ]
+  },
+
+  {
+    "id": "stoic",
+    "displayName": "The Stoic Part",
+    "displayNameAr": "حمال الأسيه",
+    "role": "Manager",
+    "shortDescription": "Suppresses emotions to stay strong.",
+    "shortDescriptionAr": "يقمع المشاعر ليبقى قويًا.",
+    "whyIExist": "I learned emotions were unsafe to show.",
+    "whyIExistAr": "تعلمت أن إظهار المشاعر غير آمن.",
+    "triggers": ["Vulnerability"],
+    "triggersAr": ["الهشاشة"],
+    "coreBelief": "Feelings are weakness.",
+    "coreBeliefAr": "المشاعر ضعف.",
+    "intention": "To maintain control.",
+    "intentionAr": "الحفاظ على السيطرة.",
+    "fear": "Emotional exposure.",
+    "fearAr": "الانكشاف العاطفي.",
+    "howIShowUp": [
+      "Emotional numbness",
+      "Detachment"
+    ],
+    "howIShowUpAr": [
+      "خدر عاطفي",
+      "انفصال"
+    ],
+    "whatINeed": [
+      "Safety",
+      "Permission to feel"
+    ],
+    "whatINeedAr": [
+      "أمان",
+      "إذن بالشعور"
+    ]
+  },
+
+  {
+    "id": "fearful",
+    "displayName": "The Fearful Part",
+    "displayNameAr": "الخائف",
+    "role": "Exile",
+    "shortDescription": "Holds anxiety and anticipation of danger.",
+    "shortDescriptionAr": "يحمل القلق وتوقع الخطر.",
+    "whyIExist": "I scan for threats to keep you safe.",
+    "whyIExistAr": "أراقب التهديدات لأُبقيك آمنًا.",
+    "triggers": ["Uncertainty"],
+    "triggersAr": ["عدم اليقين"],
+    "coreBelief": "Something bad will happen.",
+    "coreBeliefAr": "سيحدث شيء سيئ.",
+    "intention": "To protect.",
+    "intentionAr": "الحماية.",
+    "fear": "Loss of safety.",
+    "fearAr": "فقدان الأمان.",
+    "howIShowUp": [
+      "Anxiety",
+      "Hypervigilance"
+    ],
+    "howIShowUpAr": [
+      "قلق",
+      "يقظة مفرطة"
+    ],
+    "whatINeed": [
+      "Reassurance",
+      "Grounding"
+    ],
+    "whatINeedAr": [
+      "طمأنة",
+      "تأريض"
+    ]
+  },
+
+  {
+    "id": "ashamed",
+    "displayName": "The Ashamed Part",
+    "displayNameAr": "الخجول",
+    "role": "Exile",
+    "shortDescription": "Carries feelings of unworthiness.",
+    "shortDescriptionAr": "يحمل مشاعر عدم الاستحقاق.",
+    "whyIExist": "I formed when love felt conditional.",
+    "whyIExistAr": "تكوّنت عندما بدا الحب مشروطًا.",
+    "triggers": ["Criticism"],
+    "triggersAr": ["النقد"],
+    "coreBelief": "I am flawed.",
+    "coreBeliefAr": "أنا معيب.",
+    "intention": "To hide.",
+    "intentionAr": "الاختباء.",
+    "fear": "Exposure.",
+    "fearAr": "الانكشاف.",
+    "howIShowUp": [
+      "Withdrawal",
+      "Self-blame"
+    ],
+    "howIShowUpAr": [
+      "انسحاب",
+      "لوم الذات"
+    ],
+    "whatINeed": [
+      "Acceptance",
+      "Kindness"
+    ],
+    "whatINeedAr": [
+      "قبول",
+      "لطف"
+    ]
+  },
+  {
+    "id": "controller",
+    "displayName": "The Controller Part",
+    "displayNameAr": "المتحكّم",
+    "role": "Manager",
+    "shortDescription": "Seeks certainty by managing outcomes.",
+    "shortDescriptionAr": "يسعى لليقين عبر إدارة النتائج.",
+    "whyIExist": "I step in when things feel unpredictable, trying to keep you safe through control.",
+    "whyIExistAr": "أتدخل عندما تبدو الأمور غير متوقعة، وأحاول حمايتك عبر السيطرة.",
+    "triggers": ["Uncertainty", "Change", "Feeling out of control"],
+    "triggersAr": ["عدم اليقين", "التغيير", "الشعور بفقدان السيطرة"],
+    "coreBelief": "If I control everything, nothing can hurt us.",
+    "coreBeliefAr": "إذا سيطرت على كل شيء فلن يؤذينا شيء.",
+    "intention": "To keep life stable and predictable.",
+    "intentionAr": "إبقاء الحياة مستقرة ومتوقعة.",
+    "fear": "Losing control and facing chaos.",
+    "fearAr": "فقدان السيطرة ومواجهة الفوضى.",
+    "howIShowUp": [
+      "Micromanaging",
+      "Overplanning",
+      "Difficulty delegating"
+    ],
+    "howIShowUpAr": [
+      "إدارة دقيقة",
+      "تخطيط مفرط",
+      "صعوبة التفويض"
+    ],
+    "whatINeed": [
+      "Trust",
+      "Flexibility",
+      "Permission to let go"
+    ],
+    "whatINeedAr": [
+      "ثقة",
+      "مرونة",
+      "إذن بالتخفف"
+    ]
+  }
+]

@@ -65,6 +65,8 @@ flutter:
      - assets/animations/guider_chat.gif
      - assets/animations/voice_sphere.gif
      - assets/images/
+     - assets/images/characters_full_body/
+     - assets/data/
      - assets/models/
 
   # An image asset can refer to one or more resolution-specific "variants", see
