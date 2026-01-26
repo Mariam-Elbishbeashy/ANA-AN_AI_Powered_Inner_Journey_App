@@ -10,6 +10,8 @@ class UserCharacter {
   final String glbFileName; // Name of the 3D model file
   final String description;
   final DateTime predictedAt;
+  final bool isHealed; // New: Healing status
+  final DateTime? healedAt; // New: When it was healed
 
   UserCharacter({
     required this.id,
@@ -23,6 +25,8 @@ class UserCharacter {
     required this.glbFileName,
     required this.description,
     required this.predictedAt,
+    this.isHealed = false, // Default to unhealed
+    this.healedAt,
   });
 
   factory UserCharacter.fromMap(Map<String, dynamic> data, String id) {
@@ -38,6 +42,10 @@ class UserCharacter {
       glbFileName: data['glbFileName'],
       description: data['description'],
       predictedAt: DateTime.parse(data['predictedAt']),
+      isHealed: data['isHealed'] ?? false, // Load healing status
+      healedAt: data['healedAt'] != null
+          ? DateTime.parse(data['healedAt'])
+          : null,
     );
   }
 
@@ -53,6 +61,8 @@ class UserCharacter {
       'glbFileName': glbFileName,
       'description': description,
       'predictedAt': predictedAt.toIso8601String(),
+      'isHealed': isHealed, // Save healing status
+      'healedAt': healedAt?.toIso8601String(),
     };
   }
 }

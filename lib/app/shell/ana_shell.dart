@@ -1,11 +1,12 @@
+// In ana_shell.dart
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:o3d/o3d.dart';
 import 'package:provider/provider.dart';
 
 import 'package:ana_ifs_app/core/localization/app_language_provider.dart';
 import 'package:ana_ifs_app/l10n/app_strings.dart';
 import 'package:ana_ifs_app/features/questionnaire/presentation/screens/initial_motivation_screen.dart';
-import 'package:ana_ifs_app/core/widgets/shared_widgets.dart';
 import 'package:ana_ifs_app/core/services/firestore_service.dart';
 import 'package:ana_ifs_app/features/chat/presentation/screens/chat_screen.dart';
 import 'package:ana_ifs_app/features/home/presentation/screens/home_screen.dart';
@@ -15,6 +16,9 @@ import 'package:ana_ifs_app/features/reframe/presentation/screens/reframe_screen
 
 import 'package:ana_ifs_app/app/shell/ana_bottom_nav.dart';
 import 'package:ana_ifs_app/features/onboarding/presentation/screens/welcome_screen.dart';
+
+import '../../features/character/domain/entities/user_character.dart';
+import 'package:ana_ifs_app/glb_cache_manager.dart';
 
 class AnaShell extends StatefulWidget {
   const AnaShell({super.key});
@@ -26,6 +30,52 @@ class AnaShell extends StatefulWidget {
 class _AnaShellState extends State<AnaShell> {
   int _index = 0; // 0=Home, 1=3D Map, 2=Chat, 3=Reframe, 4=Progress
   final FirestoreService _firestoreService = FirestoreService();
+  List<UserCharacter> _userCharacters = []; // Store user characters
+  bool _charactersLoaded = false; // Flag to track if characters are loaded
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserCharacters();
+  }
+
+  Future<void> _loadUserCharacters() async {
+    try {
+      // Only load characters once
+      if (!_charactersLoaded) {
+        final characters = await _firestoreService.getUserCharacters();
+        setState(() {
+          _userCharacters = characters;
+          _charactersLoaded = true;
+        });
+        print('✅ Loaded ${_userCharacters.length} user characters');
+
+        // Pre-cache all GLB models in the background
+        _precacheGLBModels();
+      }
+    } catch (e) {
+      print('❌ Error loading user characters: $e');
+      _userCharacters = [];
+      _charactersLoaded = true; // Still mark as loaded to avoid retries
+    }
+  }
+
+  void _precacheGLBModels() {
+    // Pre-create controllers for all GLB models in background
+    for (final character in _userCharacters) {
+      if (character.glbFileName.isNotEmpty) {
+        final glbPath = "assets/models/${character.glbFileName}";
+        final cacheManager = GLBCacheManager();
+
+        // Only create if not already cached
+        if (cacheManager.getController(glbPath) == null) {
+          final controller = O3DController();
+          cacheManager.cacheController(glbPath, controller);
+          print('🔄 Pre-cached GLB: ${character.glbFileName}');
+        }
+      }
+    }
+  }
 
   void _selectTab(int i) {
     setState(() {
@@ -50,12 +100,15 @@ class _AnaShellState extends State<AnaShell> {
     try {
       await FirebaseAuth.instance.signOut();
 
+      // Clear the GLB cache on logout
+      GLBCacheManager().clearCache();
+
       if (!mounted) return;
 
       // ✅ Clear all routes and go to Welcome
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const AnaWelcomeScreen()),
-        (route) => false,
+            (route) => false,
       );
     } catch (_) {
       if (!mounted) return;
@@ -91,11 +144,20 @@ class _AnaShellState extends State<AnaShell> {
         // Clear existing data
         await _firestoreService.clearQuestionnaireData();
 
+        // Clear local state AND GLB cache
+        setState(() {
+          _userCharacters = [];
+          _charactersLoaded = false;
+        });
+
+        // Clear the GLB cache
+        GLBCacheManager().clearCache();
+
         // Navigate to motivation screen
         if (!mounted) return;
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const InitialMotivationScreen()),
-          (route) => false,
+              (route) => false,
         );
       } catch (e) {
         if (!mounted) return;
@@ -136,6 +198,13 @@ class _AnaShellState extends State<AnaShell> {
   }
 
   @override
+  void dispose() {
+    // Clear cache when shell is disposed (optional)
+    // GLBCacheManager().clearCache();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
     final name = _getFriendlyName(user);
@@ -148,7 +217,9 @@ class _AnaShellState extends State<AnaShell> {
         onSwitchLanguage: _switchLanguage,
       ),
       Map3DScreen(
+        key: ValueKey('map3d_${_userCharacters.hashCode}'), // Add key for proper state management
         name: name,
+        userCharacters: _userCharacters,
         onLogout: _logout,
         onRetakeQuestionnaire: _retakeQuestionnaire,
         onSwitchLanguage: _switchLanguage,
@@ -177,8 +248,13 @@ class _AnaShellState extends State<AnaShell> {
       backgroundColor: const Color(0xFFF9F6FF),
       body: Stack(
         children: [
-          // Current page
-          Positioned.fill(child: pages[_index]),
+          // Current page - Use IndexedStack to keep pages alive
+          Positioned.fill(
+            child: IndexedStack(
+              index: _index,
+              children: pages,
+            ),
+          ),
 
           // Bottom nav bar
           Positioned(
