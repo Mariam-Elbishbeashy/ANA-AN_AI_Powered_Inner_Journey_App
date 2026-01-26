@@ -44,7 +44,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     });
 
     try {
-      final characters = await _firestoreService.getUserCharacters();
+      // CHANGED: Use getUnhealedCharacters() instead of getUserCharacters()
+      final characters = await _firestoreService.getUnhealedCharacters();
       setState(() {
         _userCharacters = characters;
         _isLoading = false;
@@ -116,16 +117,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         backgroundColor: Colors.white,
                         child: widget.user?.photoURL != null
                             ? ClipOval(
-                                child: Image.network(
-                                  widget.user!.photoURL!,
-                                  width: 100,
-                                  height: 100,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (context, error, stackTrace) {
-                                    return _buildDefaultAvatar();
-                                  },
-                                ),
-                              )
+                          child: Image.network(
+                            widget.user!.photoURL!,
+                            width: 100,
+                            height: 100,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) {
+                              return _buildDefaultAvatar();
+                            },
+                          ),
+                        )
                             : _buildDefaultAvatar(),
                       ),
                       const SizedBox(height: 10),
@@ -276,8 +277,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             const SizedBox(height: 16),
                             Text(
                               isArabicValue
-                                  ? 'لم يتم تحديد شخصيات بعد'
-                                  : 'No characters identified yet',
+                                  ? 'لا توجد شخصيات غير مُعالجة'
+                                  : 'No unhealed characters',
                               style: const TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w600,
@@ -287,8 +288,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             const SizedBox(height: 8),
                             Text(
                               isArabicValue
-                                  ? 'أكمل الاستبيان لاكتشاف شخصياتك الداخلية'
-                                  : 'Complete the questionnaire to discover your inner characters',
+                                  ? 'جميع شخصياتك مُعالجة أو لم يتم تحديد شخصيات بعد'
+                                  : 'All your characters are healed or no characters identified yet',
                               textAlign: TextAlign.center,
                               style: const TextStyle(color: Color(0xFF7A6A5A)),
                             ),
@@ -299,7 +300,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 Navigator.of(context).pushReplacement(
                                   MaterialPageRoute(
                                     builder: (_) =>
-                                        const InitialMotivationScreen(),
+                                    const InitialMotivationScreen(),
                                   ),
                                 );
                               },
@@ -417,7 +418,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                   TextButton(
                                     onPressed: () => Navigator.pop(context),
                                     child:
-                                        Text(isArabicValue ? 'إلغاء' : 'Cancel'),
+                                    Text(isArabicValue ? 'إلغاء' : 'Cancel'),
                                   ),
                                   TextButton(
                                     onPressed: () async {
@@ -429,7 +430,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                         Navigator.of(context).pushReplacement(
                                           MaterialPageRoute(
                                             builder: (_) =>
-                                                const InitialMotivationScreen(),
+                                            const InitialMotivationScreen(),
                                           ),
                                         );
                                       } catch (e) {
@@ -502,7 +503,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 TextButton(
                                   onPressed: () => Navigator.pop(context),
                                   child:
-                                      Text(isArabicValue ? 'إلغاء' : 'Cancel'),
+                                  Text(isArabicValue ? 'إلغاء' : 'Cancel'),
                                 ),
                                 TextButton(
                                   onPressed: () {

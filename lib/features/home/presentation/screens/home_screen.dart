@@ -54,7 +54,8 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _loadCharacters() async {
     try {
-      final characters = await _firestoreService.getUserCharacters();
+      // CHANGED: Use getUnhealedCharacters() instead of getUserCharacters()
+      final characters = await _firestoreService.getUnhealedCharacters();
       setState(() {
         _characters = characters;
         _isLoading = false;
@@ -201,7 +202,7 @@ class _HomeScreenState extends State<HomeScreen>
     };
 
     final match = descriptions.entries.firstWhere(
-      (entry) => key.contains(entry.key) || entry.key.contains(key),
+          (entry) => key.contains(entry.key) || entry.key.contains(key),
       orElse: () => const MapEntry('', []),
     );
 
@@ -209,43 +210,43 @@ class _HomeScreenState extends State<HomeScreen>
       final english = match.value.join(' ');
       final arabicMap = {
         'inner critic':
-            'هذا الجزء يضع معايير قاسية ليحميك من الفشل أو الحكم. يعتقد أن النقد يبقيك متحفزًا وآمنًا من الأخطاء.',
+        'هذا الجزء يضع معايير قاسية ليحميك من الفشل أو الحكم. يعتقد أن النقد يبقيك متحفزًا وآمنًا من الأخطاء.',
         'people pleaser':
-            'هذا الجزء يفضل الانسجام والقبول لتجنب الصراع أو الرفض. غالبًا يقول نعم عندما تقول احتياجاتك لا.',
+        'هذا الجزء يفضل الانسجام والقبول لتجنب الصراع أو الرفض. غالبًا يقول نعم عندما تقول احتياجاتك لا.',
         'lonely part':
-            'هذا الجزء يحمل ألم الانفصال ويتوق لأن يُرى. يسعى للقرب لكنه يخشى أن يكون عبئًا.',
+        'هذا الجزء يحمل ألم الانفصال ويتوق لأن يُرى. يسعى للقرب لكنه يخشى أن يكون عبئًا.',
         'jealous part':
-            'هذا الجزء يخشى أن يُستبدل أو يُتجاهل. يريد طمأنة بأنك مهم ومختار.',
+        'هذا الجزء يخشى أن يُستبدل أو يُتجاهل. يريد طمأنة بأنك مهم ومختار.',
         'ashamed part':
-            'هذا الجزء يحمل معتقدات مؤلمة بعدم الكفاية. قد يختبئ لتجنب الانكشاف أو الحكم.',
+        'هذا الجزء يحمل معتقدات مؤلمة بعدم الكفاية. قد يختبئ لتجنب الانكشاف أو الحكم.',
         'workaholic':
-            'هذا الجزء يربط الإنتاجية بالقيمة والأمان. يدفعك للبقاء مشغولًا لتجنب الانزعاج.',
+        'هذا الجزء يربط الإنتاجية بالقيمة والأمان. يدفعك للبقاء مشغولًا لتجنب الانزعاج.',
         'perfectionist':
-            'هذا الجزء يسعى للكمال لتجنب النقد. يمكن أن يخلق ضغطًا وتأخيرًا في البدء.',
+        'هذا الجزء يسعى للكمال لتجنب النقد. يمكن أن يخلق ضغطًا وتأخيرًا في البدء.',
         'procrastinator':
-            'هذا الجزء يؤجل المهام ليحميك من الإرهاق أو الفشل. يفضّل الراحة السريعة على الأهداف البعيدة.',
+        'هذا الجزء يؤجل المهام ليحميك من الإرهاق أو الفشل. يفضّل الراحة السريعة على الأهداف البعيدة.',
         'excessive gamer':
-            'هذا الجزء يستخدم اللعب للهروب من التوتر أو الألم العاطفي. يبحث عن الراحة والسيطرة في عالم آمن.',
+        'هذا الجزء يستخدم اللعب للهروب من التوتر أو الألم العاطفي. يبحث عن الراحة والسيطرة في عالم آمن.',
         'confused part':
-            'هذا الجزء يشعر بالتشتت وعدم اليقين في الاتجاه الصحيح. قد يبطئ القرارات لتجنب الندم.',
+        'هذا الجزء يشعر بالتشتت وعدم اليقين في الاتجاه الصحيح. قد يبطئ القرارات لتجنب الندم.',
         'dependent part':
-            'هذا الجزء يعتمد على الآخرين للأمان والإرشاد. يخشى مواجهة الخيارات الصعبة وحده.',
+        'هذا الجزء يعتمد على الآخرين للأمان والإرشاد. يخشى مواجهة الخيارات الصعبة وحده.',
         'fearful part':
-            'هذا الجزء يتوقع الخطر ويراقب ما قد يحدث. يحاول إبقاءك مستعدًا ومحميًا.',
+        'هذا الجزء يتوقع الخطر ويراقب ما قد يحدث. يحاول إبقاءك مستعدًا ومحميًا.',
         'neglected part':
-            'هذا الجزء يحمل ألم الاحتياجات غير المُلبّاة والشعور بعدم الرؤية. يتوق لرعاية ثابتة واهتمام.',
+        'هذا الجزء يحمل ألم الاحتياجات غير المُلبّاة والشعور بعدم الرؤية. يتوق لرعاية ثابتة واهتمام.',
         'overeater':
-            'هذا الجزء يستخدم الطعام للتهدئة والراحة العاطفية. يبحث عن سكينة عندما تكبر المشاعر.',
+        'هذا الجزء يستخدم الطعام للتهدئة والراحة العاطفية. يبحث عن سكينة عندما تكبر المشاعر.',
         'binger':
-            'هذا الجزء يلجأ للشدة أو الإفراط لتخدير الألم بسرعة. يظهر غالبًا عند ارتفاع الضغط أو ضيق الحدود.',
+        'هذا الجزء يلجأ للشدة أو الإفراط لتخدير الألم بسرعة. يظهر غالبًا عند ارتفاع الضغط أو ضيق الحدود.',
         'overwhelmed part':
-            'هذا الجزء يشعر بالانغمار بالطلبات والضغط. يريد إبطاء كل شيء لتستطيع التنفس.',
+        'هذا الجزء يشعر بالانغمار بالطلبات والضغط. يريد إبطاء كل شيء لتستطيع التنفس.',
         'stoic part':
-            'هذا الجزء يكتم المشاعر ليبقى قويًا ومتزنًا. يخشى أن تكون الهشاشة غير آمنة.',
+        'هذا الجزء يكتم المشاعر ليبقى قويًا ومتزنًا. يخشى أن تكون الهشاشة غير آمنة.',
         'wounded child':
-            'هذا الجزء يحمل جراحًا مبكرة واحتياجات غير مُلبّاة. يحتاج للحنان والحماية والطمأنة.',
+        'هذا الجزء يحمل جراحًا مبكرة واحتياجات غير مُلبّاة. يحتاج للحنان والحماية والطمأنة.',
         'controller':
-            'هذا الجزء يحاول التحكم في النتائج حتى لا يشعر بعدم السيطرة. يعتقد أن اليقين يحميك.',
+        'هذا الجزء يحاول التحكم في النتائج حتى لا يشعر بعدم السيطرة. يعتقد أن اليقين يحميك.',
       };
       final arabic = arabicMap[match.key] ??
           tr(
@@ -327,7 +328,7 @@ class _HomeScreenState extends State<HomeScreen>
                   ),
                   const SizedBox(width: 8),
                   Text(
-                    tr(context, 'The 8 C’s of Self', 'صفات الذات الثماني'),
+                    tr(context, 'The 8 C\'s of Self', 'صفات الذات الثماني'),
                     style: const TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w700,
@@ -445,110 +446,110 @@ class _HomeScreenState extends State<HomeScreen>
           ),
           body: _characters.isEmpty
               ? Text(
-                  tr(
-                    context,
-                    'Complete the questionnaire to see your characters.',
-                    'أكمل الاستبيان لعرض شخصياتك.',
-                  ),
-                  style: const TextStyle(
-                    fontSize: 14,
-                    height: 1.6,
-                    color: Color(0xFF4B3A66),
-                  ),
-                )
+            tr(
+              context,
+              'Complete the questionnaire to see your characters.',
+              'أكمل الاستبيان لعرض شخصياتك.',
+            ),
+            style: const TextStyle(
+              fontSize: 14,
+              height: 1.6,
+              color: Color(0xFF4B3A66),
+            ),
+          )
               : SizedBox(
-                  height: 260,
-                  child: ListView.separated(
-                    itemCount: _characters.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 12),
-                    itemBuilder: (context, index) {
-                      final character = _characters[index];
-                      final imagePath = _getImagePathForCharacter(
-                        character.characterName,
-                      );
-                      final color = _getCharacterColor(character.archetype);
-                      return Container(
-                        padding: const EdgeInsets.all(12),
+            height: 260,
+            child: ListView.separated(
+              itemCount: _characters.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 12),
+              itemBuilder: (context, index) {
+                final character = _characters[index];
+                final imagePath = _getImagePathForCharacter(
+                  character.characterName,
+                );
+                final color = _getCharacterColor(character.archetype);
+                return Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0xFFE5DEFF)),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        width: 54,
+                        height: 54,
                         decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: const Color(0xFFE5DEFF)),
+                          color: color.withOpacity(0.12),
+                          shape: BoxShape.circle,
                         ),
-                        child: Row(
+                        child: ClipOval(
+                          child: Image.asset(
+                            imagePath,
+                            fit: BoxFit.contain,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Container(
-                              width: 54,
-                              height: 54,
-                              decoration: BoxDecoration(
-                                color: color.withOpacity(0.12),
-                                shape: BoxShape.circle,
-                              ),
-                              child: ClipOval(
-                                child: Image.asset(
-                                  imagePath,
-                                  fit: BoxFit.contain,
-                                ),
+                            Text(
+                              character.displayName,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF2A1E3B),
                               ),
                             ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    character.displayName,
-                                    style: const TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w700,
-                                      color: Color(0xFF2A1E3B),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    _localizedArchetype(
-                                      context,
-                                      character.archetype,
-                                    ),
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w700,
-                                      color: color,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    _archetypeDescription(
-                                      context,
-                                      character.archetype,
-                                    ),
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: Color(0xFF4B3A66),
-                                      height: 1.4,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    _characterDescription(
-                                      context,
-                                      character.displayName,
-                                    ),
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: Color(0xFF4B3A66),
-                                      height: 1.4,
-                                    ),
-                                  ),
-                                ],
+                            const SizedBox(height: 4),
+                            Text(
+                              _localizedArchetype(
+                                context,
+                                character.archetype,
+                              ),
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: color,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              _archetypeDescription(
+                                context,
+                                character.archetype,
+                              ),
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Color(0xFF4B3A66),
+                                height: 1.4,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              _characterDescription(
+                                context,
+                                character.displayName,
+                              ),
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Color(0xFF4B3A66),
+                                height: 1.4,
                               ),
                             ),
                           ],
                         ),
-                      );
-                    },
+                      ),
+                    ],
                   ),
-                ),
+                );
+              },
+            ),
+          ),
         );
       },
       transitionBuilder: (context, animation, secondaryAnimation, child) {
@@ -827,8 +828,8 @@ class _HomeScreenState extends State<HomeScreen>
                               child: Text(
                                 tr(
                                   context,
-                                  'No characters found. Please complete the questionnaire.',
-                                  'لم يتم العثور على شخصيات. يرجى إكمال الاستبيان.',
+                                  'No unhealed characters found.',
+                                  'لم يتم العثور على شخصيات غير مُعالجة.',
                                 ),
                                 style: const TextStyle(
                                   color: Color(0xFF7A6A5A),
@@ -858,7 +859,7 @@ class _HomeScreenState extends State<HomeScreen>
                                         Navigator.of(context).push(
                                           PageRouteBuilder(
                                             transitionDuration:
-                                                const Duration(milliseconds: 420),
+                                            const Duration(milliseconds: 420),
                                             pageBuilder: (_, animation, __) {
                                               return CharacterProfileScreen(
                                                 character: character,
@@ -895,7 +896,7 @@ class _HomeScreenState extends State<HomeScreen>
                                 if (_characters.length == 2) {
                                   return Row(
                                     mainAxisAlignment:
-                                        MainAxisAlignment.spaceEvenly,
+                                    MainAxisAlignment.spaceEvenly,
                                     children: [
                                       buildCard(_characters[0]),
                                       buildCard(_characters[1]),
@@ -908,7 +909,7 @@ class _HomeScreenState extends State<HomeScreen>
                                     children: [
                                       Row(
                                         mainAxisAlignment:
-                                            MainAxisAlignment.spaceEvenly,
+                                        MainAxisAlignment.spaceEvenly,
                                         children: [
                                           buildCard(_characters[0]),
                                           buildCard(_characters[1]),
@@ -1028,7 +1029,7 @@ class _HomeScreenState extends State<HomeScreen>
                                 style: TextStyle(
                                   fontSize: 12,
                                   color:
-                                      const Color(0xFF7A6A5A).withOpacity(0.7),
+                                  const Color(0xFF7A6A5A).withOpacity(0.7),
                                 ),
                               ),
                             ],
