@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 
 import 'package:ana_ifs_app/l10n/app_strings.dart';
 import 'package:ana_ifs_app/features/character/domain/entities/user_character.dart';
-import 'package:ana_ifs_app/features/voice_analysis/presentation/screens/voice_analysis_screen.dart';
+import 'package:ana_ifs_app/features/chat/data/datasources/inner_character_local_data_source.dart';
+import 'package:ana_ifs_app/features/chat/data/models/inner_character_profile.dart';
+import 'package:ana_ifs_app/features/chat/presentation/widgets/chat_conversation.dart';
 
 class CharacterChatScreen extends StatefulWidget {
   final UserCharacter character;
@@ -14,14 +16,17 @@ class CharacterChatScreen extends StatefulWidget {
 }
 
 class _CharacterChatScreenState extends State<CharacterChatScreen> {
-  final TextEditingController _messageController = TextEditingController();
+  late Future<InnerCharacterProfile?> _characterFuture;
+  final _characterDataSource = InnerCharacterLocalDataSource();
+  late final String _assistantAvatarPath;
 
   @override
-  void dispose() {
-    _messageController.dispose();
-    super.dispose();
+  void initState() {
+    super.initState();
+    _characterFuture = _loadCharacterProfile();
+    _assistantAvatarPath =
+        _getImagePathForCharacter(widget.character.characterName);
   }
-
   String _getImagePathForCharacter(String characterName) {
     final imageMap = {
       'Inner Critic': 'inner_critic.png',
@@ -62,6 +67,17 @@ class _CharacterChatScreenState extends State<CharacterChatScreen> {
     return 'assets/images/inner_critic.png';
   }
 
+
+  Future<InnerCharacterProfile?> _loadCharacterProfile() {
+    final primaryName = widget.character.displayName;
+    final secondaryName = widget.character.characterName;
+    return _characterDataSource
+        .findCharacterByName(primaryName)
+        .then((value) => value ?? _characterDataSource.findCharacterByName(
+              secondaryName,
+            ));
+  }
+
   String _getTitle(BuildContext context) {
     final name = widget.character.displayName.trim();
     final normalized = name.toLowerCase().startsWith('the ')
@@ -72,8 +88,6 @@ class _CharacterChatScreenState extends State<CharacterChatScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final imagePath = _getImagePathForCharacter(widget.character.characterName);
-
     return Scaffold(
       backgroundColor: const Color(0xFFF9F6FF),
       body: Container(
@@ -120,107 +134,27 @@ class _CharacterChatScreenState extends State<CharacterChatScreen> {
               ),
               const SizedBox(height: 8),
               Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.symmetric(horizontal: 18),
-                  children: [
-                    _AssistantBubble(
-                      imagePath: imagePath,
-                      text: tr(
+                child: FutureBuilder<InnerCharacterProfile?>(
+                  future: _characterFuture,
+                  builder: (context, snapshot) {
+                    final profile = snapshot.data;
+                    final characterId =
+                        profile?.id ?? _fallbackCharacterId();
+                    return ChatConversation(
+                      characterId: characterId,
+                      characterType: 'inner_character',
+                      fallbackTitle: widget.character.displayName,
+                      fallbackSubtitle: tr(
                         context,
-                        'Hi! How can I assist you today?',
-                        'مرحباً! كيف يمكنني مساعدتك اليوم؟',
+                        'A protective inner part.',
+                        'جزء داخلي حامٍ.',
                       ),
-                    ),
-                    const SizedBox(height: 14),
-                    _UserBubble(
-                      text: tr(context, 'What is Web3?', 'ما هو الويب 3؟'),
-                    ),
-                    const SizedBox(height: 14),
-                    _VoiceBubble(),
-                    const SizedBox(height: 14),
-                    _AssistantCard(
-                      imagePath: imagePath,
-                      title: tr(context, 'What is Web3?', 'ما هو الويب 3؟'),
-                      body: tr(
-                        context,
-                        'Web3 is a decentralized internet built on blockchain, giving users control over their data, identity, and digital assets.',
-                        'الويب 3 هو إنترنت لامركزي مبني على البلوك تشين ويمنح المستخدمين التحكم في بياناتهم وهويتهم وأصولهم الرقمية.',
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    _AssistantCard(
-                      imagePath: imagePath,
-                      title: tr(
-                        context,
-                        'Key Features of Web3:',
-                        'الميزات الرئيسية للويب 3:',
-                      ),
-                      body: tr(
-                        context,
-                        '1. Decentralization\n2. User ownership\n3. Token-based incentives',
-                        '1. اللامركزية\n2. ملكية المستخدم\n3. حوافز قائمة على الرموز',
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(18, 10, 18, 16),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Container(
-                        height: 52,
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(26),
-                          border: Border.all(color: const Color(0xFFE5DEFF)),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.05),
-                              blurRadius: 12,
-                              offset: const Offset(0, 6),
-                            ),
-                          ],
-                        ),
-                        child: Center(
-                          child: TextField(
-                            controller: _messageController,
-                            decoration: InputDecoration(
-                              hintText: tr(
-                                context,
-                                'Type a message',
-                                'اكتب رسالة',
-                              ),
-                              border: InputBorder.none,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    _RoundActionButton(
-                      icon: Icons.send_rounded,
-                      onTap: () {},
-                      backgroundColor: const Color(0xFF8E7CFF),
-                      iconColor: Colors.white,
-                    ),
-                    const SizedBox(width: 10),
-                    _RoundActionButton(
-                      icon: Icons.mic_rounded,
-                      onTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) =>
-                                VoiceAnalysisScreen(character: widget.character),
-                          ),
-                        );
-                      },
-                      backgroundColor: const Color(0xFFEDE7FF),
-                      iconColor: const Color(0xFF8E7CFF),
-                    ),
-                  ],
+                      fallbackRole: widget.character.archetype,
+                      assistantAvatarPath: _assistantAvatarPath,
+                      showHeader: false,
+                      characterProfile: profile,
+                    );
+                  },
                 ),
               ),
             ],
@@ -228,6 +162,19 @@ class _CharacterChatScreenState extends State<CharacterChatScreen> {
         ),
       ),
     );
+  }
+
+  String _fallbackCharacterId() {
+    final raw = widget.character.characterName.isNotEmpty
+        ? widget.character.characterName
+        : widget.character.displayName;
+    final normalized = raw
+        .toLowerCase()
+        .replaceAll('the ', '')
+        .replaceAll(RegExp(r'[^a-z0-9\s_]'), '')
+        .trim()
+        .replaceAll(RegExp(r'\s+'), '_');
+    return normalized.isEmpty ? 'inner_critic' : normalized;
   }
 }
 
@@ -256,215 +203,6 @@ class _CircleIconButton extends StatelessWidget {
           ],
         ),
         child: Icon(icon, color: const Color(0xFF2A1E3B)),
-      ),
-    );
-  }
-}
-
-class _AssistantBubble extends StatelessWidget {
-  final String imagePath;
-  final String text;
-
-  const _AssistantBubble({required this.imagePath, required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        CircleAvatar(
-          radius: 20,
-          backgroundColor: const Color(0xFFEDE7FF),
-          child: ClipOval(
-            child: Image.asset(
-              imagePath,
-              width: 40,
-              height: 40,
-              fit: BoxFit.contain,
-            ),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: const Color(0xFFE5DEFF)),
-            ),
-            child: Text(
-              text,
-              style: const TextStyle(
-                color: Color(0xFF2A1E3B),
-                fontSize: 14,
-                height: 1.4,
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _UserBubble extends StatelessWidget {
-  final String text;
-
-  const _UserBubble({required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return Align(
-      alignment: Alignment.centerRight,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: const Color(0xFFE5DEFF)),
-        ),
-        child: Text(
-          text,
-          style: const TextStyle(
-            color: Color(0xFF2A1E3B),
-            fontSize: 14,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _VoiceBubble extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 64,
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E1E2E),
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: Row(
-        children: const [
-          SizedBox(width: 16),
-          Icon(Icons.graphic_eq_rounded, color: Colors.white),
-          SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              '00:05',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-          Icon(Icons.play_arrow_rounded, color: Colors.white),
-          SizedBox(width: 16),
-        ],
-      ),
-    );
-  }
-}
-
-class _AssistantCard extends StatelessWidget {
-  final String imagePath;
-  final String title;
-  final String body;
-
-  const _AssistantCard({
-    required this.imagePath,
-    required this.title,
-    required this.body,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        CircleAvatar(
-          radius: 20,
-          backgroundColor: const Color(0xFFEDE7FF),
-          child: ClipOval(
-            child: Image.asset(
-              imagePath,
-              width: 40,
-              height: 40,
-              fit: BoxFit.contain,
-            ),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: const Color(0xFFE5DEFF)),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF2A1E3B),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  body,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    height: 1.5,
-                    color: Color(0xFF4B3A66),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _RoundActionButton extends StatelessWidget {
-  final IconData icon;
-  final VoidCallback onTap;
-  final Color backgroundColor;
-  final Color iconColor;
-
-  const _RoundActionButton({
-    required this.icon,
-    required this.onTap,
-    required this.backgroundColor,
-    required this.iconColor,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 52,
-        height: 52,
-        decoration: BoxDecoration(
-          color: backgroundColor,
-          shape: BoxShape.circle,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.08),
-              blurRadius: 12,
-              offset: const Offset(0, 6),
-            ),
-          ],
-        ),
-        child: Icon(icon, color: iconColor),
       ),
     );
   }

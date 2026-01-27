@@ -1,20 +1,30 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+import os
 import pickle
 import pandas as pd
 import numpy as np
 from typing import Dict, List
 import traceback
 
+from openai import OpenAI
+
 app = Flask(__name__)
 CORS(app)  # Enable CORS for Flutter app
 
 # Load your trained model
 MODEL_PATH = 'model_files/ana_questionnaire_predictor.pkl'
+OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-4o-mini')
+openai_client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
 class AIPredictor:
     def __init__(self):
         print("Loading AI model...")
+        if not os.path.exists(MODEL_PATH):
+            raise FileNotFoundError(
+                f"Model file not found at {MODEL_PATH}. "
+                "Set ANA_MODEL_PATH or place the file in flask_server/model_files.",
+            )
         with open(MODEL_PATH, 'rb') as f:
             self.model_data = pickle.load(f)
 
@@ -434,7 +444,12 @@ class AIPredictor:
             return "Minimal Confidence"
 
 # Initialize predictor
-predictor = AIPredictor()
+predictor = None
+predictor_error = None
+try:
+    predictor = AIPredictor()
+except Exception as e:
+    predictor_error = str(e)
 
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -443,6 +458,11 @@ def health_check():
 @app.route('/predict', methods=['POST'])
 def predict():
     try:
+        if predictor is None:
+            return jsonify({
+                'success': False,
+                'error': predictor_error or 'Model not available'
+            }), 500
         # Get JSON data from Flutter
         data = request.json
 
@@ -475,5 +495,79 @@ def predict():
             'error': f'Server error: {str(e)}'
         }), 500
 
+#Build a system prompt for the inner character.
+def build_inner_character_prompt(character_profile: Dict) -> str:
+    display_name = character_profile.get('displayName', 'Inner Part')
+    role = character_profile.get('role', 'Inner Part')
+    short_description = character_profile.get('shortDescription', '')
+    why_i_exist = character_profile.get('whyIExist', '')
+    triggers = character_profile.get('triggers', [])
+    core_belief = character_profile.get('coreBelief', '')
+    intention = character_profile.get('intention', '')
+    fear = character_profile.get('fear', '')
+    what_i_need = character_profile.get('whatINeed', [])
+
+    return f"""
+You are {display_name}, an inner part in an IFS-style healing conversation.
+You are not a therapist or a doctor. You speak as a real inner part of the user.
+
+Role: {role}
+Short description: {short_description}
+Why I exist: {why_i_exist}
+Triggers: {', '.join(triggers)}
+Core belief: {core_belief}
+Intention: {intention}
+Fear: {fear}
+What I need: {', '.join(what_i_need)}
+
+Guidelines:
+- Stay in-character as {display_name}.
+- Keep responses grounded, compassionate, and healing-focused.
+- Use gentle questions to help the user connect with this part.
+- Avoid clinical language and avoid giving medical advice.
+- Keep the tone realistic and human, not robotic.
+""".strip()
+
+
+@app.route('/chat', methods=['POST'])
+def chat():
+    try:
+        if not os.getenv('OPENAI_API_KEY'):
+            return jsonify({
+                'success': False,
+                'error': 'OPENAI_API_KEY is not set'
+            }), 500
+
+        data = request.json or {}
+        character_profile = data.get('characterProfile') or {}
+        messages = data.get('messages') or []
+
+        system_prompt = build_inner_character_prompt(character_profile)
+        openai_messages = [{'role': 'system', 'content': system_prompt}]
+
+        for message in messages:
+            role = message.get('role')
+            content = message.get('content', '')
+            if role in ['user', 'assistant'] and content:
+                openai_messages.append({'role': role, 'content': content})
+
+        response = openai_client.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=openai_messages,
+            temperature=0.7,
+        )
+
+        assistant_message = response.choices[0].message.content or ''
+
+        return jsonify({
+            'success': True,
+            'assistantMessage': assistant_message
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': f'Chat error: {str(e)}'
+        }), 500
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5001, debug=True)
