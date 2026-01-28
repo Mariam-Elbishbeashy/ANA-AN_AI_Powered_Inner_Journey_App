@@ -142,6 +142,7 @@ class _ChatConversationState extends State<ChatConversation> {
       //Fetch a chat response from the chat server.
       final assistantMessage =
           await _chatAiRemoteDataSource.fetchAssistantMessage(
+        uid: user.uid,
         threadId: thread.id,
         sessionId: thread.sessionId,
         characterId: widget.characterId,

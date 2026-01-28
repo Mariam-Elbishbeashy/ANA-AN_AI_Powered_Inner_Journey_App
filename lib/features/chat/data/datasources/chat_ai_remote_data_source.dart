@@ -15,6 +15,7 @@ class ChatAiRemoteDataSource {
 
   //Fetch a chat response from the AI server.
   Future<String> fetchAssistantMessage({
+    required String uid,
     required String threadId,
     required String sessionId,
     required String characterId,
@@ -26,6 +27,7 @@ class ChatAiRemoteDataSource {
       uri,
       headers: {'Content-Type': 'application/json'},
       body: json.encode({
+        'uid': uid,
         'threadId': threadId,
         'sessionId': sessionId,
         'characterId': characterId,
