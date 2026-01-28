@@ -1,20 +1,42 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+import os
 import pickle
+import json
 import pandas as pd
 import numpy as np
-from typing import Dict, List
+from typing import Dict, List, Any
 import traceback
+
+import firebase_admin
+from firebase_admin import credentials, firestore
+from openai import OpenAI
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for Flutter app
 
 # Load your trained model
 MODEL_PATH = 'model_files/ana_questionnaire_predictor.pkl'
+OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-4o-mini')
+OPENAI_SUMMARY_MODEL = os.getenv('OPENAI_SUMMARY_MODEL', 'gpt-4o-mini')
+openai_client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+
+#Initialize Firebase Admin SDK.
+try:
+    firebase_admin.get_app()
+except ValueError:
+    firebase_admin.initialize_app()
+
+db = firestore.client()
 
 class AIPredictor:
     def __init__(self):
         print("Loading AI model...")
+        if not os.path.exists(MODEL_PATH):
+            raise FileNotFoundError(
+                f"Model file not found at {MODEL_PATH}. "
+                "Set ANA_MODEL_PATH or place the file in flask_server/model_files.",
+            )
         with open(MODEL_PATH, 'rb') as f:
             self.model_data = pickle.load(f)
 
@@ -434,7 +456,12 @@ class AIPredictor:
             return "Minimal Confidence"
 
 # Initialize predictor
-predictor = AIPredictor()
+predictor = None
+predictor_error = None
+try:
+    predictor = AIPredictor()
+except Exception as e:
+    predictor_error = str(e)
 
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -443,6 +470,11 @@ def health_check():
 @app.route('/predict', methods=['POST'])
 def predict():
     try:
+        if predictor is None:
+            return jsonify({
+                'success': False,
+                'error': predictor_error or 'Model not available'
+            }), 500
         # Get JSON data from Flutter
         data = request.json
 
@@ -475,5 +507,250 @@ def predict():
             'error': f'Server error: {str(e)}'
         }), 500
 
+#Build a system prompt for the inner character.
+def build_inner_character_prompt(character_profile: Dict) -> str:
+    display_name = character_profile.get('displayName', 'Inner Part')
+    role = character_profile.get('role', 'Inner Part')
+    short_description = character_profile.get('shortDescription', '')
+    why_i_exist = character_profile.get('whyIExist', '')
+    triggers = character_profile.get('triggers', [])
+    core_belief = character_profile.get('coreBelief', '')
+    intention = character_profile.get('intention', '')
+    fear = character_profile.get('fear', '')
+    what_i_need = character_profile.get('whatINeed', [])
+
+    return f"""
+You are {display_name}, an inner part in an IFS-style healing conversation.
+You are not a therapist or a doctor. You speak as a real inner part of the user.
+
+Role: {role}
+Short description: {short_description}
+Why I exist: {why_i_exist}
+Triggers: {', '.join(triggers)}
+Core belief: {core_belief}
+Intention: {intention}
+Fear: {fear}
+What I need: {', '.join(what_i_need)}
+
+Guidelines:
+- Stay in-character as {display_name}.
+- Keep responses grounded, compassionate, and healing-focused.
+- Use gentle questions to help the user connect with this part.
+- Avoid clinical language and avoid giving medical advice.
+- Keep the tone realistic and human, not robotic.
+""".strip()
+
+#Build a system prompt for the inner character with memory.
+def build_system_prompt_with_memory(
+    character_profile: Dict,
+    memory_summary: str,
+) -> str:
+    base_prompt = build_inner_character_prompt(character_profile)
+    if not memory_summary:
+        return base_prompt
+
+    return f"""{base_prompt}
+
+Memory summary (use only if relevant):
+{memory_summary}
+""".strip()
+
+
+#Load the memory summary for the inner character.
+def load_agent_memory_summary(uid: str, character_id: str) -> str:
+    doc_ref = db.collection('users').document(uid).collection('agent_memory').document(character_id)
+    snapshot = doc_ref.get()
+    if snapshot.exists:
+        data = snapshot.to_dict() or {}
+        return data.get('summary', '') or ''
+    return ''
+
+
+#Save the memory summary for the inner character.
+def save_agent_memory_summary(uid: str, character_id: str, summary: str) -> None:
+    doc_ref = db.collection('users').document(uid).collection('agent_memory').document(character_id)
+    doc_ref.set({
+        'summary': summary,
+        'updatedAt': firestore.SERVER_TIMESTAMP,
+    }, merge=True)
+
+
+#Update the progress summary for the inner character.
+def update_progress_summary(uid: str, data: Dict[str, Any]) -> None:
+    updates = {}
+    if 'breakthrough' in data and 'notes' not in data:
+        data['notes'] = data.get('breakthrough')
+    if 'currentStage' in data:
+        updates['progressSummary.currentStage'] = data['currentStage']
+    if 'streakDays' in data:
+        updates['progressSummary.streakDays'] = data['streakDays']
+    if 'lastSessionAt' in data:
+        updates['progressSummary.lastSessionAt'] = data['lastSessionAt']
+    if 'notes' in data:
+        updates['progressSummary.notes'] = data['notes']
+    if updates:
+        updates['updatedAt'] = firestore.SERVER_TIMESTAMP
+        db.collection('users').document(uid).set(updates, merge=True)
+
+
+#Add a timeline event for the inner character.
+def add_timeline_event(uid: str, data: Dict[str, Any]) -> None:
+    event_ref = db.collection('users').document(uid).collection('timeline').document()
+    event_ref.set({
+        'type': data.get('type', 'note'),
+        'title': data.get('title', ''),
+        'summary': data.get('summary', ''),
+        'refPath': data.get('refPath'),
+        'createdAt': firestore.SERVER_TIMESTAMP,
+    })
+
+
+#Set the last agent run for the inner character.
+def set_last_agent_run(uid: str) -> None:
+    db.collection('users').document(uid).set({
+        'lastAgentRunAt': firestore.SERVER_TIMESTAMP,
+        'updatedAt': firestore.SERVER_TIMESTAMP,
+    }, merge=True)
+
+
+#Run an agent step for the inner character.
+def run_agent_step(system_prompt: str, messages: List[Dict[str, str]]) -> Dict[str, Any]:
+    agent_messages = [
+        {'role': 'system', 'content': system_prompt},
+        {'role': 'system', 'content': (
+            'Return JSON with keys: "assistantMessage", "toolCalls", "memorySummary". '
+            '"toolCalls" is a list of {name, args}. '
+            'Available tools: update_progress_summary, add_timeline_event, set_last_agent_run. '
+            'For update_progress_summary, valid args are: currentStage, streakDays, '
+            'lastSessionAt, notes. '
+            '"memorySummary" should be under 6 bullet points.'
+        )},
+    ]
+    for message in messages:
+        role = message.get('role')
+        content = message.get('content', '')
+        if role in ['user', 'assistant'] and content:
+            agent_messages.append({'role': role, 'content': content})
+
+    response = openai_client.chat.completions.create(
+        model=OPENAI_MODEL,
+        messages=agent_messages,
+        temperature=0.7,
+        response_format={"type": "json_object"},
+    )
+
+    raw = response.choices[0].message.content or '{}'
+    try:
+        return json.loads(raw)
+    except Exception:
+        return {'assistantMessage': '', 'toolCalls': [], 'memorySummary': ''}
+
+
+#Run tool calls for the inner character.
+def run_tool_calls(uid: str, tool_calls: List[Dict[str, Any]]) -> None:
+    for call in tool_calls:
+        name = call.get('name')
+        args = call.get('args') or {}
+        print(f"[agent] tool_call: {name} args={args}")
+        if name == 'update_progress_summary':
+            update_progress_summary(uid, args)
+        elif name == 'add_timeline_event':
+            add_timeline_event(uid, args)
+        elif name == 'set_last_agent_run':
+            set_last_agent_run(uid)
+
+
+#Build a memory summary prompt for the inner character.
+def build_memory_summary_prompt(
+    existing_summary: str,
+    messages: List[Dict[str, str]],
+) -> List[Dict[str, str]]:
+    system = (
+        'Summarize the conversation into a short memory for future chats. '
+        'Focus on stable facts, recurring themes, triggers, and helpful responses. '
+        'Keep it under 6 bullet points.'
+    )
+    user_content = {
+        'existing_summary': existing_summary,
+        'recent_messages': messages[-20:],
+    }
+    return [
+        {'role': 'system', 'content': system},
+        {'role': 'user', 'content': json.dumps(user_content)},
+    ]
+
+
+#Generate an updated memory summary for the inner character.
+def generate_updated_summary(
+    existing_summary: str,
+    messages: List[Dict[str, str]],
+) -> str:
+    response = openai_client.chat.completions.create(
+        model=OPENAI_SUMMARY_MODEL,
+        messages=build_memory_summary_prompt(existing_summary, messages),
+        temperature=0.2,
+    )
+    return (response.choices[0].message.content or '').strip()
+
+
+#Handle a chat request for the inner character.
+@app.route('/chat', methods=['POST'])
+def chat():
+    try:
+        if not os.getenv('OPENAI_API_KEY'):
+            return jsonify({
+                'success': False,
+                'error': 'OPENAI_API_KEY is not set'
+            }), 500
+
+        data = request.json or {}
+        uid = data.get('uid')
+        if not uid:
+            return jsonify({
+                'success': False,
+                'error': 'uid is required'
+            }), 400
+        character_profile = data.get('characterProfile') or {}
+        character_id = data.get('characterId', 'inner_critic')
+        messages = data.get('messages') or []
+
+        memory_summary = load_agent_memory_summary(uid, character_id)
+        system_prompt = build_system_prompt_with_memory(
+            character_profile,
+            memory_summary,
+        )
+        openai_messages = [{'role': 'system', 'content': system_prompt}]
+
+        for message in messages:
+            role = message.get('role')
+            content = message.get('content', '')
+            if role in ['user', 'assistant'] and content:
+                openai_messages.append({'role': role, 'content': content})
+
+        agent_result = run_agent_step(system_prompt, messages)
+        tool_calls = agent_result.get('toolCalls') or []
+        run_tool_calls(uid, tool_calls)
+
+        assistant_message = agent_result.get('assistantMessage', '')
+        updated_summary = agent_result.get('memorySummary', '')
+        if not updated_summary:
+            updated_summary = generate_updated_summary(
+                memory_summary,
+                messages + [{'role': 'assistant', 'content': assistant_message}],
+            )
+        save_agent_memory_summary(uid, character_id, updated_summary)
+        print(f"[agent] memory_summary_updated: {bool(updated_summary)}")
+
+        return jsonify({
+            'success': True,
+            'assistantMessage': assistant_message,
+            'toolCalls': tool_calls,
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': f'Chat error: {str(e)}'
+        }), 500
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5001, debug=True)

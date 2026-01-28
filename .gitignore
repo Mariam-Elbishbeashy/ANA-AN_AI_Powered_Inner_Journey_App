@@ -3,6 +3,9 @@
 *.log
 *.pyc
 *.swp
+__pycache__/
+.pytest_cache/
+.mypy_cache/
 .DS_Store
 .atom/
 .build/
@@ -11,6 +14,8 @@
 .svn/
 .swiftpm/
 migrate_working_dir/
+.env
+.env.*
 
 # IntelliJ related
 *.iml
@@ -21,12 +26,13 @@ migrate_working_dir/
 # The .vscode folder contains launch configuration and tasks you configure in
 # VS Code which you may wish to be included in version control, so this line
 # is commented out by default.
-#.vscode/
+.vscode/
 
 # Flutter/Dart/Pub related
 **/doc/api/
 **/ios/Flutter/.last_build_id
 .dart_tool/
+.flutter-plugins
 .flutter-plugins-dependencies
 .pub-cache/
 .pub/
@@ -46,3 +52,5 @@ app.*.map.json
 
 /flask_server/model_files/ana_questionnaire_predictor.pkl
 flask_server/venv/
+node_modules
+.venv/
