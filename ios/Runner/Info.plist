@@ -2,6 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>This app needs microphone access to record your voice for speech analysis.</string>
+
+    <key>NSCameraUsageDescription</key>
+    <string>This app needs camera access for video recording and face emotion analysis.</string>
+
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>This app needs speech recognition to convert your speech to text for analysis.</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
