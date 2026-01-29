@@ -73,17 +73,17 @@ class FirestoreService {
 
       final questions = querySnapshot.docs
           .map((doc) {
-            try {
-              return Question.fromMap(
-                doc.data() as Map<String, dynamic>,
-                doc.id,
-              );
-            } catch (e) {
-              print('❌ Error parsing document ${doc.id}: $e');
-              print('📄 Document data: ${doc.data()}');
-              return null;
-            }
-          })
+        try {
+          return Question.fromMap(
+            doc.data() as Map<String, dynamic>,
+            doc.id,
+          );
+        } catch (e) {
+          print('❌ Error parsing document ${doc.id}: $e');
+          print('📄 Document data: ${doc.data()}');
+          return null;
+        }
+      })
           .where((question) => question != null)
           .cast<Question>()
           .toList();
@@ -207,8 +207,8 @@ class FirestoreService {
       return querySnapshot.docs
           .map(
             (doc) =>
-                UserAnswer.fromMap(doc.data() as Map<String, dynamic>, doc.id),
-          )
+            UserAnswer.fromMap(doc.data() as Map<String, dynamic>, doc.id),
+      )
           .toList();
     } catch (e) {
       print('Error getting all user answers: $e');
@@ -234,7 +234,7 @@ class FirestoreService {
 
   // ============= USER CHARACTERS METHODS =============
 
-  // Save user's predicted characters
+  // Save user's predicted characters - UPDATED with healing status
   Future<void> saveUserCharacters(List<UserCharacter> characters) async {
     try {
       // Delete existing characters for this user
@@ -245,7 +245,12 @@ class FirestoreService {
       if (userId != null) {
         for (final character in characters) {
           final docId = '${userId}_char_${character.rank}';
-          await userCharactersCollection.doc(docId).set(character.toMap());
+          // Save with default isHealed = false (unhealed)
+          await userCharactersCollection.doc(docId).set({
+            ...character.toMap(),
+            'isHealed': false, // Default to unhealed when created
+            'healedAt': null,
+          });
         }
 
         // Update user document to mark questionnaire as completed
@@ -262,7 +267,7 @@ class FirestoreService {
     }
   }
 
-  // Get user's characters
+  // Get ALL user's characters (both healed and unhealed)
   Future<List<UserCharacter>> getUserCharacters() async {
     final userId = currentUserId;
     if (userId == null) return [];
@@ -276,14 +281,96 @@ class FirestoreService {
       return querySnapshot.docs
           .map(
             (doc) => UserCharacter.fromMap(
-              doc.data() as Map<String, dynamic>,
-              doc.id,
-            ),
-          )
+          doc.data() as Map<String, dynamic>,
+          doc.id,
+        ),
+      )
           .toList();
     } catch (e) {
       print('Error getting user characters: $e');
       return [];
+    }
+  }
+
+  // Get only UNHEALED user characters (for home and profile)
+  Future<List<UserCharacter>> getUnhealedCharacters() async {
+    final userId = currentUserId;
+    if (userId == null) return [];
+
+    try {
+      final querySnapshot = await userCharactersCollection
+          .where('userId', isEqualTo: userId)
+          .where('isHealed', isEqualTo: false) // Only unhealed
+          .orderBy('rank')
+          .get();
+
+      return querySnapshot.docs
+          .map(
+            (doc) => UserCharacter.fromMap(
+          doc.data() as Map<String, dynamic>,
+          doc.id,
+        ),
+      )
+          .toList();
+    } catch (e) {
+      print('Error getting unhealed characters: $e');
+      return [];
+    }
+  }
+
+  // Get only HEALED user characters
+  Future<List<UserCharacter>> getHealedCharacters() async {
+    final userId = currentUserId;
+    if (userId == null) return [];
+
+    try {
+      final querySnapshot = await userCharactersCollection
+          .where('userId', isEqualTo: userId)
+          .where('isHealed', isEqualTo: true) // Only healed
+          .orderBy('healedAt', descending: true) // Most recent first
+          .get();
+
+      return querySnapshot.docs
+          .map(
+            (doc) => UserCharacter.fromMap(
+          doc.data() as Map<String, dynamic>,
+          doc.id,
+        ),
+      )
+          .toList();
+    } catch (e) {
+      print('Error getting healed characters: $e');
+      return [];
+    }
+  }
+
+  // Mark a character as healed
+  Future<void> markCharacterAsHealed(String characterId) async {
+    try {
+      await userCharactersCollection.doc(characterId).update({
+        'isHealed': true,
+        'healedAt': DateTime.now().toIso8601String(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      print('✅ Character $characterId marked as healed');
+    } catch (e) {
+      print('Error marking character as healed: $e');
+      throw e;
+    }
+  }
+
+  // Mark a character as unhealed
+  Future<void> markCharacterAsUnhealed(String characterId) async {
+    try {
+      await userCharactersCollection.doc(characterId).update({
+        'isHealed': false,
+        'healedAt': null,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      print('✅ Character $characterId marked as unhealed');
+    } catch (e) {
+      print('Error marking character as unhealed: $e');
+      throw e;
     }
   }
 
@@ -369,6 +456,33 @@ class FirestoreService {
     } catch (e) {
       print('Error getting questionnaire status: $e');
       return {'hasCompleted': false, 'language': 'en'};
+    }
+  }
+
+  // Get healing progress statistics
+  Future<Map<String, dynamic>> getHealingProgress() async {
+    final userId = currentUserId;
+    if (userId == null) return {'total': 0, 'healed': 0, 'unhealed': 0, 'percentage': 0};
+
+    try {
+      final allCharacters = await getUserCharacters();
+      final healedCharacters = await getHealedCharacters();
+      final unhealedCharacters = await getUnhealedCharacters();
+
+      final total = allCharacters.length;
+      final healed = healedCharacters.length;
+      final unhealed = unhealedCharacters.length;
+      final percentage = total > 0 ? (healed / total * 100).round() : 0;
+
+      return {
+        'total': total,
+        'healed': healed,
+        'unhealed': unhealed,
+        'percentage': percentage,
+      };
+    } catch (e) {
+      print('Error getting healing progress: $e');
+      return {'total': 0, 'healed': 0, 'unhealed': 0, 'percentage': 0};
     }
   }
 

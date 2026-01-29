@@ -1,0 +1,28 @@
+{
+  "name": "ana_ifs_app",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "directories": {
+    "lib": "lib",
+    "test": "test"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Mariam-Elbishbeashy/ANA-AN_AI_Powered_Inner_Journey_App.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Mariam-Elbishbeashy/ANA-AN_AI_Powered_Inner_Journey_App/issues"
+  },
+  "homepage": "https://github.com/Mariam-Elbishbeashy/ANA-AN_AI_Powered_Inner_Journey_App#readme",
+  "dependencies": {
+    "firebase-admin": "^13.6.0"
+  }
+}

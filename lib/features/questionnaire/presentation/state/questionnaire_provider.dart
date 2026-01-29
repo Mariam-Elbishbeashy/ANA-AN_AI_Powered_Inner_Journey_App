@@ -68,7 +68,7 @@ class QuestionnaireProvider extends ChangeNotifier {
 
       // Sort questions by questionNumber
       loadedQuestions.sort(
-        (a, b) => a.questionNumber.compareTo(b.questionNumber),
+            (a, b) => a.questionNumber.compareTo(b.questionNumber),
       );
 
       _questions = loadedQuestions;
@@ -272,7 +272,7 @@ class QuestionnaireProvider extends ChangeNotifier {
 
     try {
       return _answers.firstWhere(
-        (answer) => answer.questionNumber == questionNumber,
+            (answer) => answer.questionNumber == questionNumber,
       );
     } catch (e) {
       return null;
@@ -304,7 +304,7 @@ class QuestionnaireProvider extends ChangeNotifier {
     for (var answer in _answers) {
       try {
         final question = _questions.firstWhere(
-          (q) => q.questionNumber == answer.questionNumber,
+              (q) => q.questionNumber == answer.questionNumber,
         );
 
         if (question.isSlider && answer.sliderValue == null) {
@@ -335,14 +335,14 @@ class QuestionnaireProvider extends ChangeNotifier {
         'rank': 1,
         'glbFileName': 'inner_critic.glb',
         'description':
-            'This part helps you stay safe by pointing out potential mistakes.',
+        'This part helps you stay safe by pointing out potential mistakes.',
       },
     ];
   }
 
   Future<List<Map<String, dynamic>>> _callAIModel(
-    Map<String, dynamic> answers,
-  ) async {
+      Map<String, dynamic> answers,
+      ) async {
     try {
       print('🤖 Calling AI model API...');
       final formattedAnswers = _formatAnswersForAI();
@@ -371,15 +371,15 @@ class QuestionnaireProvider extends ChangeNotifier {
     for (final answer in _answers) {
       try {
         final question = _questions.firstWhere(
-          (q) => q.questionNumber == answer.questionNumber,
+              (q) => q.questionNumber == answer.questionNumber,
         );
 
         if (question.isSlider && answer.sliderValue != null) {
           final percentage =
-              ((answer.sliderValue! - (question.minValue ?? 0)) /
-                      ((question.maxValue ?? 100) - (question.minValue ?? 0)) *
-                      100)
-                  .round();
+          ((answer.sliderValue! - (question.minValue ?? 0)) /
+              ((question.maxValue ?? 100) - (question.minValue ?? 0)) *
+              100)
+              .round();
 
           if (percentage <= 20) {
             formatted['Q${answer.questionNumber}'] = '0-20%';
@@ -418,6 +418,8 @@ class QuestionnaireProvider extends ChangeNotifier {
         glbFileName: prediction['glbFileName'],
         description: prediction['description'],
         predictedAt: DateTime.now(),
+        isHealed: false, // All characters start as UNHEALED
+        healedAt: null,
       );
     }).toList();
 
@@ -435,4 +437,3 @@ class QuestionnaireProvider extends ChangeNotifier {
     super.dispose();
   }
 }
-
