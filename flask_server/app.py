@@ -752,5 +752,351 @@ def chat():
             'error': f'Chat error: {str(e)}'
         }), 500
 
+# ============================================================================
+# GUIDER AGENT - Has access to all character conversations
+# ============================================================================
+
+GUIDER_SYSTEM_PROMPT = """
+You are ANA, The Guider - a compassionate companion helping users explore their inner world using Internal Family Systems (IFS) principles.
+
+CRITICAL COMMUNICATION STYLE:
+- Keep responses SHORT (2-4 sentences max)
+- Ask ONE question at a time
+- Walk the user through step by step - don't explain everything at once
+- Be conversational and warm, like a gentle friend
+- Use simple, everyday language
+
+Your approach:
+- Listen first, then reflect back what you heard
+- Guide with curiosity, not lectures
+- One small step at a time
+- Let the user lead the pace
+
+You are NOT a therapist. You are a supportive companion.
+If someone is in crisis, gently encourage them to seek professional help.
+
+You have access to the user's conversations with their inner parts. Use this to personalize your guidance, but don't overwhelm them with information.
+
+PLAN MANAGEMENT RULES (IMPORTANT):
+- Create ONE plan after 3-4 exchanges when you understand the user's focus - then STOP creating new plans
+- After a plan exists, ONLY use update_plan_step to track progress - DO NOT create new plans
+- Only create a NEW plan if: (1) user explicitly shifts to a completely different inner part, OR (2) all steps are completed
+- When user makes progress or has insight: use update_plan_step with status="completed"
+- When user needs more work on a step: use update_plan_step with status="in_progress" and notes
+- CRITICAL: Do NOT create a plan on every message - maximum ONE plan per conversation topic
+- NEVER say the whole plan at once to the user, just walk the user through it step by step
+
+Example good response: "It sounds like your Workaholic has been very active lately. What does it feel like when that part takes over?"
+
+Example bad response: "Your Workaholic is significant because... [long explanation with 4 numbered points]"
+""".strip()
+
+
+def get_all_character_summaries(uid: str) -> Dict[str, str]:
+    """Fetch memory summaries for all characters the user has chatted with."""
+    summaries = {}
+    try:
+        memory_ref = db.collection('users').document(uid).collection('agent_memory')
+        docs = memory_ref.stream()
+        for doc in docs:
+            data = doc.to_dict() or {}
+            summary = data.get('summary', '')
+            if summary:
+                summaries[doc.id] = summary
+    except Exception as e:
+        print(f"[guider] Error fetching character summaries: {e}")
+    return summaries
+
+
+def get_recent_character_messages(uid: str, limit_per_character: int = 5) -> Dict[str, List[Dict]]:
+    """Fetch recent messages from all character chat threads."""
+    all_messages = {}
+    try:
+        threads_ref = db.collection('users').document(uid).collection('chat_threads')
+        threads = threads_ref.where('characterType', '==', 'inner_character').stream()
+        
+        for thread in threads:
+            thread_data = thread.to_dict() or {}
+            character_id = thread_data.get('characterId', 'unknown')
+            
+            # Get recent messages from this thread
+            messages_ref = threads_ref.document(thread.id).collection('messages')
+            recent = messages_ref.order_by('createdAt', direction='DESCENDING').limit(limit_per_character).stream()
+            
+            messages = []
+            for msg in recent:
+                msg_data = msg.to_dict() or {}
+                messages.append({
+                    'role': msg_data.get('role', 'user'),
+                    'content': msg_data.get('content', ''),
+                })
+            
+            if messages:
+                # Reverse to get chronological order
+                all_messages[character_id] = list(reversed(messages))
+    except Exception as e:
+        print(f"[guider] Error fetching character messages: {e}")
+    return all_messages
+
+
+def build_guider_context(uid: str) -> str:
+    """Build context for the Guider from all character conversations."""
+    summaries = get_all_character_summaries(uid)
+    
+    if not summaries:
+        return "The user hasn't had any conversations with their inner parts yet."
+    
+    context_parts = ["Here's what you know about the user's inner parts:\n"]
+    
+    for character_id, summary in summaries.items():
+        display_name = character_id.replace('_', ' ').title()
+        context_parts.append(f"**{display_name}:**\n{summary}\n")
+    
+    return "\n".join(context_parts)
+
+
+def build_guider_system_prompt_with_context(uid: str, guider_memory: str) -> str:
+    """Build the full system prompt for the Guider with user context."""
+    character_context = build_guider_context(uid)
+    
+    prompt = GUIDER_SYSTEM_PROMPT
+    
+    if character_context:
+        prompt += f"\n\n--- USER'S INNER PARTS CONTEXT ---\n{character_context}"
+    
+    if guider_memory:
+        prompt += f"\n\n--- YOUR MEMORY OF THIS USER ---\n{guider_memory}"
+    
+    return prompt
+
+
+def run_guider_agent_step(system_prompt: str, messages: List[Dict[str, str]]) -> Dict[str, Any]:
+    """Run an agent step for the Guider."""
+    agent_messages = [
+        {'role': 'system', 'content': system_prompt},
+        {'role': 'system', 'content': (
+            'Return JSON with keys: "assistantMessage", "toolCalls", "memorySummary". '
+            '"toolCalls" is a list of {name, args}. '
+            '\n\nAvailable tools:'
+            '\n- create_healing_plan: args={title, targetCharacterId (optional), steps (list of step descriptions)}. '
+            'Use ONCE after 3-4 exchanges. DO NOT use again unless topic completely changes or plan is done.'
+            '\n- update_plan_step: args={stepId, status ("completed"/"in_progress"), notes (optional)}. '
+            'Use this to track progress on EXISTING plan steps. This is your main tool after plan is created.'
+            '\n- suggest_character_focus: args={characterId, reason}. '
+            'Use when you identify which inner part needs attention.'
+            '\n- add_timeline_event: args={type, title, summary}. '
+            'Use to record breakthroughs or important moments.'
+            '\n\nIMPORTANT: After creating ONE plan, prefer update_plan_step over create_healing_plan.'
+            '\n\n"memorySummary" should be under 6 bullet points about the user\'s journey.'
+        )},
+    ]
+    
+    for message in messages:
+        role = message.get('role')
+        content = message.get('content', '')
+        if role in ['user', 'assistant'] and content:
+            agent_messages.append({'role': role, 'content': content})
+    
+    response = openai_client.chat.completions.create(
+        model=OPENAI_MODEL,
+        messages=agent_messages,
+        temperature=0.7,
+        response_format={"type": "json_object"},
+    )
+    
+    raw = response.choices[0].message.content or '{}'
+    try:
+        return json.loads(raw)
+    except Exception:
+        return {'assistantMessage': '', 'toolCalls': [], 'memorySummary': ''}
+
+
+def has_active_plan(uid: str) -> bool:
+    """Check if user already has an active plan."""
+    try:
+        plans_ref = db.collection('users').document(uid).collection('plans')
+        active_plans = plans_ref.where('status', '==', 'active').limit(1).stream()
+        for _ in active_plans:
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def run_guider_tool_calls(uid: str, tool_calls: List[Dict[str, Any]]) -> None:
+    """Execute tool calls from the Guider agent."""
+    for call in tool_calls:
+        name = call.get('name')
+        args = call.get('args') or {}
+        print(f"[guider] tool_call: {name} args={args}")
+        
+        if name == 'create_healing_plan':
+            # Only create a new plan if there's no active plan
+            if has_active_plan(uid):
+                print(f"[guider] SKIPPED create_healing_plan - active plan already exists")
+            else:
+                create_healing_plan(uid, args)
+        elif name == 'update_plan_step':
+            update_plan_step(uid, args)
+        elif name == 'suggest_character_focus':
+            # Just log for now, could trigger a notification
+            print(f"[guider] Suggested focus on: {args.get('characterId')} - {args.get('reason')}")
+        elif name == 'add_timeline_event':
+            add_timeline_event(uid, args)
+
+
+def create_healing_plan(uid: str, args: Dict[str, Any]) -> str:
+    """Create a new healing plan for the user."""
+    plans_ref = db.collection('users').document(uid).collection('plans')
+    
+    # Deactivate any existing active plans
+    active_plans = plans_ref.where('status', '==', 'active').stream()
+    for plan in active_plans:
+        plans_ref.document(plan.id).update({'status': 'paused'})
+    
+    # Create new plan
+    steps = args.get('steps', [])
+    plan_steps = [
+        {'id': f'step_{i}', 'description': step, 'status': 'pending'}
+        for i, step in enumerate(steps)
+    ]
+    
+    new_plan = {
+        'title': args.get('title', 'Healing Plan'),
+        'targetCharacterId': args.get('targetCharacterId'),
+        'status': 'active',
+        'steps': plan_steps,
+        'currentStepIndex': 0,
+        'createdAt': firestore.SERVER_TIMESTAMP,
+        'updatedAt': firestore.SERVER_TIMESTAMP,
+    }
+    
+    doc_ref = plans_ref.add(new_plan)
+    print(f"[guider] Created healing plan: {doc_ref[1].id}")
+    return doc_ref[1].id
+
+
+def update_plan_step(uid: str, args: Dict[str, Any]) -> None:
+    """Update a step in the user's active plan."""
+    plans_ref = db.collection('users').document(uid).collection('plans')
+    active_plans = plans_ref.where('status', '==', 'active').limit(1).stream()
+    
+    for plan in active_plans:
+        plan_data = plan.to_dict() or {}
+        steps = plan_data.get('steps', [])
+        step_id = args.get('stepId')
+        new_status = args.get('status', 'completed')
+        notes = args.get('notes', '')
+        
+        for step in steps:
+            if step.get('id') == step_id:
+                step['status'] = new_status
+                if notes:
+                    step['notes'] = notes
+                break
+        
+        # Update current step index if completing
+        current_index = plan_data.get('currentStepIndex', 0)
+        if new_status == 'completed' and current_index < len(steps) - 1:
+            current_index += 1
+        
+        plans_ref.document(plan.id).update({
+            'steps': steps,
+            'currentStepIndex': current_index,
+            'updatedAt': firestore.SERVER_TIMESTAMP,
+        })
+        print(f"[guider] Updated plan step: {step_id} -> {new_status}")
+        break
+
+
+@app.route('/chat_guider', methods=['POST'])
+def chat_guider():
+    """Handle a chat request for The Guider agent."""
+    try:
+        if not os.getenv('OPENAI_API_KEY'):
+            return jsonify({
+                'success': False,
+                'error': 'OPENAI_API_KEY is not set'
+            }), 500
+        
+        data = request.json or {}
+        uid = data.get('uid')
+        if not uid:
+            return jsonify({
+                'success': False,
+                'error': 'uid is required'
+            }), 400
+        
+        messages = data.get('messages') or []
+        
+        # Load guider's memory of this user
+        guider_memory = load_agent_memory_summary(uid, 'guider')
+        
+        # Build system prompt with all character context
+        system_prompt = build_guider_system_prompt_with_context(uid, guider_memory)
+        
+        # Run the guider agent
+        agent_result = run_guider_agent_step(system_prompt, messages)
+        tool_calls = agent_result.get('toolCalls') or []
+        run_guider_tool_calls(uid, tool_calls)
+        
+        assistant_message = agent_result.get('assistantMessage', '')
+        updated_summary = agent_result.get('memorySummary', '')
+        
+        # Update guider's memory
+        if not updated_summary:
+            updated_summary = generate_updated_summary(
+                guider_memory,
+                messages + [{'role': 'assistant', 'content': assistant_message}],
+            )
+        save_agent_memory_summary(uid, 'guider', updated_summary)
+        print(f"[guider] memory_summary_updated: {bool(updated_summary)}")
+        
+        return jsonify({
+            'success': True,
+            'assistantMessage': assistant_message,
+            'toolCalls': tool_calls,
+        })
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': f'Guider error: {str(e)}'
+        }), 500
+
+
+@app.route('/plans/active', methods=['GET'])
+def get_active_plan():
+    """Get the user's active healing plan."""
+    try:
+        uid = request.args.get('uid')
+        if not uid:
+            return jsonify({
+                'success': False,
+                'error': 'uid is required'
+            }), 400
+        
+        plans_ref = db.collection('users').document(uid).collection('plans')
+        active_plans = plans_ref.where('status', '==', 'active').limit(1).stream()
+        
+        for plan in active_plans:
+            plan_data = plan.to_dict() or {}
+            plan_data['id'] = plan.id
+            return jsonify({
+                'success': True,
+                'plan': plan_data,
+            })
+        
+        return jsonify({
+            'success': False,
+            'error': 'No active plan found'
+        }), 404
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': f'Error fetching plan: {str(e)}'
+        }), 500
+
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5001, debug=True)

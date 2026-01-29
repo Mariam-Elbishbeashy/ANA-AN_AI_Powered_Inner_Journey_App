@@ -1,7 +1,11 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 
 import 'package:ana_ifs_app/l10n/app_strings.dart';
 import 'package:ana_ifs_app/core/widgets/shared_widgets.dart';
+import 'package:ana_ifs_app/features/chat/presentation/screens/guider_chat_screen.dart';
+import 'package:ana_ifs_app/features/voice_analysis/presentation/screens/voice_analysis_screen.dart';
 
 class ChatScreen extends StatelessWidget {
   final String name;
@@ -134,7 +138,7 @@ class ChatScreen extends StatelessWidget {
                         number: 1,
                         text: tr(
                           context,
-                          "Say what’s on your mind",
+                          "Say what's on your mind",
                           "قل ما يدور في ذهنك",
                         ),
                       ),
@@ -164,6 +168,39 @@ class ChatScreen extends StatelessWidget {
                       ),
                     ],
                   ),
+                ),
+                const SizedBox(height: 24),
+                // Talk to Me Hub
+                _GuiderCommunicationHub(
+                  onChat: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const GuiderChatScreen(),
+                      ),
+                    );
+                  },
+                  onVoice: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const VoiceAnalysisScreen(
+                          isGuiderMode: true,
+                        ),
+                      ),
+                    );
+                  },
+                  onVideo: () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          tr(
+                            context,
+                            'Video sessions are coming soon.',
+                            'جلسات الفيديو قادمة قريبًا.',
+                          ),
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ],
             ),
@@ -218,6 +255,282 @@ class _InstructionStep extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// Glass Card widget for the communication hub
+class _GlassCard extends StatelessWidget {
+  final Widget child;
+  final EdgeInsetsGeometry padding;
+  final double radius;
+  final Color? accentColor;
+
+  const _GlassCard({
+    required this.child,
+    this.padding = const EdgeInsets.all(16),
+    this.radius = 18,
+    this.accentColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(radius),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+        child: Container(
+          padding: padding,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.white,
+                Colors.white.withOpacity(0.98),
+                const Color(0xFFFDFCFF).withOpacity(0.95),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(radius),
+            border: Border.all(
+              color: accentColor?.withOpacity(0.15) ??
+                  Colors.white.withOpacity(0.95),
+              width: 1.5,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color:
+                    (accentColor ?? const Color(0xFF6A5CFF)).withOpacity(0.08),
+                blurRadius: 20,
+                offset: const Offset(0, 8),
+                spreadRadius: -2,
+              ),
+              BoxShadow(
+                color: Colors.black.withOpacity(0.04),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: child,
+        ),
+      ),
+    );
+  }
+}
+
+// Guider Communication Hub - "Talk to Me" section
+class _GuiderCommunicationHub extends StatelessWidget {
+  final VoidCallback onChat;
+  final VoidCallback onVoice;
+  final VoidCallback onVideo;
+
+  const _GuiderCommunicationHub({
+    required this.onChat,
+    required this.onVoice,
+    required this.onVideo,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return _GlassCard(
+      padding: const EdgeInsets.all(20),
+      radius: 22,
+      accentColor: const Color(0xFF6A5CFF),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [
+                      Color(0xFFB4A3FF),
+                      Color(0xFFA78BFA),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFFA78BFA).withOpacity(0.3),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.chat_bubble_rounded,
+                  color: Colors.white,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                tr(context, 'Talk to Me', 'تحدث معي'),
+                style: const TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w900,
+                  color: Color(0xFF2A1E3B),
+                  letterSpacing: -0.3,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: _HubButton(
+                  icon: Icons.chat_bubble_rounded,
+                  title: tr(context, 'Chat', 'دردشة'),
+                  subtitle: tr(
+                    context,
+                    'Text conversation',
+                    'محادثة نصية',
+                  ),
+                  gradientColors: const [Color(0xFF8E7CFF), Color(0xFF6A5CFF)],
+                  onTap: onChat,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _HubButton(
+                  icon: Icons.mic_rounded,
+                  title: tr(context, 'Voice', 'صوت'),
+                  subtitle: tr(
+                    context,
+                    'Speak freely',
+                    'تحدث بحرية',
+                  ),
+                  gradientColors: const [Color(0xFFA78BFA), Color(0xFF9B7BFF)],
+                  onTap: onVoice,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _HubButton(
+                  icon: Icons.videocam_rounded,
+                  title: tr(context, 'Video', 'فيديو'),
+                  subtitle: tr(
+                    context,
+                    'Coming soon',
+                    'قريبًا',
+                  ),
+                  gradientColors: const [Color(0xFF6A5CFF), Color(0xFF4A3F8F)],
+                  onTap: onVideo,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// Hub Button for the communication options
+class _HubButton extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final List<Color> gradientColors;
+  final VoidCallback onTap;
+
+  const _HubButton({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.gradientColors,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        height: 140,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              gradientColors[0].withOpacity(0.12),
+              gradientColors[1].withOpacity(0.08),
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: gradientColors[0].withOpacity(0.25),
+            width: 1.5,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: gradientColors[0].withOpacity(0.15),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    gradientColors[0].withOpacity(0.75),
+                    gradientColors[1].withOpacity(0.75),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: gradientColors[0].withOpacity(0.3),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Icon(icon, color: Colors.white, size: 24),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w900,
+                color: Color(0xFF2A1E3B),
+                letterSpacing: -0.2,
+              ),
+            ),
+            const SizedBox(height: 3),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Text(
+                subtitle,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                style: TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w600,
+                  color: gradientColors[1].withOpacity(0.8),
+                  height: 1.3,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
