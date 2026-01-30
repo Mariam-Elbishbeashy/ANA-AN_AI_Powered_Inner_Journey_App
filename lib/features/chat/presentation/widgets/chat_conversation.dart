@@ -1,12 +1,17 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import 'package:ana_ifs_app/l10n/app_strings.dart';
 import 'package:ana_ifs_app/features/chat/data/datasources/chat_ai_remote_data_source.dart';
 import 'package:ana_ifs_app/features/chat/data/datasources/chat_remote_data_source.dart';
 import 'package:ana_ifs_app/features/chat/data/datasources/inner_character_local_data_source.dart';
 import 'package:ana_ifs_app/features/chat/data/models/chat_message_model.dart';
 import 'package:ana_ifs_app/features/chat/data/models/chat_thread_model.dart';
+import 'package:ana_ifs_app/features/chat/data/models/guider_intervention_model.dart';
 import 'package:ana_ifs_app/features/chat/data/models/inner_character_profile.dart';
+
+/// Guider avatar path constant
+const String guiderAvatarPath = 'assets/images/characters_full_body/guider.png';
 
 class ChatConversation extends StatefulWidget {
   final String characterId;
@@ -19,6 +24,12 @@ class ChatConversation extends StatefulWidget {
   final bool showHeader;
   final InnerCharacterProfile? characterProfile;
 
+  /// Whether the Guider is currently in the conversation (controlled by parent)
+  final bool isGuiderInChat;
+
+  /// Callback when user wants to invite/remove the Guider
+  final ValueChanged<bool>? onGuiderStateChanged;
+
   const ChatConversation({
     super.key,
     required this.characterId,
@@ -30,6 +41,8 @@ class ChatConversation extends StatefulWidget {
     this.showAssistantAvatar = true,
     this.showHeader = true,
     this.characterProfile,
+    this.isGuiderInChat = false,
+    this.onGuiderStateChanged,
   });
 
   @override
@@ -50,6 +63,10 @@ class _ChatConversationState extends State<ChatConversation> {
   InnerCharacterProfile? _characterProfile;
   bool _isInitializing = true;
   bool _isSending = false;
+
+  // Guider intervention state
+  GuiderInterventionModel? _pendingIntervention;
+  bool _interventionDismissed = false;
 
   @override
   void initState() {
@@ -104,6 +121,7 @@ class _ChatConversationState extends State<ChatConversation> {
     _messageController.clear();
 
     try {
+      // Save user message to Firestore
       await _chatRemoteDataSource.sendMessage(
         uid: user.uid,
         threadId: thread.id,
@@ -112,56 +130,38 @@ class _ChatConversationState extends State<ChatConversation> {
         metadata: {
           'characterId': widget.characterId,
           'sessionId': thread.sessionId,
+          'sender': 'user',
         },
       );
 
-      //Get recent messages from the chat server.
-      //remembers the last 20 messages.
+      // Get recent messages from the chat server
       final recentMessages = await _chatRemoteDataSource.getRecentMessages(
         uid: user.uid,
         threadId: thread.id,
         limit: 20,
       );
 
-      //Build a message payload for the chat server.
-      final messagePayload = recentMessages
-          .map(
-            (message) => {
-              'role': message.role,
-              'content': message.content,
-            },
-          )
-          .toList();
+      // Build a message payload for the chat server
+      final messagePayload = recentMessages.map((message) {
+        final metadata = message.metadata ?? {};
+        return {
+          'role': message.role,
+          'content': message.content,
+          'sender': metadata['sender'] ?? (message.role == 'user' ? 'user' : 'character'),
+        };
+      }).toList();
 
-      //Add the new message to the message payload.
-      if (messagePayload.isEmpty ||
-          messagePayload.last['content'] != text) {
-        messagePayload.add({'role': 'user', 'content': text});
+      // Add the new message if not already present
+      if (messagePayload.isEmpty || messagePayload.last['content'] != text) {
+        messagePayload.add({'role': 'user', 'content': text, 'sender': 'user'});
       }
 
-      //Fetch a chat response from the chat server.
-      final assistantMessage =
-          await _chatAiRemoteDataSource.fetchAssistantMessage(
-        uid: user.uid,
-        threadId: thread.id,
-        sessionId: thread.sessionId,
-        characterId: widget.characterId,
-        characterProfile: _buildCharacterPrompt(),
-        messages: messagePayload,
-      );
-
-      //Send the chat response to the chat server.
-      if (assistantMessage.isNotEmpty) {
-        await _chatRemoteDataSource.sendMessage(
-          uid: user.uid,
-          threadId: thread.id,
-          role: 'assistant',
-          content: assistantMessage,
-          metadata: {
-            'characterId': widget.characterId,
-            'sessionId': thread.sessionId,
-          },
-        );
+      if (widget.isGuiderInChat) {
+        // Use guided chat endpoint when Guider is in the conversation
+        await _sendGuidedMessage(user.uid, thread, messagePayload);
+      } else {
+        // Use regular chat endpoint
+        await _sendRegularMessage(user.uid, thread, messagePayload);
       }
 
       _scrollToBottom();
@@ -177,6 +177,112 @@ class _ChatConversationState extends State<ChatConversation> {
         });
       }
     }
+  }
+
+  /// Send a regular message (character only)
+  Future<void> _sendRegularMessage(
+    String uid,
+    ChatThreadModel thread,
+    List<Map<String, dynamic>> messagePayload,
+  ) async {
+    // Convert to expected type for regular chat
+    final stringPayload = messagePayload
+        .map((m) => {'role': m['role'] as String, 'content': m['content'] as String})
+        .toList();
+
+    final aiResponse = await _chatAiRemoteDataSource.fetchAssistantResponse(
+      uid: uid,
+      threadId: thread.id,
+      sessionId: thread.sessionId,
+      characterId: widget.characterId,
+      characterProfile: _buildCharacterPrompt(),
+      messages: stringPayload,
+      checkIntervention: !_interventionDismissed,
+    );
+
+    // Save character response to Firestore
+    if (aiResponse.assistantMessage.isNotEmpty) {
+      await _chatRemoteDataSource.sendMessage(
+        uid: uid,
+        threadId: thread.id,
+        role: 'assistant',
+        content: aiResponse.assistantMessage,
+        metadata: {
+          'characterId': widget.characterId,
+          'sessionId': thread.sessionId,
+          'sender': 'character',
+        },
+      );
+    }
+
+    // Handle Guider intervention if triggered
+    if (aiResponse.intervention.shouldIntervene && !_interventionDismissed) {
+      setState(() {
+        _pendingIntervention = aiResponse.intervention;
+      });
+    }
+  }
+
+  /// Send a guided message (character + Guider respond)
+  Future<void> _sendGuidedMessage(
+    String uid,
+    ChatThreadModel thread,
+    List<Map<String, dynamic>> messagePayload,
+  ) async {
+    final guidedResponse = await _chatAiRemoteDataSource.fetchGuidedResponse(
+      uid: uid,
+      threadId: thread.id,
+      sessionId: thread.sessionId,
+      characterId: widget.characterId,
+      characterProfile: _buildCharacterPrompt(),
+      messages: messagePayload,
+    );
+
+    // Save character response to Firestore
+    if (guidedResponse.characterMessage.isNotEmpty) {
+      await _chatRemoteDataSource.sendMessage(
+        uid: uid,
+        threadId: thread.id,
+        role: 'assistant',
+        content: guidedResponse.characterMessage,
+        metadata: {
+          'characterId': widget.characterId,
+          'sessionId': thread.sessionId,
+          'sender': 'character',
+        },
+      );
+    }
+
+    // Save Guider response to Firestore
+    if (guidedResponse.guiderMessage.isNotEmpty) {
+      await _chatRemoteDataSource.sendMessage(
+        uid: uid,
+        threadId: thread.id,
+        role: 'assistant',
+        content: guidedResponse.guiderMessage,
+        metadata: {
+          'characterId': 'guider',
+          'sessionId': thread.sessionId,
+          'sender': 'guider',
+        },
+      );
+    }
+  }
+
+  // Dismiss the current intervention (continue alone)
+  void _dismissIntervention() {
+    setState(() {
+      _pendingIntervention = null;
+      _interventionDismissed = true;
+    });
+  }
+
+  // Let the Guider join the conversation
+  void _letGuiderIn() {
+    setState(() {
+      _pendingIntervention = null;
+    });
+    widget.onGuiderStateChanged?.call(true);
   }
 
   //Build a system prompt for the inner character.
@@ -248,6 +354,16 @@ class _ChatConversationState extends State<ChatConversation> {
             title: headerTitle,
             subtitle: headerSubtitle,
           ),
+        // Show Guider intervention card if pending
+        if (_pendingIntervention != null)
+          _GuiderInterventionCard(
+            intervention: _pendingIntervention!,
+            onContinueAlone: _dismissIntervention,
+            onLetGuiderIn: _letGuiderIn,
+          ),
+        // Show Guider joined banner
+        if (widget.isGuiderInChat && _pendingIntervention == null)
+          _GuiderJoinedBanner(),
         Expanded(
           child: StreamBuilder<List<ChatMessageModel>>(
             stream: _chatRemoteDataSource.streamMessages(
@@ -257,8 +373,11 @@ class _ChatConversationState extends State<ChatConversation> {
             builder: (context, snapshot) {
               final messages = snapshot.data ?? [];
               if (messages.isEmpty) {
-                return const Center(
-                  child: Text('Start the conversation when you are ready.'),
+                return Center(
+                  child: Text(
+                    tr(context, 'Start the conversation when you are ready.',
+                        'ابدأ المحادثة عندما تكون مستعدًا.'),
+                  ),
                 );
               }
 
@@ -273,14 +392,24 @@ class _ChatConversationState extends State<ChatConversation> {
                 itemCount: messages.length + (_isSending ? 1 : 0),
                 itemBuilder: (context, index) {
                   if (_isSending && index == messages.length) {
-                    return _TypingBubble(label: headerTitle);
+                    return _TypingBubble(
+                      label: widget.isGuiderInChat
+                          ? tr(context, 'Thinking', 'يفكرون')
+                          : headerTitle,
+                    );
                   }
                   final message = messages[index];
+                  final metadata = message.metadata ?? {};
+                  final sender = metadata['sender'] ?? 
+                      (message.role == 'user' ? 'user' : 'character');
+
                   return _ChatBubble(
                     isUser: message.role == 'user',
+                    isGuider: sender == 'guider',
                     text: message.content,
-                    avatarPath: widget.showAssistantAvatar &&
-                            message.role == 'assistant'
+                    characterAvatarPath: widget.showAssistantAvatar &&
+                            message.role == 'assistant' &&
+                            sender == 'character'
                         ? widget.assistantAvatarPath
                         : null,
                   );
@@ -357,24 +486,81 @@ class _ChatHeader extends StatelessWidget {
   }
 }
 
+/// Banner showing when Guider has joined the conversation
+class _GuiderJoinedBanner extends StatelessWidget {
+  const _GuiderJoinedBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEDE7FF),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFB79CFF).withOpacity(0.3)),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 14,
+            backgroundColor: const Color(0xFFB79CFF),
+            child: ClipOval(
+              child: Image.asset(
+                guiderAvatarPath,
+                width: 28,
+                height: 28,
+                fit: BoxFit.cover,
+                alignment: Alignment.topCenter,
+                errorBuilder: (_, __, ___) => const Icon(
+                  Icons.auto_awesome_rounded,
+                  color: Colors.white,
+                  size: 14,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              tr(context, 'The Guider is here to help',
+                  'المُرشد هنا للمساعدة'),
+              style: const TextStyle(
+                fontSize: 13,
+                color: Color(0xFF6B5C82),
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 //Bubble for the chat conversation.
 class _ChatBubble extends StatelessWidget {
   final bool isUser;
+  final bool isGuider;
   final String text;
-  final String? avatarPath;
+  final String? characterAvatarPath;
 
   const _ChatBubble({
     required this.isUser,
     required this.text,
-    this.avatarPath,
+    this.isGuider = false,
+    this.characterAvatarPath,
   });
 
   @override
   Widget build(BuildContext context) {
-    final bubbleColor = Colors.white;
+    final bubbleColor = isGuider 
+        ? const Color(0xFFF3EFFF) // Slightly different for Guider
+        : Colors.white;
     final textColor = const Color(0xFF2A1E3B);
     final alignment = isUser ? Alignment.centerRight : Alignment.centerLeft;
     final radius = BorderRadius.circular(18);
+    
     final bubble = Container(
       margin: const EdgeInsets.symmetric(vertical: 6),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -384,7 +570,11 @@ class _ChatBubble extends StatelessWidget {
       decoration: BoxDecoration(
         color: bubbleColor,
         borderRadius: radius,
-        border: Border.all(color: const Color(0xFFE5DEFF)),
+        border: Border.all(
+          color: isGuider 
+              ? const Color(0xFFB79CFF) 
+              : const Color(0xFFE5DEFF),
+        ),
       ),
       child: Text(
         text,
@@ -392,7 +582,40 @@ class _ChatBubble extends StatelessWidget {
       ),
     );
 
-    if (!isUser && avatarPath != null) {
+    // Guider messages with Guider avatar
+    if (!isUser && isGuider) {
+      return Align(
+        alignment: alignment,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            CircleAvatar(
+              radius: 20,
+              backgroundColor: const Color(0xFFB79CFF),
+              child: ClipOval(
+                child: Image.asset(
+                  guiderAvatarPath,
+                  width: 40,
+                  height: 40,
+                  fit: BoxFit.cover,
+                  alignment: Alignment.topCenter,
+                  errorBuilder: (_, __, ___) => const Icon(
+                    Icons.auto_awesome_rounded,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Flexible(child: bubble),
+          ],
+        ),
+      );
+    }
+
+    // Character messages with character avatar
+    if (!isUser && characterAvatarPath != null) {
       return Align(
         alignment: alignment,
         child: Row(
@@ -403,7 +626,7 @@ class _ChatBubble extends StatelessWidget {
               backgroundColor: const Color(0xFFEDE7FF),
               child: ClipOval(
                 child: Image.asset(
-                  avatarPath!,
+                  characterAvatarPath!,
                   width: 40,
                   height: 40,
                   fit: BoxFit.contain,
@@ -435,9 +658,9 @@ class _TypingBubble extends StatelessWidget {
     return Align(
       alignment: Alignment.centerLeft,
       child: Padding(
-        padding: EdgeInsets.symmetric(vertical: 6),
+        padding: const EdgeInsets.symmetric(vertical: 6),
         child: Text(
-          '$label is thinking...',
+          '$label...',
           style: const TextStyle(color: Color(0xFF6B5C82)),
         ),
       ),
@@ -446,7 +669,6 @@ class _TypingBubble extends StatelessWidget {
 }
 
 //Input for the chat conversation.
-//Allows the user to type and send messages to the chat server.
 class _ChatInput extends StatelessWidget {
   final TextEditingController controller;
   final bool isSending;
@@ -475,13 +697,14 @@ class _ChatInput extends StatelessWidget {
                 minLines: 1,
                 maxLines: 5,
                 textInputAction: TextInputAction.newline,
-                decoration: const InputDecoration(
-                  hintText: 'Share what is on your mind...',
-                  border: OutlineInputBorder(
+                decoration: InputDecoration(
+                  hintText: tr(context, 'Share what is on your mind...',
+                      'شاركني ما يدور في ذهنك...'),
+                  border: const OutlineInputBorder(
                     borderRadius: BorderRadius.all(Radius.circular(20)),
                   ),
                   contentPadding:
-                      EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 ),
               ),
             ),
@@ -506,6 +729,161 @@ class _ChatInput extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Guider intervention card shown when the Guider detects the user may need support.
+class _GuiderInterventionCard extends StatelessWidget {
+  final GuiderInterventionModel intervention;
+  final VoidCallback onContinueAlone;
+  final VoidCallback onLetGuiderIn;
+
+  const _GuiderInterventionCard({
+    required this.intervention,
+    required this.onContinueAlone,
+    required this.onLetGuiderIn,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // Different styling based on severity
+    final isCrisis = intervention.isCrisis;
+    final backgroundColor = isCrisis
+        ? const Color(0xFFFFF3E0) // Warmer orange for crisis
+        : const Color(0xFFEDE7FF); // Soft purple for normal
+    final borderColor = isCrisis
+        ? const Color(0xFFFFB74D)
+        : const Color(0xFFB79CFF);
+    final iconColor = isCrisis
+        ? const Color(0xFFFF9800)
+        : const Color(0xFF8B7EC8);
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: borderColor, width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: borderColor.withOpacity(0.2),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 18,
+                backgroundColor: borderColor,
+                child: ClipOval(
+                  child: Image.asset(
+                    guiderAvatarPath,
+                    width: 36,
+                    height: 36,
+                    fit: BoxFit.cover,
+                    alignment: Alignment.topCenter,
+                    errorBuilder: (_, __, ___) => Icon(
+                      isCrisis ? Icons.favorite_rounded : Icons.auto_awesome_rounded,
+                      color: Colors.white,
+                      size: 18,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  tr(context, 'The Guider', 'المُرشد'),
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: iconColor,
+                  ),
+                ),
+              ),
+              GestureDetector(
+                onTap: onContinueAlone,
+                child: Icon(
+                  Icons.close_rounded,
+                  color: iconColor.withOpacity(0.6),
+                  size: 20,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            intervention.guiderMessage ?? tr(
+              context,
+              'I\'m here if you want to talk.',
+              'أنا هنا إن أردت التحدث.',
+            ),
+            style: const TextStyle(
+              fontSize: 14,
+              color: Color(0xFF2A1E3B),
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: onContinueAlone,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: iconColor,
+                    side: BorderSide(color: borderColor),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                  ),
+                  child: Text(
+                    tr(context, 'It\'s okay, continue alone', 
+                        'لا بأس، استمر بمفردي'),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: onLetGuiderIn,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: borderColor,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                  ),
+                  child: Text(
+                    tr(context, 'Let the Guider in', 
+                        'دع المُرشد يدخل'),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

@@ -20,6 +20,9 @@ class _CharacterChatScreenState extends State<CharacterChatScreen> {
   final _characterDataSource = InnerCharacterLocalDataSource();
   late final String _assistantAvatarPath;
 
+  // Guider state - whether the Guider is currently in the conversation
+  bool _isGuiderInChat = false;
+
   @override
   void initState() {
     super.initState();
@@ -27,6 +30,7 @@ class _CharacterChatScreenState extends State<CharacterChatScreen> {
     _assistantAvatarPath =
         _getImagePathForCharacter(widget.character.characterName);
   }
+
   String _getImagePathForCharacter(String characterName) {
     final imageMap = {
       'Inner Critic': 'inner_critic.png',
@@ -67,7 +71,6 @@ class _CharacterChatScreenState extends State<CharacterChatScreen> {
     return 'assets/images/inner_critic.png';
   }
 
-
   Future<InnerCharacterProfile?> _loadCharacterProfile() {
     final primaryName = widget.character.displayName;
     final secondaryName = widget.character.characterName;
@@ -84,6 +87,37 @@ class _CharacterChatScreenState extends State<CharacterChatScreen> {
         ? name.substring(4)
         : name;
     return tr(context, 'Your $normalized', '$normalized الخاص بك');
+  }
+
+  /// Show modal to invite or remove the Guider
+  void _showGuiderModal() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _GuiderModal(
+        isGuiderInChat: _isGuiderInChat,
+        characterName: widget.character.displayName,
+        onInviteGuider: () {
+          Navigator.pop(context);
+          setState(() {
+            _isGuiderInChat = true;
+          });
+        },
+        onRemoveGuider: () {
+          Navigator.pop(context);
+          setState(() {
+            _isGuiderInChat = false;
+          });
+        },
+      ),
+    );
+  }
+
+  /// Handle Guider state change from ChatConversation
+  void _handleGuiderStateChanged(bool isGuiderIn) {
+    setState(() {
+      _isGuiderInChat = isGuiderIn;
+    });
   }
 
   @override
@@ -125,9 +159,10 @@ class _CharacterChatScreenState extends State<CharacterChatScreen> {
                         ),
                       ),
                     ),
-                    _CircleIconButton(
-                      icon: Icons.menu_rounded,
-                      onTap: () {},
+                    // Guider icon button (replaces menu)
+                    _GuiderIconButton(
+                      isGuiderInChat: _isGuiderInChat,
+                      onTap: _showGuiderModal,
                     ),
                   ],
                 ),
@@ -153,6 +188,8 @@ class _CharacterChatScreenState extends State<CharacterChatScreen> {
                       assistantAvatarPath: _assistantAvatarPath,
                       showHeader: false,
                       characterProfile: profile,
+                      isGuiderInChat: _isGuiderInChat,
+                      onGuiderStateChanged: _handleGuiderStateChanged,
                     );
                   },
                 ),
@@ -203,6 +240,232 @@ class _CircleIconButton extends StatelessWidget {
           ],
         ),
         child: Icon(icon, color: const Color(0xFF2A1E3B)),
+      ),
+    );
+  }
+}
+
+/// Guider icon button that shows the Guider avatar
+class _GuiderIconButton extends StatelessWidget {
+  final bool isGuiderInChat;
+  final VoidCallback onTap;
+
+  const _GuiderIconButton({
+    required this.isGuiderInChat,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 44,
+        height: 44,
+        decoration: BoxDecoration(
+          color: isGuiderInChat 
+              ? const Color(0xFFB79CFF) 
+              : Colors.white,
+          shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(
+              color: isGuiderInChat
+                  ? const Color(0xFFB79CFF).withOpacity(0.3)
+                  : Colors.black.withOpacity(0.06),
+              blurRadius: 12,
+              offset: const Offset(0, 6),
+            ),
+          ],
+          border: isGuiderInChat
+              ? Border.all(color: const Color(0xFF9B7BFF), width: 2)
+              : null,
+        ),
+        child: ClipOval(
+          child: Image.asset(
+            guiderAvatarPath,
+            width: 44,
+            height: 44,
+            fit: BoxFit.cover,
+            alignment: Alignment.topCenter,
+            errorBuilder: (_, __, ___) => Icon(
+              Icons.auto_awesome_rounded,
+              color: isGuiderInChat ? Colors.white : const Color(0xFF2A1E3B),
+              size: 22,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Modal for inviting or removing the Guider
+class _GuiderModal extends StatelessWidget {
+  final bool isGuiderInChat;
+  final String characterName;
+  final VoidCallback onInviteGuider;
+  final VoidCallback onRemoveGuider;
+
+  const _GuiderModal({
+    required this.isGuiderInChat,
+    required this.characterName,
+    required this.onInviteGuider,
+    required this.onRemoveGuider,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFB79CFF).withOpacity(0.2),
+            blurRadius: 20,
+            offset: const Offset(0, -4),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Handle bar
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: const Color(0xFFE5DEFF),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 20),
+            // Guider avatar
+            CircleAvatar(
+              radius: 40,
+              backgroundColor: const Color(0xFFB79CFF),
+              child: ClipOval(
+                child: Image.asset(
+                  guiderAvatarPath,
+                  width: 80,
+                  height: 80,
+                  fit: BoxFit.cover,
+                  alignment: Alignment.topCenter,
+                  errorBuilder: (_, __, ___) => const Icon(
+                    Icons.auto_awesome_rounded,
+                    color: Colors.white,
+                    size: 36,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              tr(context, 'The Guider', 'المُرشد'),
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF2A1E3B),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              isGuiderInChat
+                  ? tr(
+                      context,
+                      'The Guider is currently in this conversation, helping you and your $characterName understand each other better.',
+                      'المُرشد موجود حاليًا في هذه المحادثة، يساعدك أنت و$characterName على فهم بعضكم البعض بشكل أفضل.',
+                    )
+                  : tr(
+                      context,
+                      'Would you like The Guider to join this conversation? They can help you and your $characterName communicate with more clarity and compassion.',
+                      'هل تريد أن ينضم المُرشد إلى هذه المحادثة؟ يمكنه مساعدتك أنت و$characterName على التواصل بوضوح وتعاطف أكبر.',
+                    ),
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 15,
+                color: Color(0xFF6B5C82),
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 24),
+            if (isGuiderInChat)
+              // Remove Guider button
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                  onPressed: onRemoveGuider,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF8B7EC8),
+                    side: const BorderSide(color: Color(0xFFB79CFF)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  child: Text(
+                    tr(context, 'Continue without The Guider', 
+                        'استمر بدون المُرشد'),
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              )
+            else
+              // Invite Guider buttons
+              Column(
+                children: [
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: onInviteGuider,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFB79CFF),
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                      child: Text(
+                        tr(context, 'Yes, invite The Guider', 
+                            'نعم، ادعُ المُرشد'),
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: TextButton.styleFrom(
+                        foregroundColor: const Color(0xFF8B7EC8),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                      child: Text(
+                        tr(context, 'Not now', 'ليس الآن'),
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            SizedBox(height: MediaQuery.of(context).padding.bottom),
+          ],
+        ),
       ),
     );
   }
