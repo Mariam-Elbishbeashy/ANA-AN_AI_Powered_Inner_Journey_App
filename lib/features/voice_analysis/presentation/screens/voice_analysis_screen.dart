@@ -5,9 +5,17 @@ import 'package:ana_ifs_app/l10n/app_strings.dart';
 import 'package:ana_ifs_app/features/character/domain/entities/user_character.dart';
 
 class VoiceAnalysisScreen extends StatefulWidget {
-  final UserCharacter character;
+  /// The character to chat with (null if guider mode)
+  final UserCharacter? character;
+  
+  /// Whether this is guider mode (vs character mode)
+  final bool isGuiderMode;
 
-  const VoiceAnalysisScreen({super.key, required this.character});
+  const VoiceAnalysisScreen({
+    super.key,
+    this.character,
+    this.isGuiderMode = false,
+  });
 
   @override
   State<VoiceAnalysisScreen> createState() => _VoiceAnalysisScreenState();
@@ -38,7 +46,10 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
   }
 
   String _getTitle(BuildContext context) {
-    final name = widget.character.displayName.trim();
+    if (widget.isGuiderMode) {
+      return tr(context, 'The Guider', 'المُرشد');
+    }
+    final name = widget.character?.displayName.trim() ?? 'Inner Part';
     final normalized = name.toLowerCase().startsWith('the ')
         ? name.substring(4)
         : name;
@@ -94,7 +105,9 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
                       ),
                     ),
                     _CircleIconButton(
-                      icon: Icons.menu_rounded,
+                      icon: widget.isGuiderMode 
+                          ? Icons.auto_awesome_rounded 
+                          : Icons.menu_rounded,
                       onTap: () {},
                     ),
                   ],

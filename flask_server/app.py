@@ -6,14 +6,14 @@ import numpy as np
 from typing import Dict, List
 import traceback
 
-app = Flask(__name__)
+app = Flask(_name_)
 CORS(app)  # Enable CORS for Flutter app
 
 # Load your trained model
 MODEL_PATH = 'model_files/ana_questionnaire_predictor.pkl'
 
 class AIPredictor:
-    def __init__(self):
+    def _init_(self):
         print("Loading AI model...")
         with open(MODEL_PATH, 'rb') as f:
             self.model_data = pickle.load(f)
@@ -164,7 +164,7 @@ class AIPredictor:
         for q, options in key_options.items():
             if q in df_input.columns:
                 for option in options:
-                    col_name = f'{q}_opt_{option}'
+                    col_name = f'{q}opt{option}'
                     features[col_name] = df_input[q].apply(
                         lambda x: 1 if option in str(x).split(',') else 0
                     )
@@ -475,5 +475,5 @@ def predict():
             'error': f'Server error: {str(e)}'
         }), 500
 
-if __name__ == '__main__':
+if _name_ == '_main_':
     app.run(host='0.0.0.0', port=5000, debug=True)

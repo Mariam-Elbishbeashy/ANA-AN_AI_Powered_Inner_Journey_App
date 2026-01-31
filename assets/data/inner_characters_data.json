@@ -502,5 +502,157 @@
       "مرونة",
       "إذن بالتخفف"
     ]
+  },
+  {
+    "id": "confused",
+    "displayName": "The Confused Part",
+    "displayNameAr": "المُرتبك",
+    "role": "Exile",
+    "shortDescription": "Feels lost and unsure about what to think or do.",
+    "shortDescriptionAr": "يشعر بالضياع وعدم اليقين بشأن ما يجب التفكير فيه أو فعله.",
+    "whyIExist": "I appear when too many messages, emotions, or expectations collide, leaving no clear direction.",
+    "whyIExistAr": "أظهر عندما تتصادم الرسائل والمشاعر والتوقعات، فلا يبقى اتجاه واضح.",
+    "triggers": ["Contradicting advice", "Major decisions", "Emotional overload"],
+    "triggersAr": ["نصائح متضاربة", "قرارات مصيرية", "إرهاق عاطفي"],
+    "coreBelief": "I don’t know what’s right.",
+    "coreBeliefAr": "لا أعرف ما هو الصواب.",
+    "intention": "To pause action until clarity appears.",
+    "intentionAr": "إيقاف الحركة حتى تتضح الرؤية.",
+    "fear": "Making the wrong choice.",
+    "fearAr": "اتخاذ القرار الخاطئ.",
+    "howIShowUp": [
+      "Indecision",
+      "Overthinking",
+      "Seeking constant reassurance"
+    ],
+    "howIShowUpAr": [
+      "تردد",
+      "تفكير مفرط",
+      "بحث دائم عن الطمأنة"
+    ],
+    "whatINeed": [
+      "Clarity",
+      "Grounding",
+      "Gentle guidance"
+    ],
+    "whatINeedAr": [
+      "وضوح",
+      "تأريض",
+      "إرشاد لطيف"
+    ]
+  },
+  {
+    "id": "dependent",
+    "displayName": "The Dependent Part",
+    "displayNameAr": "المُعتمد",
+    "role": "Exile",
+    "shortDescription": "Relies heavily on others for safety and decisions.",
+    "shortDescriptionAr": "يعتمد بشدة على الآخرين للشعور بالأمان واتخاذ القرارات.",
+    "whyIExist": "I learned that survival came from attachment and leaning on others.",
+    "whyIExistAr": "تعلمت أن البقاء يأتي من التعلّق والاعتماد على الآخرين.",
+    "triggers": ["Separation", "Being alone", "Responsibility"],
+    "triggersAr": ["الانفصال", "الوحدة", "تحمّل المسؤولية"],
+    "coreBelief": "I can’t do this alone.",
+    "coreBeliefAr": "لا أستطيع فعل هذا وحدي.",
+    "intention": "To stay connected and protected.",
+    "intentionAr": "البقاء متصلًا ومحميًا.",
+    "fear": "Abandonment.",
+    "fearAr": "الهجر.",
+    "howIShowUp": [
+      "Clinging",
+      "Difficulty making decisions",
+      "Fear of independence"
+    ],
+    "howIShowUpAr": [
+      "تعلّق",
+      "صعوبة اتخاذ القرار",
+      "الخوف من الاستقلال"
+    ],
+    "whatINeed": [
+      "Reassurance",
+      "Gradual autonomy",
+      "Support without control"
+    ],
+    "whatINeedAr": [
+      "طمأنة",
+      "استقلال تدريجي",
+      "دعم دون سيطرة"
+    ]
+  },
+  {
+    "id": "excessive_gamer",
+    "displayName": "The Excessive Gamer",
+    "displayNameAr": "الهارب للألعاب",
+    "role": "Firefighter",
+    "shortDescription": "Escapes reality through gaming and digital immersion.",
+    "shortDescriptionAr": "يهرب من الواقع عبر الألعاب والانغماس الرقمي.",
+    "whyIExist": "I pull you into virtual worlds when real life feels overwhelming or painful.",
+    "whyIExistAr": "أسحبك إلى عوالم افتراضية عندما تصبح الحياة الواقعية مؤلمة أو مُرهِقة.",
+    "triggers": ["Stress", "Loneliness", "Emotional pain"],
+    "triggersAr": ["التوتر", "الوحدة", "الألم العاطفي"],
+    "coreBelief": "Reality is too much.",
+    "coreBeliefAr": "الواقع أكثر مما يُحتمل.",
+    "intention": "To distract and numb discomfort.",
+    "intentionAr": "تشتيت وتخدير الانزعاج.",
+    "fear": "Facing real-life emotions.",
+    "fearAr": "مواجهة مشاعر الحياة الواقعية.",
+    "howIShowUp": [
+      "Excessive gaming",
+      "Avoiding responsibilities",
+      "Loss of time awareness"
+    ],
+    "howIShowUpAr": [
+      "إفراط في اللعب",
+      "تجنّب المسؤوليات",
+      "فقدان الإحساس بالوقت"
+    ],
+    "whatINeed": [
+      "Healthier escape outlets",
+      "Balance",
+      "Emotional safety"
+    ],
+    "whatINeedAr": [
+      "مخارج هروب أكثر صحة",
+      "توازن",
+      "أمان عاطفي"
+    ]
+  },
+  {
+    "id": "neglected",
+    "displayName": "The Neglected Part",
+    "displayNameAr": "المُهمَل",
+    "role": "Exile",
+    "shortDescription": "Carries the pain of being unseen or emotionally ignored.",
+    "shortDescriptionAr": "يحمل ألم عدم الرؤية أو التجاهل العاطفي.",
+    "whyIExist": "I formed when my needs were consistently overlooked.",
+    "whyIExistAr": "تكوّنت عندما تم تجاهل احتياجاتي باستمرار.",
+    "triggers": ["Being ignored", "Emotional distance"],
+    "triggersAr": ["التجاهل", "البرود العاطفي"],
+    "coreBelief": "My needs don’t matter.",
+    "coreBeliefAr": "احتياجاتي لا تهم.",
+    "intention": "To be noticed.",
+    "intentionAr": "أن أُلاحظ.",
+    "fear": "Permanent invisibility.",
+    "fearAr": "اللاوجود الدائم.",
+    "howIShowUp": [
+      "Withdrawal",
+      "Emotional shutdown",
+      "Quiet sadness"
+    ],
+    "howIShowUpAr": [
+      "انسحاب",
+      "انطفاء عاطفي",
+      "حزن صامت"
+    ],
+    "whatINeed": [
+      "Attention",
+      "Validation",
+      "Consistent care"
+    ],
+    "whatINeedAr": [
+      "اهتمام",
+      "تأكيد القيمة",
+      "رعاية مستمرة"
+    ]
   }
 ]

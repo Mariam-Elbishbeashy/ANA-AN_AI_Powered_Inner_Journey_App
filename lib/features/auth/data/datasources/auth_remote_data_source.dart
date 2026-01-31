@@ -18,9 +18,15 @@ class AuthRemoteDataSource {
       email: email,
       password: password,
     );
-    final uid = credential.user?.uid;
+    final user = credential.user;
+    final uid = user?.uid;
     if (uid != null) {
-      await _userInitializationService.ensureUserInitialized(uid);
+      await _userInitializationService.ensureUserInitialized(
+        uid,
+        email: user?.email,
+        displayName: user?.displayName,
+        photoUrl: user?.photoURL,
+      );
     }
     return credential;
   }
@@ -33,18 +39,30 @@ class AuthRemoteDataSource {
       email: email,
       password: password,
     );
-    final uid = credential.user?.uid;
+    final user = credential.user;
+    final uid = user?.uid;
     if (uid != null) {
-      await _userInitializationService.ensureUserInitialized(uid);
+      await _userInitializationService.ensureUserInitialized(
+        uid,
+        email: user?.email,
+        displayName: user?.displayName,
+        photoUrl: user?.photoURL,
+      );
     }
     return credential;
   }
 
   Future<UserCredential> signInWithGoogle() async {
     final credential = await _authService.signInWithGoogle();
-    final uid = credential.user?.uid;
+    final user = credential.user;
+    final uid = user?.uid;
     if (uid != null) {
-      await _userInitializationService.ensureUserInitialized(uid);
+      await _userInitializationService.ensureUserInitialized(
+        uid,
+        email: user?.email,
+        displayName: user?.displayName,
+        photoUrl: user?.photoURL,
+      );
     }
     return credential;
   }

@@ -28,6 +28,9 @@ class _SignUpScreenState extends State<SignUpScreen> {
   late final _signUp = SignUp(_authRepository);
   // Form key and controllers manage validation + inputs.
   final _formKey = GlobalKey<FormState>();
+  final _firstName = TextEditingController();
+  final _lastName = TextEditingController();
+  final _birthdate = TextEditingController();
   final _email = TextEditingController();
   final _pass = TextEditingController();
   final _confirm = TextEditingController();
@@ -44,6 +47,36 @@ class _SignUpScreenState extends State<SignUpScreen> {
   set _emailError(String? value) => _emailServerError = value;
   String? get _passError => _passServerError;
   set _passError(String? value) => _passServerError = value;
+
+  Future<void> _pickBirthdate() async {
+    FocusScope.of(context).unfocus();
+    final now = DateTime.now();
+    final initial = DateTime(now.year - 20, now.month, now.day);
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(1900),
+      lastDate: now,
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Color(0xFF8E7CFF),
+              onPrimary: Colors.white,
+              onSurface: Color(0xFF2E2442),
+            ),
+          ),
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
+    );
+    if (picked == null) return;
+    final value =
+        '${picked.year.toString().padLeft(4, '0')}-'
+        '${picked.month.toString().padLeft(2, '0')}-'
+        '${picked.day.toString().padLeft(2, '0')}';
+    setState(() => _birthdate.text = value);
+  }
 
   void _snack(String msg) {
     // Lightweight feedback for non-field errors.
@@ -64,6 +97,9 @@ class _SignUpScreenState extends State<SignUpScreen> {
     if (!(_formKey.currentState?.validate() ?? false)) {
       return;
     }
+    final firstName = _firstName.text.trim();
+    final lastName = _lastName.text.trim();
+    final birthdate = _birthdate.text.trim();
     final email = _email.text.trim();
     final pass = _pass.text;
     final confirm = _confirm.text;
@@ -72,8 +108,22 @@ class _SignUpScreenState extends State<SignUpScreen> {
     setState(() => _loading = true);
     var navigated = false;
     try {
-      await _signUp(email: email, password: pass)
+      final credential = await _signUp(email: email, password: pass)
           .timeout(const Duration(seconds: 20));
+
+      // Save profile fields for the new user.
+      final user = credential.user;
+      if (user != null) {
+        await _firestoreService.updateCurrentUserProfile(
+          firstName: firstName,
+          lastName: lastName.isEmpty ? null : lastName,
+          birthdate: birthdate.isEmpty ? null : birthdate,
+        );
+
+        final displayName =
+            lastName.isEmpty ? firstName : '$firstName $lastName';
+        await user.updateDisplayName(displayName.trim());
+      }
 
       // After signup, start the questionnaire flow.
       if (!mounted) return;
@@ -176,6 +226,9 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
   @override
   void dispose() {
+    _firstName.dispose();
+    _lastName.dispose();
+    _birthdate.dispose();
     _email.dispose();
     _pass.dispose();
     _confirm.dispose();
@@ -275,6 +328,40 @@ class _SignUpScreenState extends State<SignUpScreen> {
                           autovalidateMode: AutovalidateMode.onUserInteraction,
                           child: Column(
                             children: [
+                              _buildTextField(
+                                _firstName,
+                                tr(context, "First name", "الاسم الأول"),
+                                Icons.person_outline_rounded,
+                                false,
+                                validator: (value) {
+                                  final text = value?.trim() ?? "";
+                                  if (text.isEmpty) {
+                                    return tr(
+                                      context,
+                                      "First name is required.",
+                                      "الاسم الأول مطلوب.",
+                                    );
+                                  }
+                                  return null;
+                                },
+                              ),
+                              const SizedBox(height: 12),
+                              _buildTextField(
+                                _lastName,
+                                tr(context, "Last name (optional)", "اسم العائلة (اختياري)"),
+                                Icons.badge_outlined,
+                                false,
+                              ),
+                              const SizedBox(height: 12),
+                              _buildTextField(
+                                _birthdate,
+                                tr(context, "Birthdate (optional)", "تاريخ الميلاد (اختياري)"),
+                                Icons.cake_outlined,
+                                true,
+                                readOnly: true,
+                                onTap: _pickBirthdate,
+                              ),
+                              const SizedBox(height: 12),
                               _buildTextField(
                                 _email,
                                 tr(context, "Email address", "البريد الإلكتروني"),
@@ -503,6 +590,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
     TextInputType? keyboardType,
     List<String>? autofillHints,
     ValueChanged<String>? onChanged,
+    bool readOnly = false,
+    VoidCallback? onTap,
   }) {
     // Shared styling for auth text fields.
     return TextFormField(
@@ -517,6 +606,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
       enableSuggestions: !obscure,
       autocorrect: !obscure,
       onChanged: onChanged,
+      readOnly: readOnly,
+      onTap: onTap,
       decoration: InputDecoration(
         prefixIcon: Icon(icon),
         suffixIcon: suffix,
