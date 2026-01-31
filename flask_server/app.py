@@ -7,10 +7,16 @@ import pandas as pd
 import numpy as np
 from typing import Dict, List, Any
 import traceback
+import base64
+import traceback
+import re
+from werkzeug.utils import secure_filename
 
 import firebase_admin
 from firebase_admin import credentials, firestore
 from openai import OpenAI
+import base64
+from io import BytesIO
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for Flutter app
@@ -19,6 +25,8 @@ CORS(app)  # Enable CORS for Flutter app
 MODEL_PATH = 'model_files/ana_questionnaire_predictor.pkl'
 OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-4o-mini')
 OPENAI_SUMMARY_MODEL = os.getenv('OPENAI_SUMMARY_MODEL', 'gpt-4o-mini')
+OPENAI_TRANSCRIBE_MODEL = os.getenv("OPENAI_TRANSCRIBE_MODEL", "gpt-4o-mini-transcribe")
+OPENAI_TTS_MODEL = os.getenv("OPENAI_TTS_MODEL", "gpt-4o-mini-tts")
 openai_client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
 #Initialize Firebase Admin SDK.
@@ -465,7 +473,177 @@ except Exception as e:
 
 @app.route('/health', methods=['GET'])
 def health_check():
-    return jsonify({'status': 'healthy', 'model_loaded': True, 'characters': len(predictor.idx_to_char)})
+    return jsonify({
+        'status': 'healthy',
+        'model_loaded': predictor is not None,
+        'predictor_error': predictor_error,
+        'characters': len(predictor.idx_to_char) if predictor else 0
+    })
+
+@app.route('/voice/turn', methods=['POST'])
+def voice_turn():
+    try:
+        if not os.getenv("OPENAI_API_KEY"):
+            return jsonify({"success": False, "error": "OPENAI_API_KEY is not set"}), 500
+
+        if "file" not in request.files:
+            return jsonify({"success": False, "error": "Missing audio file field 'file'"}), 400
+
+        # ✅ DEFINE uploaded FIRST
+        uploaded = request.files["file"]
+        print("[voice/turn] filename:", uploaded.filename, "content_type:", uploaded.content_type)
+        # 🔍 DEBUG FILE SIZE
+        uploaded.stream.seek(0, os.SEEK_END)
+        size = uploaded.stream.tell()
+        uploaded.stream.seek(0, 0)
+        print(f"[voice/turn] received audio: {size} bytes")
+
+        if size < 4000:
+            reply_text = "I didn’t catch that. Can you say it again?"
+
+            audio = openai_client.audio.speech.create(
+                model=OPENAI_TTS_MODEL,
+                voice="alloy",
+                input=reply_text,
+                response_format="wav",
+            )
+            wav_bytes = audio.read()
+            wav_b64 = base64.b64encode(wav_bytes).decode("utf-8")
+
+            return jsonify({
+                "success": True,
+                "transcript": "",
+                "reply_text": reply_text,
+                "reply_audio_wav_base64": wav_b64,
+            })
+
+        # -----------------------
+        # 1️⃣ TRANSCRIBE
+        # -----------------------
+        uploaded.stream.seek(0)
+        audio_bytes = uploaded.read()
+        t = openai_client.audio.transcriptions.create(
+            model=OPENAI_TRANSCRIBE_MODEL,
+            file=uploaded,
+        )
+        transcript = (t.text or "").strip()
+        print("[voice/turn] transcript:", transcript)
+
+        if not transcript:
+            transcript = "I’m here."
+
+        # -----------------------
+        # 2️⃣ AI RESPONSE
+        # -----------------------
+        resp = openai_client.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=[
+                {"role": "system", "content": "You are a warm, human voice companion."},
+                {"role": "user", "content": transcript},
+            ],
+            temperature=0.7,
+        )
+        reply_text = resp.choices[0].message.content.strip()
+
+        # -----------------------
+        # 3️⃣ TEXT → SPEECH (ALWAYS)
+        # -----------------------
+        audio = openai_client.audio.speech.create(
+            model=OPENAI_TTS_MODEL,
+            voice="alloy",
+            input=reply_text,
+            response_format="wav",
+        )
+        wav_bytes = audio.read()
+        wav_b64 = base64.b64encode(wav_bytes).decode("utf-8")
+
+        # -----------------------
+        # 4️⃣ RETURN
+        # -----------------------
+        return jsonify({
+            "success": True,
+            "transcript": transcript,
+            "reply_text": reply_text,
+            "reply_audio_wav_base64": wav_b64,
+        })
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+
+@app.route('/voice_chat', methods=['POST'])
+def voice_chat_alias():
+    return voice_turn()
+
+@app.route('/voice/transcribe', methods=['POST'])
+def voice_transcribe():
+    try:
+        if "file" not in request.files:
+            return jsonify({"success": False, "error": "Missing file"}), 400
+
+        uploaded = request.files["file"]
+
+        # READ BYTES ONCE
+        uploaded.stream.seek(0)
+        audio_bytes = uploaded.read()
+
+        if not audio_bytes or len(audio_bytes) < 4000:
+            return jsonify({"success": True, "transcript": ""})
+
+        # CRITICAL FIX
+        audio_file = BytesIO(audio_bytes)
+        audio_file.name = secure_filename(uploaded.filename or "audio.wav")
+
+        transcription = openai_client.audio.transcriptions.create(
+            model=OPENAI_TRANSCRIBE_MODEL,
+            file=audio_file
+        )
+
+        text = (transcription.text or "").strip()
+
+        return jsonify({
+            "success": True,
+            "transcript": text
+        })
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+
+@app.route('/voice/tts', methods=['POST'])
+def voice_tts():
+    try:
+        data = request.json or {}
+        text = data.get("text", "").strip()
+        voice = data.get("voice", "alloy")
+
+        if not text:
+            return jsonify({"success": False, "error": "Missing text"}), 400
+
+        audio = openai_client.audio.speech.create(
+            model=OPENAI_TTS_MODEL,
+            voice=voice,
+            input=text,
+            response_format="wav"
+        )
+
+        wav_bytes = audio.read()
+        wav_base64 = base64.b64encode(wav_bytes).decode("utf-8")
+
+        return jsonify({
+            "success": True,
+            "wav_base64": wav_base64
+        })
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 
 @app.route('/predict', methods=['POST'])
 def predict():
