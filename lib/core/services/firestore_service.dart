@@ -518,4 +518,306 @@ class FirestoreService {
       throw e;
     }
   }
+  // Add a reframe session to database
+  Future<void> addReframeSession({
+    required String userId,
+    required String inputType,
+    required String transcript,
+    required String language,
+    required Map<String, dynamic> analysisResult,
+    required String mode,
+    String? audioFilePath,
+    String? videoFilePath,
+  }) async {
+    try {
+      final sessionData = {
+        'userId': userId,
+        'inputType': inputType,
+        'transcript': transcript,
+        'language': language,
+        'mode': mode,
+        'analysisResult': analysisResult,
+        'timestamp': FieldValue.serverTimestamp(),
+        'createdAt': DateTime.now().toIso8601String(),
+        'audioFilePath': audioFilePath,
+        'videoFilePath': videoFilePath,
+        'primaryCharacter': analysisResult['primary_character'] ?? 'Unknown',
+        'confidence': analysisResult['confidence'] ?? 0.0,
+        'characterName': analysisResult['character_name'] ?? '',
+      };
+
+      await _firestore.collection('reframe_sessions').add(sessionData);
+      print('✅ Reframe session saved to database');
+    } catch (e) {
+      print('❌ Error saving reframe session: $e');
+      rethrow;
+    }
+  }
+
+  // Get user's reframe sessions
+  Stream<QuerySnapshot> getUserReframeSessions(String userId) {
+    return _firestore
+        .collection('reframe_sessions')
+        .where('userId', isEqualTo: userId)
+        .orderBy('timestamp', descending: true)
+        .snapshots();
+  }
+
+  // Clear user's sessions
+  Future<void> clearUserSessions(String userId) async {
+    try {
+      final querySnapshot = await _firestore
+          .collection('reframe_sessions')
+          .where('userId', isEqualTo: userId)
+          .get();
+
+      final batch = _firestore.batch();
+      for (final doc in querySnapshot.docs) {
+        batch.delete(doc.reference);
+      }
+      await batch.commit();
+      print('✅ Cleared all sessions for user: $userId');
+    } catch (e) {
+      print('❌ Error clearing sessions: $e');
+      rethrow;
+    }
+  }
+
+  // Get current user ID
+  String? getCurrentUserId() {
+    return _auth.currentUser?.uid;
+  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  // ============= REFRAME CHARACTER METHODS =============
+
+// Check if character already exists for a user
+  Future<bool> doesCharacterExistForUser({
+    required String userId,
+    required String displayName,
+    required String characterName,
+  }) async {
+    try {
+      print('🔍 Checking if character exists for user: $userId');
+      print('   Display Name: $displayName');
+      print('   Character Name: $characterName');
+
+      // Check by displayName (primary check)
+      final displayNameQuery = await userCharactersCollection
+          .where('userId', isEqualTo: userId)
+          .where('displayName', isEqualTo: displayName)
+          .limit(1)
+          .get();
+
+      if (displayNameQuery.docs.isNotEmpty) {
+        print('⚠️ Character "$displayName" already exists for user $userId');
+        final existingDoc = displayNameQuery.docs.first;
+        final data = existingDoc.data() as Map<String, dynamic>;
+        print('   Existing character ID: ${existingDoc.id}');
+        print('   Existing character rank: ${data['rank']}');
+        print('   Existing character confidence: ${data['confidence']}');
+        return true;
+      }
+
+      // Also check by characterName (secondary check)
+      final characterNameQuery = await userCharactersCollection
+          .where('userId', isEqualTo: userId)
+          .where('characterName', isEqualTo: characterName)
+          .limit(1)
+          .get();
+
+      if (characterNameQuery.docs.isNotEmpty) {
+        print('⚠️ Character name "$characterName" already exists for user $userId');
+        return true;
+      }
+
+      print('✅ Character "$displayName" does not exist yet, can be added');
+      return false;
+    } catch (e) {
+      print('❌ Error checking if character exists: $e');
+      return false; // Default to false to allow saving if check fails
+    }
+  }
+
+// Save reframe character to user_characters collection
+  Future<void> saveReframeCharacterToUserCharacters({
+    required String userId,
+    required String characterName,
+    required String displayName,
+    required String archetype,
+    required double confidence,
+    required String language,
+  }) async {
+    try {
+      print('💾 Starting to save reframe character for user: $userId');
+      print('   Character: $displayName ($characterName)');
+      print('   Confidence: ${(confidence * 100).toStringAsFixed(1)}%');
+      print('   Archetype: $archetype');
+      print('   Language: $language');
+
+      // Check if character already exists
+      final alreadyExists = await doesCharacterExistForUser(
+        userId: userId,
+        displayName: displayName,
+        characterName: characterName,
+      );
+
+      if (alreadyExists) {
+        print('⏭️ Skipping save - character "$displayName" already exists in collection');
+        throw Exception('Character "$displayName" already exists');
+      }
+
+      // Get ALL existing characters for this user to calculate proper rank
+      final existingCharactersQuery = await userCharactersCollection
+          .where('userId', isEqualTo: userId)
+          .orderBy('rank')
+          .get();
+
+      int nextRank;
+      int totalCharacters = existingCharactersQuery.docs.length;
+
+      if (totalCharacters == 0) {
+        nextRank = 1;
+        print('   No existing characters found, setting rank to 1');
+      } else {
+        // Find the highest rank among existing characters
+        int highestRank = 0;
+        for (final doc in existingCharactersQuery.docs) {
+          final data = doc.data() as Map<String, dynamic>;
+          final rank = data['rank'] as int? ?? 0;
+          if (rank > highestRank) {
+            highestRank = rank;
+          }
+        }
+        nextRank = highestRank + 1;
+        print('   Found $totalCharacters existing characters, highest rank: $highestRank');
+        print('   Setting new rank to: $nextRank');
+      }
+
+      // Create a unique ID for this character
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final docId = '${userId}_reframe_$timestamp';
+
+      // Map archetype to ensure it's one of the three valid types
+      String mappedArchetype = archetype.toLowerCase();
+
+      // Define archetype mapping patterns
+      if (mappedArchetype.contains('manager') ||
+          mappedArchetype.contains('critic') ||
+          mappedArchetype.contains('controller') ||
+          mappedArchetype.contains('perfectionist') ||
+          mappedArchetype.contains('workaholic') ||
+          mappedArchetype.contains('pleaser')) {
+        mappedArchetype = 'manager';
+      } else if (mappedArchetype.contains('firefighter') ||
+          mappedArchetype.contains('gamer') ||
+          mappedArchetype.contains('procrastinator') ||
+          mappedArchetype.contains('overeater') ||
+          mappedArchetype.contains('binger')) {
+        mappedArchetype = 'firefighter';
+      } else {
+        mappedArchetype = 'exile';
+      }
+
+      // Generate GLB filename based on character name
+      final glbFileName = 'character_${characterName.toLowerCase().replaceAll(' ', '_').replaceAll('/', '_')}.glb';
+
+      // Create description based on character type
+      final description = 'This inner character was identified through reflective analysis '
+          'with ${(confidence * 100).toStringAsFixed(1)}% confidence. '
+          'It represents a $archetype archetype that influences your thoughts and behaviors.';
+
+      // Create the character data matching your UserCharacter structure EXACTLY
+      final characterData = {
+        'userId': userId,
+        'characterName': characterName,
+        'displayName': displayName,
+        'archetype': mappedArchetype,
+        'confidence': confidence,
+        'rank': nextRank,
+        'language': language,
+        'glbFileName': glbFileName,
+        'description': description,
+        'predictedAt': DateTime.now().toIso8601String(),
+        'isHealed': false,
+        'healedAt': null,
+        'addedFromReframe': true,
+        'reframeSessionAt': DateTime.now().toIso8601String(),
+      };
+
+      // Save to user_characters collection
+      await userCharactersCollection.doc(docId).set(characterData);
+
+      print('✅ SUCCESS: New reframe character saved to user_characters collection');
+      print('   Document ID: $docId');
+      print('   Final rank: $nextRank');
+      print('   Archetype: $mappedArchetype');
+      print('   GLB File: $glbFileName');
+
+      return;
+    } catch (e, stackTrace) {
+      print('❌ ERROR: Failed to save reframe character to user_characters');
+      print('   Error: $e');
+      print('   Stack trace: $stackTrace');
+      rethrow; // Re-throw so calling code knows it failed
+    }
+  }
+
+// Check if user has at least one healed character
+  Future<bool> hasAtLeastOneHealedCharacter(String userId) async {
+    try {
+      final healedCharacters = await getHealedCharacters();
+      final hasHealed = healedCharacters.isNotEmpty;
+
+      print('🔍 Checking healing status for user: $userId');
+      print('   Has healed characters: $hasHealed');
+      print('   Number of healed characters: ${healedCharacters.length}');
+
+      if (healedCharacters.isNotEmpty) {
+        for (final character in healedCharacters) {
+          print('   - ${character.displayName} (healed at: ${character.healedAt})');
+        }
+      }
+
+      return hasHealed;
+    } catch (e) {
+      print('❌ Error checking healed characters: $e');
+      return false; // Default to false to be safe
+    }
+  }
+
+// Get all characters count
+  Future<Map<String, int>> getCharacterStats(String userId) async {
+    try {
+      final allCharacters = await getUserCharacters();
+      final healedCharacters = await getHealedCharacters();
+
+      return {
+        'total': allCharacters.length,
+        'healed': healedCharacters.length,
+        'unhealed': allCharacters.length - healedCharacters.length,
+      };
+    } catch (e) {
+      print('❌ Error getting character stats: $e');
+      return {'total': 0, 'healed': 0, 'unhealed': 0};
+    }
+  }
+
+
+
+
+
+
 }

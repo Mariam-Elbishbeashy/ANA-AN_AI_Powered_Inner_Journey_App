@@ -46,3 +46,18 @@ app.*.map.json
 
 /flask_server/model_files/ana_questionnaire_predictor.pkl
 flask_server/venv/
+flask_server/venv_app/
+/flask_server/model_files/face/EmotionRecognition.h5
+/flask_server/model_files/hand/config.json
+/flask_server/model_files/hand/keypoint_classifier_label.csv
+/flask_server/model_files/hand/metadata.json
+/flask_server/model_files/hand/model.weights.h5
+/flask_server/model_files/hand/point_history_classifier_label.csv
+/flask_server/model_files/text/inner_character_cnn_lstm (1).keras
+/flask_server/model_files/text/label_encoder (3).pkl
+/flask_server/model_files/text/vocab (2).pkl
+/flask_server/model_files/voice/knn2.pkl
+/flask_server/model_files/voice/label2_encoder.pkl
+/flask_server/model_files/voice/pca2.pkl
+/flask_server/model_files/voice/scaler2.pkl
+/flask_server/saved_audio_files/

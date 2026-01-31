@@ -1,0 +1,53 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    match /users/{uid} {
+      allow read, write: if isOwner(uid);
+    }
+
+    match /users/{uid}/chat_threads/{threadId} {
+      allow read, write: if isOwner(uid);
+      match /messages/{messageId} {
+        allow read, write: if isOwner(uid);
+      }
+    }
+
+    match /users/{uid}/healing_plans/{planId} {
+      allow read, write: if isOwner(uid);
+      match /steps/{stepId} {
+        allow read, write: if isOwner(uid);
+      }
+    }
+
+    match /users/{uid}/sessions/{sessionId} {
+      allow read, write: if isOwner(uid);
+    }
+
+    match /users/{uid}/progress_daily/{dayId} {
+      allow read, write: if isOwner(uid);
+    }
+
+    match /users/{uid}/timeline/{eventId} {
+      allow read, write: if isOwner(uid);
+    }
+
+    // Option A (recommended): server-only writes for agent runs.
+    match /users/{uid}/agent_runs/{runId} {
+      allow read: if isOwner(uid);
+      allow write: if false;
+    }
+
+    // Option B (client-writable): allow owner writes for agent runs.
+    // match /users/{uid}/agent_runs/{runId} {
+    //   allow read, write: if isOwner(uid);
+    // }
+  }
+}
