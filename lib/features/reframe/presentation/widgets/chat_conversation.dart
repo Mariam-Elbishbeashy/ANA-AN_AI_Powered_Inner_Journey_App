@@ -1,12 +1,12 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
-import 'package:ana_ifs_app/features/chat/data/datasources/chat_ai_remote_data_source.dart';
-import 'package:ana_ifs_app/features/chat/data/datasources/chat_remote_data_source.dart';
-import 'package:ana_ifs_app/features/chat/data/datasources/inner_character_local_data_source.dart';
-import 'package:ana_ifs_app/features/chat/data/models/chat_message_model.dart';
-import 'package:ana_ifs_app/features/chat/data/models/chat_thread_model.dart';
-import 'package:ana_ifs_app/features/chat/data/models/inner_character_profile.dart';
+import 'package:ana_ifs_app/features/reframe/data/datasources/chat_ai_remote_data_source.dart';
+import 'package:ana_ifs_app/features/reframe/data/datasources/chat_remote_data_source.dart';
+import 'package:ana_ifs_app/features/reframe/data/datasources/inner_character_local_data_source.dart';
+import 'package:ana_ifs_app/features/reframe/data/models/chat_message_model.dart';
+import 'package:ana_ifs_app/features/reframe/data/models/chat_thread_model.dart';
+import 'package:ana_ifs_app/features/reframe/data/models/inner_character_profile.dart';
 
 class ChatConversation extends StatefulWidget {
   final String characterId;

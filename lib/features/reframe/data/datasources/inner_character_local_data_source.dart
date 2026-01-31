@@ -3,7 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/services.dart';
 
-import 'package:ana_ifs_app/features/chat/data/models/inner_character_profile.dart';
+import 'package:ana_ifs_app/features/reframe/data/models/inner_character_profile.dart';
 
 class InnerCharacterLocalDataSource {
   Future<InnerCharacterProfile?> getCharacterById(String id) async {

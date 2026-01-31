@@ -1,8 +1,8 @@
 //Interact with Firestore database to store and retrieve chat data.
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-import 'package:ana_ifs_app/features/chat/data/models/chat_message_model.dart';
-import 'package:ana_ifs_app/features/chat/data/models/chat_thread_model.dart';
+import 'package:ana_ifs_app/features/reframe/data/models/chat_message_model.dart';
+import 'package:ana_ifs_app/features/reframe/data/models/chat_thread_model.dart';
 
 //Data source for chat operations in Firestore (Firebase).
 class ChatRemoteDataSource {

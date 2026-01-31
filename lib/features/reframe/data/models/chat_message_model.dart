@@ -1,7 +1,7 @@
 //Convert Firestore data into ChatMessage entity (Dart objects).
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-import 'package:ana_ifs_app/features/chat/domain/entities/chat_message.dart';
+import 'package:ana_ifs_app/features/reframe/domain/entities/chat_message.dart';
 
 class ChatMessageModel extends ChatMessage {
   ChatMessageModel({

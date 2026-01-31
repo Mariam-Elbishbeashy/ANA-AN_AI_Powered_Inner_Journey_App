@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 
 import 'package:ana_ifs_app/l10n/app_strings.dart';
 import 'package:ana_ifs_app/features/character/domain/entities/user_character.dart';
-import 'package:ana_ifs_app/features/chat/data/datasources/inner_character_local_data_source.dart';
-import 'package:ana_ifs_app/features/chat/data/models/inner_character_profile.dart';
-import 'package:ana_ifs_app/features/chat/presentation/widgets/chat_conversation.dart';
+import 'package:ana_ifs_app/features/reframe/data/datasources/inner_character_local_data_source.dart';
+import 'package:ana_ifs_app/features/reframe/data/models/inner_character_profile.dart';
+import 'package:ana_ifs_app/features/reframe/presentation/widgets/chat_conversation.dart';
 
 class CharacterChatScreen extends StatefulWidget {
   final UserCharacter character;

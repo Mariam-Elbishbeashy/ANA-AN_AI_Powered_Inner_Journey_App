@@ -1,7 +1,7 @@
 //Convert Firestore data into ChatThread entity (Dart objects).
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-import 'package:ana_ifs_app/features/chat/domain/entities/chat_thread.dart';
+import 'package:ana_ifs_app/features/reframe/domain/entities/chat_thread.dart';
 
 class ChatThreadModel extends ChatThread {
   ChatThreadModel({
