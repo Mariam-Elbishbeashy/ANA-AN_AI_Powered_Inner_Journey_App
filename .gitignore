@@ -59,3 +59,4 @@ flask_server/venv/
 /flask_server/model_files/voice/label2_encoder.pkl
 /flask_server/model_files/voice/pca2.pkl
 /flask_server/model_files/voice/scaler2.pkl
+/flask_server/saved_audio_files/
