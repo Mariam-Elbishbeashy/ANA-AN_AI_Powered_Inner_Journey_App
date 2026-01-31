@@ -11,8 +11,13 @@ import 'package:ana_ifs_app/features/voice_analysis/presentation/screens/voice_a
 
 class CharacterProfileScreen extends StatefulWidget {
   final UserCharacter character;
+  final bool hideCommunicationHub;
 
-  const CharacterProfileScreen({super.key, required this.character});
+  const CharacterProfileScreen({
+    super.key,
+    required this.character,
+    this.hideCommunicationHub = false,
+  });
 
   @override
   State<CharacterProfileScreen> createState() => _CharacterProfileScreenState();
@@ -303,44 +308,45 @@ class _CharacterProfileScreenState extends State<CharacterProfileScreen> {
                       ),
                     ),
                   ),
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
-                      child: _CommunicationHub(
-                        onChat: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => CharacterChatScreen(
-                                character: widget.character,
-                              ),
-                            ),
-                          );
-                        },
-                        onVoice: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => VoiceAnalysisScreen(
-                                character: widget.character,
-                              ),
-                            ),
-                          );
-                        },
-                        onVideo: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                tr(
-                                  context,
-                                  'Video sessions are coming soon.',
-                                  'جلسات الفيديو قادمة قريبًا.',
+                  if (!widget.hideCommunicationHub)
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
+                        child: _CommunicationHub(
+                          onChat: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => CharacterChatScreen(
+                                  character: widget.character,
                                 ),
                               ),
-                            ),
-                          );
-                        },
+                            );
+                          },
+                          onVoice: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => VoiceAnalysisScreen(
+                                  character: widget.character,
+                                ),
+                              ),
+                            );
+                          },
+                          onVideo: () {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  tr(
+                                    context,
+                                    'Video sessions are coming soon.',
+                                    'جلسات الفيديو قادمة قريبًا.',
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
                       ),
                     ),
-                  ),
                 ],
               );
             },
@@ -697,24 +703,29 @@ class _IdentityCard extends StatelessWidget {
             ),
           ),
           if (shortDescription.isNotEmpty) ...[
-            const SizedBox(height: 14),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF9F6FF),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: const Color(0xFFE8E1FF),
-                  width: 1,
-                ),
-              ),
-              child: Text(
-                shortDescription,
-                style: const TextStyle(
-                  fontSize: 14,
-                  height: 1.6,
-                  color: Color(0xFF3D2D5A),
-                  fontWeight: FontWeight.w500,
+            const SizedBox(height: 12),
+            Expanded(
+              child: SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF9F6FF),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: const Color(0xFFE8E1FF),
+                      width: 1,
+                    ),
+                  ),
+                  child: Text(
+                    shortDescription,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      height: 1.6,
+                      color: Color(0xFF3D2D5A),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
                 ),
               ),
             ),

@@ -403,6 +403,135 @@ class FirestoreService {
 
   // ============= USER PROFILE METHODS =============
 
+  // Update current user's profile fields
+  Future<void> updateCurrentUserProfile({
+    String? firstName,
+    String? lastName,
+    String? birthdate,
+  }) async {
+    final userId = currentUserId;
+    if (userId == null) return;
+
+    try {
+      await usersCollection.doc(userId).set({
+        'firstName': firstName,
+        'lastName': lastName,
+        'birthdate': birthdate,
+        'updatedAt': DateTime.now().toIso8601String(),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      print('Error updating user profile: $e');
+      rethrow;
+    }
+  }
+
+  // Get current user's profile fields
+  Future<Map<String, dynamic>> getCurrentUserProfile() async {
+    final userId = currentUserId;
+    if (userId == null) return {};
+
+    try {
+      final doc = await usersCollection.doc(userId).get();
+      if (!doc.exists) return {};
+      return doc.data() as Map<String, dynamic>? ?? {};
+    } catch (e) {
+      print('Error loading user profile: $e');
+      return {};
+    }
+  }
+
+  // Check if current user is an admin
+  Future<bool> isCurrentUserAdmin() async {
+    final userId = currentUserId;
+    if (userId == null) return false;
+
+    try {
+      final doc = await usersCollection.doc(userId).get();
+      if (!doc.exists) return false;
+      final data = doc.data() as Map<String, dynamic>?;
+      return data?['isAdmin'] == true;
+    } catch (e) {
+      print('Error checking admin status: $e');
+      return false;
+    }
+  }
+
+  // Set current user's admin status
+  Future<void> setCurrentUserAdmin(bool isAdmin) async {
+    final userId = currentUserId;
+    if (userId == null) return;
+
+    try {
+      await usersCollection.doc(userId).set({
+        'isAdmin': isAdmin,
+        'updatedAt': DateTime.now().toIso8601String(),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      print('Error updating admin status: $e');
+      throw e;
+    }
+  }
+
+  // Set admin status for a user by email
+  Future<void> setAdminByEmail(String email, bool isAdmin) async {
+    try {
+      final query = await usersCollection
+          .where('email', isEqualTo: email.trim().toLowerCase())
+          .limit(1)
+          .get();
+      if (query.docs.isEmpty) {
+        throw Exception('User with that email was not found.');
+      }
+
+      await usersCollection.doc(query.docs.first.id).set({
+        'isAdmin': isAdmin,
+        'updatedAt': DateTime.now().toIso8601String(),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      print('Error updating admin by email: $e');
+      rethrow;
+    }
+  }
+
+  // Basic admin overview counts
+  Future<Map<String, int>> getAdminOverviewCounts() async {
+    try {
+      final usersSnapshot = await usersCollection.get();
+      final questionsSnapshot = await questionsCollection.get();
+      final answersSnapshot = await userAnswersCollection.get();
+      final charactersSnapshot = await userCharactersCollection.get();
+
+      var adminUsers = 0;
+      var completedQuestionnaire = 0;
+      for (final doc in usersSnapshot.docs) {
+        final data = doc.data() as Map<String, dynamic>? ?? {};
+        if (data['isAdmin'] == true) adminUsers += 1;
+        if (data['hasCompletedQuestionnaire'] == true) {
+          completedQuestionnaire += 1;
+        }
+      }
+
+      return {
+        'users': usersSnapshot.docs.length,
+        'questions': questionsSnapshot.docs.length,
+        'answers': answersSnapshot.docs.length,
+        'characters': charactersSnapshot.docs.length,
+        'admins': adminUsers,
+        'completedQuestionnaire': completedQuestionnaire,
+      };
+    } catch (e) {
+      print('Error loading admin overview counts: $e');
+      return {
+        'users': 0,
+        'questions': 0,
+        'answers': 0,
+        'characters': 0,
+        'admins': 0,
+        'completedQuestionnaire': 0,
+      };
+    }
+  }
+
   // Get user's preferred language
   Future<String> getUserLanguage() async {
     final userId = currentUserId;

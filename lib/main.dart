@@ -8,6 +8,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'firebase_options.dart';
 import 'core/localization/app_language_provider.dart';
 import 'core/theme/app_theme.dart';
+import 'core/services/firestore_service.dart';
+import 'features/admin/presentation/screens/admin_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -44,13 +46,8 @@ class WelcomeScreenWrapper extends StatelessWidget {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return _buildWelcomeScreenWithLoading();
         }
-        if (snapshot.hasData) {
-          return const AnaShell();
-        }
-
-        // If user is logged in, show main app wrapper
         if (snapshot.hasData && snapshot.data != null) {
-          return const MainAppWrapper();
+          return const AdminGate();
         }
 
         // User is not logged in - show welcome screen
@@ -69,6 +66,56 @@ class MainAppWrapper extends StatefulWidget {
 
   @override
   State<MainAppWrapper> createState() => _MainAppWrapperState();
+}
+
+class AdminGate extends StatelessWidget {
+  const AdminGate({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<bool>(
+      future: FirestoreService().isCurrentUserAdmin(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return _LoadingScreen();
+        }
+        if (snapshot.data == true) {
+          return const AdminScreen();
+        }
+        return const AnaShell();
+      },
+    );
+  }
+}
+
+class _LoadingScreen extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFFFFFFFF), Color(0xFFF9F6FF), Color(0xFFF4F0FF)],
+          ),
+        ),
+        child: const Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(color: Color(0xFF8E7CFF)),
+              SizedBox(height: 20),
+              Text(
+                'Loading your journey...',
+                style: TextStyle(color: Color(0xFF4B3A66), fontSize: 16),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _MainAppWrapperState extends State<MainAppWrapper> {
