@@ -1,31 +1,20 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:gif/gif.dart';
-
-import 'package:ana_ifs_app/l10n/app_strings.dart';
-import 'package:ana_ifs_app/features/character/domain/entities/user_character.dart';
-
 import 'package:http/http.dart' as http;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter_sound/flutter_sound.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
-import 'package:ana_ifs_app/features/chat/data/datasources/chat_remote_data_source.dart';
-import 'package:ana_ifs_app/features/chat/data/datasources/chat_ai_remote_data_source.dart';
-import 'package:ana_ifs_app/features/chat/data/datasources/inner_character_local_data_source.dart';
-
-import '../../data/datasources/voice_ai_remote_data_source.dart';
-import '../../data/repositories/voice_ai_repository_impl.dart';
-import '../state/voice_analysis_cubit.dart';
+import 'package:ana_ifs_app/l10n/app_strings.dart';
+import 'package:ana_ifs_app/features/character/domain/entities/user_character.dart';
 
 class VoiceAnalysisScreen extends StatefulWidget {
   final UserCharacter character;
-
   const VoiceAnalysisScreen({super.key, required this.character});
 
   @override
@@ -37,22 +26,17 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
   GifController? _gifController;
   Key _gifKey = UniqueKey();
 
-  VoiceAnalysisCubit? cubit;
-
   // ==========================
   // Audio (record + play)
   // ==========================
   final FlutterSoundRecorder _recorder = FlutterSoundRecorder();
   final FlutterSoundPlayer _player = FlutterSoundPlayer();
-
   bool _audioReady = false;
 
   // Silence auto-stop config
   static const int _sampleRate = 16000;
   static const int _channels = 1;
   static const Duration _progressEvery = Duration(milliseconds: 80);
-
-  // If your environment is noisy, increase threshold (less negative).
   static const double _silenceDbThreshold = -35.0;
 
   static const Duration _minRecord = Duration(milliseconds: 800);
@@ -80,58 +64,34 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
   bool _stopping = false;
   bool _stopQueued = false;
 
+  // ==========================
+  // Backend (Flask) - EMULATOR ONLY
+  // ==========================
+  static const String _baseUrl = "http://10.0.2.2:5003";
+  static const String _voiceChatEndpoint = "/voice/chat";
 
   // ==========================
-  // Backend (Flask)
+  // AI big text styles (photo-like)
   // ==========================
-  static String get _baseUrl {
-    // Android Emulator -> PC
-    if (Platform.isAndroid) return "http://10.0.2.2:5001";
+  TextStyle get _aiPrefixStyle => const TextStyle(
+    fontSize: 28,
+    fontWeight: FontWeight.w800,
+    color: Color(0xFFB9B0C9),
+    height: 1.18,
+  );
 
-    // iPhone Simulator OR real iPhone -> must use PC IP on same WiFi
-    return "http://192.168.1.108:5001";
-  }
-
-  // IMPORTANT: These must exist in Flask
-  static const String _transcribeEndpoint = "/voice/transcribe";
-  static const String _ttsEndpoint = "/voice/tts";
-
-  // ==========================
-  // Chat pipeline (Firestore + /chat)
-  // ==========================
-  final ChatRemoteDataSource _chatRemote = ChatRemoteDataSource();
-  late final ChatAiRemoteDataSource _chatAi =
-  ChatAiRemoteDataSource(baseUrl: _baseUrl);
-  final InnerCharacterLocalDataSource _characterLocal =
-  InnerCharacterLocalDataSource();
-
-  String? _threadId;
-  String? _sessionId;
-  Map<String, dynamic>? _characterProfilePrompt;
+  TextStyle get _aiTextStyle => const TextStyle(
+    fontSize: 22,
+    fontWeight: FontWeight.w900,
+    color: Color(0xFF2A1E3B),
+    height: 1,
+  );
 
   @override
   void initState() {
     super.initState();
     _gifController = GifController(vsync: this);
-
-    // Keep your cubit init (won’t break)
-    try {
-      final remote = VoiceAiRemoteDataSource(baseUrl: _baseUrl);
-      final repo = VoiceAiRepositoryImpl(remote);
-      cubit = VoiceAnalysisCubit(repo: repo);
-      cubit!.addListener(_onCubitChanged);
-      cubit!.init();
-    } catch (e) {
-      debugPrint("VoiceAnalysis init error: $e");
-    }
-
     _initAudio();
-    _initVoiceChatThread();
-  }
-
-  void _onCubitChanged() {
-    if (!mounted) return;
-    setState(() => _gifKey = UniqueKey());
   }
 
   Future<void> _initAudio() async {
@@ -147,7 +107,6 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
 
       await _recorder.openRecorder();
       await _player.openPlayer();
-
       _recorder.setSubscriptionDuration(_progressEvery);
 
       setState(() {
@@ -162,55 +121,11 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
     }
   }
 
-  Future<void> _initVoiceChatThread() async {
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
-
-      final characterId = widget.character.id;
-      const characterType = "inner_character";
-
-      final profile = await _characterLocal.getCharacterById(characterId);
-
-      _characterProfilePrompt = profile?.toPromptMap(useArabic: false) ??
-          {
-            "id": characterId,
-            "displayName": widget.character.displayName,
-            "role": "Inner Part",
-            "shortDescription": "",
-            "whyIExist": "",
-            "triggers": [],
-            "coreBelief": "",
-            "intention": "",
-            "fear": "",
-            "whatINeed": [],
-          };
-
-      final thread = await _chatRemote.ensureChatThread(
-        uid: user.uid,
-        characterId: characterId,
-        characterType: characterType,
-        title: widget.character.displayName,
-      );
-
-      _threadId = thread.id;
-      _sessionId = thread.sessionId;
-
-      debugPrint("✅ Voice thread ready: threadId=$_threadId sessionId=$_sessionId");
-    } catch (e) {
-      debugPrint("❌ _initVoiceChatThread error: $e");
-    }
-  }
-
-  // ✅ We create our OWN stable path. NO actualPath.
   Future<String> _makeWavPath() async {
     final dir = await getTemporaryDirectory();
     return "${dir.path}/ana_user_${DateTime.now().millisecondsSinceEpoch}.wav";
   }
 
-  // ==========================
-  // Main flow: tap mic
-  // ==========================
   Future<void> _startOrStop() async {
     if (_isBusy) return;
 
@@ -234,6 +149,7 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
         _isRecording = true;
         _lastUserText = "";
         _lastAiText = "";
+        _gifKey = UniqueKey();
       });
 
       _stopping = false;
@@ -249,12 +165,12 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
 
       await _player.stopPlayer();
 
-      // ✅ IMPORTANT: We don't use actualPath at all.
       await _recorder.startRecorder(
         toFile: _wavPath,
         codec: Codec.pcm16WAV,
         sampleRate: _sampleRate,
         numChannels: _channels,
+        audioSource: AudioSource.microphone,
       );
 
       _maxTimer?.cancel();
@@ -277,16 +193,14 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
         } else {
           if (_heardSpeech) {
             _silenceAccum += _progressEvery;
-            if (_silenceAccum >= _silenceStop) {
-              if (!_stopQueued) {
-                _stopQueued = true;
-                Future.microtask(() async {
-                  if (!mounted) return;
-                  if (_isRecording && !_stopping) {
-                    await _stopRecordingAndSend();
-                  }
-                });
-              }
+            if (_silenceAccum >= _silenceStop && !_stopQueued) {
+              _stopQueued = true;
+              Future.microtask(() async {
+                if (!mounted) return;
+                if (_isRecording && !_stopping) {
+                  await _stopRecordingAndSend();
+                }
+              });
             }
           }
         }
@@ -300,71 +214,66 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
     }
   }
 
-  // ==========================
-  // Flask helpers
-  // ==========================
-  Future<String> _transcribeWav(String wavPath) async {
-    final uri = Uri.parse("$_baseUrl$_transcribeEndpoint");
+  Future<Map<String, dynamic>> _sendVoiceTurn({
+    required String uid,
+    required String characterId,
+    required String wavPath,
+  }) async {
+    final uri = Uri.parse("$_baseUrl$_voiceChatEndpoint");
     final req = http.MultipartRequest("POST", uri);
 
+    req.fields["uid"] = uid;
+    req.fields["characterId"] = characterId;
+
     req.files.add(
-      await http.MultipartFile.fromPath("file", wavPath, filename: "user.wav"),
+      await http.MultipartFile.fromPath("audio", wavPath, filename: "user.wav"),
     );
 
     final streamed = await req.send();
     final body = await streamed.stream.bytesToString();
 
     if (streamed.statusCode < 200 || streamed.statusCode >= 300) {
-      throw Exception("TRANSCRIBE HTTP ${streamed.statusCode}: $body");
+      throw Exception("VOICE CHAT HTTP ${streamed.statusCode}: $body");
     }
 
     final decoded = jsonDecode(body) as Map<String, dynamic>;
     if (decoded["success"] != true) {
-      throw Exception(decoded["error"] ?? "Transcribe failed");
+      throw Exception(decoded["error"] ?? "Voice chat failed");
     }
 
-    return (decoded["transcript"] ?? "").toString().trim();
+    return decoded;
   }
 
-  Future<Uint8List> _ttsWavBytes(String text, {String voice = "alloy"}) async {
-    final uri = Uri.parse("$_baseUrl$_ttsEndpoint");
-    final res = await http.post(
-      uri,
-      headers: {"Content-Type": "application/json"},
-      body: jsonEncode({"text": text, "voice": voice}),
-    );
-
-    if (res.statusCode < 200 || res.statusCode >= 300) {
-      throw Exception("TTS HTTP ${res.statusCode}: ${res.body}");
-    }
-
-    final decoded = jsonDecode(res.body) as Map<String, dynamic>;
-    if (decoded["success"] != true) {
-      throw Exception(decoded["error"] ?? "TTS failed");
-    }
-
-    final b64 = (decoded["wav_base64"] ?? "").toString();
-    if (b64.isEmpty) throw Exception("TTS returned empty audio");
-
-    return base64Decode(b64);
-  }
-
-  // ==========================
-  // SAFE STOP (prevents crash)
-  // ==========================
   Future<String?> _safeStopRecorder() async {
     try {
-      final p = await _recorder.stopRecorder(); // IMPORTANT: capture returned path
-      return p;
+      return await _recorder.stopRecorder();
     } catch (_) {
       return null;
     }
   }
 
+  Future<void> _playFromBase64(String audioB64) async {
+    final bytes = base64Decode(audioB64);
+    if (bytes.length < 1000) {
+      throw Exception("Invalid TTS audio bytes: ${bytes.length}");
+    }
 
-  // ==========================
-  // Stop -> Transcribe -> Firestore -> /chat -> Firestore -> TTS play
-  // ==========================
+    final dir = await getTemporaryDirectory();
+    final outPath =
+        "${dir.path}/ana_tts_${DateTime.now().millisecondsSinceEpoch}.wav";
+    final outFile = File(outPath);
+    await outFile.writeAsBytes(bytes, flush: true);
+
+    await _player.startPlayer(
+      fromURI: outPath,
+      codec: Codec.pcm16WAV,
+      whenFinished: () {
+        if (!mounted) return;
+        setState(() => _status = "Ready");
+      },
+    );
+  }
+
   Future<void> _stopRecordingAndSend() async {
     if (_isBusy) return;
     if (_stopping) return;
@@ -381,14 +290,8 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
       _recSub = null;
 
       if (_isRecording) {
-        final stoppedPath = await _safeStopRecorder();
-        await Future.delayed(const Duration(milliseconds: 300)); // give it a bit more
-
-// IMPORTANT: update path to the real one
-        if (stoppedPath != null && stoppedPath.toString().isNotEmpty) {
-          _wavPath = stoppedPath;
-        }
-
+        await _safeStopRecorder();
+        await Future.delayed(const Duration(milliseconds: 250));
       }
 
       final startedAt = _recordStartAt;
@@ -408,160 +311,61 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
       }
 
       final path = _wavPath;
-      if (path == null) {
-        setState(() {
-          _status = "❌ No audio path";
-          _isBusy = false;
-        });
-        _stopping = false;
-        return;
-      }
+      if (path == null) throw Exception("No audio path");
 
       final f = File(path);
-      if (!await f.exists()) {
-        setState(() {
-          _status = "❌ Audio file missing";
-          _isBusy = false;
-        });
-        _stopping = false;
-        return;
-      }
+      if (!await f.exists()) throw Exception("Audio file missing");
 
       final len = await f.length();
-      // ✅ DEBUG (3): Print wav size + header bytes
-      final bytes = await File(path).readAsBytes();
-      debugPrint("🎙 WAV path: $path");
-      debugPrint("🎙 WAV size: ${bytes.length}");
-      debugPrint("🎙 WAV header (first 16 bytes): ${bytes.take(16).toList()}");
-
-      if (len < 5000) {
-        setState(() {
-          _status = "⚠️ Empty/very small file. Try again.";
-          _isBusy = false;
-        });
-        _stopping = false;
-        return;
-      }
+      if (len < 5000) throw Exception("Empty/very small file. Try again.");
 
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) throw Exception("Not signed in");
 
-      if (_threadId == null || _sessionId == null || _characterProfilePrompt == null) {
-        await _initVoiceChatThread();
-      }
-
-      final threadId = _threadId;
-      final sessionId = _sessionId;
-      final characterProfile = _characterProfilePrompt;
-
-      if (threadId == null || sessionId == null || characterProfile == null) {
-        throw Exception("Voice chat thread not initialized yet");
-      }
-
-      // ✅ DEBUG (2): play the recorded audio to confirm it contains your voice
-      setState(() => _status = "🔎 Debug: playing your recording...");
-      await _player.stopPlayer();
-
-      await _player.startPlayer(
-        fromURI: path,
-        codec: Codec.pcm16WAV,
-      );
-
-      await Future.delayed(const Duration(seconds: 2));
-      await _player.stopPlayer();
-
-      // 1) Transcribe
-      setState(() => _status = "📝 Transcribing...");
-      final transcript = await _transcribeWav(path);
-
-      if (transcript.isEmpty) {
-        setState(() {
-          _status = "⚠️ I didn’t catch that. Try again.";
-          _isBusy = false;
-        });
-        _stopping = false;
-        return;
-      }
-
-      setState(() => _lastUserText = transcript);
-
-      // 2) Save user text as normal chat message
-      await _chatRemote.sendMessage(
+      setState(() => _status = "🚀 Sending voice...");
+      final result = await _sendVoiceTurn(
         uid: user.uid,
-        threadId: threadId,
-        role: "user",
-        content: transcript,
-        metadata: {
-          "inputType": "voice_transcribed",
-          "sessionId": sessionId,
-          "characterId": widget.character.id,
-        },
-      );
-
-      // 3) Fetch recent messages
-      final recent = await _chatRemote.getRecentMessages(
-        uid: user.uid,
-        threadId: threadId,
-        limit: 20,
-      );
-
-      final List<Map<String, String>> messagesPayload = recent
-          .map((m) => <String, String>{
-        "role": m.role.toString(),
-        "content": m.content.toString(),
-      })
-          .toList();
-
-      // 4) Ask AI (/chat)
-      setState(() => _status = "🧠 Thinking...");
-      final assistantText = await _chatAi.fetchAssistantMessage(
-        uid: user.uid,
-        threadId: threadId,
-        sessionId: sessionId,
         characterId: widget.character.id,
-        characterProfile: characterProfile,
-        messages: messagesPayload,
+        wavPath: path,
       );
 
-      setState(() => _lastAiText = assistantText);
+      final transcript = (result["transcript"] ?? "").toString().trim();
+      final assistantText = (result["assistantText"] ?? "").toString().trim();
+      final audioUrl = (result["audioUrl"] ?? "").toString().trim();
+      final audioB64 = (result["audioBase64"] ?? "").toString().trim();
 
-      // 5) Save assistant text
-      await _chatRemote.sendMessage(
-        uid: user.uid,
-        threadId: threadId,
-        role: "assistant",
-        content: assistantText,
-        metadata: {
-          "outputType": "voice_reply",
-          "sessionId": sessionId,
-          "characterId": widget.character.id,
-          "voice": "alloy",
-        },
-      );
+      setState(() {
+        _lastUserText = transcript;
+        _lastAiText = assistantText;
+      });
 
-      // 6) TTS + play
+      // 3) Play AI voice
       setState(() => _status = "🔊 Speaking...");
-      final wavBytes = await _ttsWavBytes(assistantText, voice: "alloy");
-
-      if (wavBytes.length < 1000) {
-        throw Exception("Invalid TTS audio bytes: ${wavBytes.length}");
-      }
-
       await _player.stopPlayer();
-      final dir = await getTemporaryDirectory();
-      final outPath = "${dir.path}/ana_tts_${DateTime.now().millisecondsSinceEpoch}.wav";
-      final outFile = File(outPath);
-      await outFile.writeAsBytes(wavBytes, flush: true);
 
-      await _player.startPlayer(
-        fromURI: outPath,
-        codec: Codec.pcm16WAV, // still fine since it's WAV file path
-        whenFinished: () {
-          if (!mounted) return;
-          setState(() => _status = "Ready");
-        },
-      );
-
+      // First try URL (best)
+      if (audioUrl.isNotEmpty) {
+        try {
+          await _player.startPlayer(
+            fromURI: audioUrl,
+            codec: Codec.pcm16WAV,
+            whenFinished: () {
+              if (!mounted) return;
+              setState(() => _status = "Ready");
+            },
+          );
+        } catch (_) {
+          // If URL playback fails, fallback to base64
+          if (audioB64.isEmpty) rethrow;
+          await _playFromBase64(audioB64);
+        }
+      } else {
+        // No URL -> base64 fallback
+        if (audioB64.isEmpty) {
+          throw Exception("No audioUrl and no audioBase64 returned from server");
+        }
+        await _playFromBase64(audioB64);
+      }
 
       setState(() => _isBusy = false);
       _stopping = false;
@@ -600,9 +404,6 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
 
   @override
   void dispose() {
-    cubit?.removeListener(_onCubitChanged);
-    cubit?.disposeCubit();
-
     _maxTimer?.cancel();
     _recSub?.cancel();
     try {
@@ -616,9 +417,8 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
 
   String _getTitle(BuildContext context) {
     final name = widget.character.displayName.trim();
-    final normalized = name.toLowerCase().startsWith('the ')
-        ? name.substring(4)
-        : name;
+    final normalized =
+    name.toLowerCase().startsWith('the ') ? name.substring(4) : name;
     return tr(context, 'Your $normalized', '$normalized الخاص بك');
   }
 
@@ -675,7 +475,8 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
               const SizedBox(height: 10),
               Text(
                 _status.isEmpty
-                    ? tr(context, 'Tap the mic to speak.', 'اضغط الميكروفون للتحدث.')
+                    ? tr(context, 'Tap the mic to speak.',
+                    'اضغط الميكروفون للتحدث.')
                     : _status,
                 style: const TextStyle(
                   color: Color(0xFF7A6A5A),
@@ -695,52 +496,49 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
                     ),
                   ),
                 ),
-              if (_lastUserText.isNotEmpty || _lastAiText.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 12, 18, 0),
+
+              // ✅ Sphere ABOVE + big AI text (photo-like)
+              const SizedBox(height: 18),
+              Expanded(
+                child: Center(
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      if (_lastUserText.isNotEmpty)
-                        Text(
-                          "You: $_lastUserText",
-                          style: const TextStyle(
-                            fontSize: 13,
-                            color: Color(0xFF2A1E3B),
-                            fontWeight: FontWeight.w800,
-                          ),
+                      SizedBox(
+                        width: 290,
+                        height: 290,
+                        child: _showListeningAnim
+                            ? Gif(
+                          key: _gifKey,
+                          image: const AssetImage(
+                              'assets/animations/voice_sphere.gif'),
+                          controller: _gifController!,
+                          autostart: Autostart.loop,
+                          fit: BoxFit.contain,
+                        )
+                            : Image.asset(
+                          'assets/animations/voice_sphere.gif',
+                          fit: BoxFit.contain,
                         ),
-                      const SizedBox(height: 8),
+                      ),
+                      const SizedBox(height: 22),
                       if (_lastAiText.isNotEmpty)
-                        Text(
-                          "AI: $_lastAiText",
-                          style: const TextStyle(
-                            fontSize: 13,
-                            color: Color(0xFF2A1E3B),
-                            fontWeight: FontWeight.w600,
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 22),
+                          child: RichText(
+                            textAlign: TextAlign.center,
+                            text: TextSpan(
+                              children: [
+                                TextSpan(text: _lastAiText, style: _aiTextStyle),
+                              ],
+                            ),
                           ),
                         ),
                     ],
                   ),
                 ),
-              const SizedBox(height: 18),
-              Expanded(
-                child: Center(
-                  child: SizedBox(
-                    width: 290,
-                    height: 290,
-                    child: _showListeningAnim
-                        ? Gif(
-                      key: _gifKey,
-                      image: const AssetImage('assets/animations/voice_sphere.gif'),
-                      controller: _gifController!,
-                      autostart: Autostart.loop,
-                      fit: BoxFit.contain,
-                    )
-                        : Image.asset('assets/animations/voice_sphere.gif', fit: BoxFit.contain),
-                  ),
-                ),
               ),
+
               Padding(
                 padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
                 child: Row(

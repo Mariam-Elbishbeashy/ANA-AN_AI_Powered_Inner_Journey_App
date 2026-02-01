@@ -40,6 +40,11 @@ class _Map3DScreenState extends State<Map3DScreen> {
     const Offset(0.6, 150), // Seventh
     const Offset(0.2, 30), // Top last (lowest dy value)
   ];
+  void safeSetState(VoidCallback fn) {
+    if (!mounted) return;
+    setState(fn);
+  }
+
 
   late List<UserCharacter?> mapSlots;
   late ScrollController _scrollController;
@@ -128,7 +133,7 @@ class _Map3DScreenState extends State<Map3DScreen> {
       print('Error loading characters: $e');
       // Even if there's an error, try to use the initial characters passed to widget
       _useInitialCharacters();
-      setState(() {
+      safeSetState(() {
         _isLoading = false;
       });
     }
