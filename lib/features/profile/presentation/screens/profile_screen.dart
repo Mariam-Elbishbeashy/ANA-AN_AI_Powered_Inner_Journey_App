@@ -757,23 +757,23 @@ class _CharacterCard extends StatelessWidget {
                     color: Color(0xFF2A1E3B),
                   ),
                 ),
+                // const SizedBox(height: 4),
+                // Text(
+                //   'Confidence: ${(character.confidence * 100).toStringAsFixed(1)}%',
+                //   style: TextStyle(
+                //     fontSize: 14,
+                //     color: const Color(0xFF7A6A5A),
+                //   ),
+                // ),
                 const SizedBox(height: 4),
-                Text(
-                  'Confidence: ${(character.confidence * 100).toStringAsFixed(1)}%',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: const Color(0xFF7A6A5A),
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '#${character.rank}',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: color,
-                  ),
-                ),
+                // Text(
+                //   '#${character.rank}',
+                //   style: TextStyle(
+                //     fontSize: 14,
+                //     fontWeight: FontWeight.w700,
+                //     color: color,
+                //   ),
+                // ),
                 const SizedBox(height: 4),
                 Container(
                   padding: const EdgeInsets.symmetric(

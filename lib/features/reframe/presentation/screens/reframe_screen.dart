@@ -88,10 +88,10 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
       await Future.delayed(const Duration(milliseconds: 500));
       await _checkForHealedCharacters();
 
-      // Check if user should be restricted from accessing this screen
-      if (_shouldRestrictAccess() && mounted) {
-        _showRestrictedAccessDialog();
-      }
+      // // Check if user should be restricted from accessing this screen
+      // if (_shouldRestrictAccess() && mounted) {
+      //   _showRestrictedAccessDialog();
+      // }
     });
   }
 
