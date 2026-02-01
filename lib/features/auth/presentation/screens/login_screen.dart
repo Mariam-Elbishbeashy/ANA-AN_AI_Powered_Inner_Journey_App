@@ -6,13 +6,16 @@ import 'package:sign_in_button/sign_in_button.dart';
 
 import 'package:ana_ifs_app/features/onboarding/presentation/screens/welcome_screen.dart';
 import 'package:ana_ifs_app/l10n/app_strings.dart';
+import 'package:ana_ifs_app/features/admin/presentation/screens/admin_screen.dart';
 import 'package:ana_ifs_app/features/questionnaire/presentation/screens/initial_motivation_screen.dart';
 import 'package:ana_ifs_app/features/questionnaire/presentation/screens/questionnaire_screen.dart';
-import 'package:ana_ifs_app/core/services/auth_service.dart';
 import 'package:ana_ifs_app/core/services/firestore_service.dart';
 import 'package:ana_ifs_app/features/auth/data/datasources/auth_remote_data_source.dart';
 import 'package:ana_ifs_app/features/auth/data/repositories/auth_repository_impl.dart';
 import 'package:ana_ifs_app/features/auth/domain/usecases/reset_password.dart';
+import 'package:ana_ifs_app/features/auth/domain/usecases/sign_in.dart';
+import 'package:ana_ifs_app/features/auth/domain/usecases/sign_in_with_google.dart';
+import 'package:ana_ifs_app/core/services/auth_service.dart';
 
 import 'package:ana_ifs_app/app/shell/ana_shell.dart';
 import 'package:ana_ifs_app/features/auth/presentation/screens/signup_screen.dart';
@@ -26,11 +29,13 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   // Services for authentication and questionnaire status checks.
-  final _auth = AuthService();
   final _firestoreService = FirestoreService();
   // Use case for password reset (clean-architecture flow).
-  late final _authRepository = AuthRepositoryImpl(AuthRemoteDataSource(_auth));
+  late final _authRepository =
+      AuthRepositoryImpl(AuthRemoteDataSource(AuthService()));
   late final _resetPassword = ResetPassword(_authRepository);
+  late final _signIn = SignIn(_authRepository);
+  late final _signInWithGoogle = SignInWithGoogle(_authRepository);
   // Form key and controllers manage validation + inputs.
   final _formKey = GlobalKey<FormState>();
   final _email = TextEditingController();
@@ -74,8 +79,7 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _loading = true);
     var navigated = false;
     try {
-      await _auth
-          .signIn(email: email, password: pass)
+      await _signIn(email: email, password: pass)
           .timeout(const Duration(seconds: 20));
 
       // After login, route based on questionnaire status.
@@ -184,6 +188,16 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _navigateAfterLogin() async {
     // Decide next screen based on questionnaire completion.
     try {
+      final isAdmin = await _firestoreService.isCurrentUserAdmin();
+      if (!mounted) return;
+      if (isAdmin) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const AdminScreen()),
+          (route) => false,
+        );
+        return;
+      }
+
       // Check if user has completed questionnaire
       final hasCompleted = await _firestoreService.hasCompletedQuestionnaire();
 
@@ -231,7 +245,7 @@ class _LoginScreenState extends State<LoginScreen> {
     // Google sign-in uses Firebase Auth then same routing logic.
     setState(() => _loading = true);
     try {
-      await _auth.signInWithGoogle();
+      await _signInWithGoogle();
       await _navigateAfterLogin();
     } catch (e) {
       if (!mounted) return;

@@ -214,10 +214,13 @@ class _LogoMark extends StatelessWidget {
             color: const Color(0xFF8E7CFF).withValues(alpha: 0.14),
             borderRadius: BorderRadius.circular(12),
           ),
-          child: const Icon(
-            Icons.favorite_rounded,
-            color: Color(0xFF8E7CFF),
-            size: 20,
+          child: Center(
+            child: Image.asset(
+              "assets/images/ANA's-logo.png",
+              width: 30,
+              height: 30,
+              fit: BoxFit.contain,
+            ),
           ),
         ),
         const SizedBox(width: 10),

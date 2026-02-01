@@ -6,10 +6,32 @@ class UserInitializationService {
 
   final FirebaseFirestore _firestore;
 
+  String? _deriveFirstName({String? displayName, String? email}) {
+    final display = displayName?.trim();
+    if (display != null && display.isNotEmpty) {
+      final parts = display.split(RegExp(r'\s+'));
+      if (parts.isNotEmpty && parts.first.isNotEmpty) {
+        return parts.first;
+      }
+    }
+
+    final normalizedEmail = email?.trim().toLowerCase();
+    if (normalizedEmail != null &&
+        normalizedEmail.contains('@') &&
+        !normalizedEmail.startsWith('@')) {
+      final beforeAt = normalizedEmail.split('@').first;
+      if (beforeAt.isNotEmpty) return beforeAt;
+    }
+    return null;
+  }
+
   Future<void> ensureUserInitialized(
-    String uid, {
-    String? preferredLanguage,
-  }) async {
+      String uid, {
+        String? preferredLanguage,
+        String? email,
+        String? displayName,
+        String? photoUrl,
+      }) async {
     final userRef = _firestore.collection('users').doc(uid);
     final snapshot = await userRef.get();
     final data = snapshot.data() as Map<String, dynamic>? ?? {};
@@ -31,6 +53,39 @@ class UserInitializationService {
     }
     if (preferredLanguage != null && !hasKey('preferredLanguage')) {
       updates['preferredLanguage'] = preferredLanguage;
+    }
+    final normalizedEmail = email?.trim().toLowerCase();
+    if (normalizedEmail != null &&
+        (!hasKey('email') ||
+            (data['email']?.toString().toLowerCase() != normalizedEmail))) {
+      updates['email'] = normalizedEmail;
+    }
+    if (displayName != null &&
+        (!hasKey('displayName') ||
+            (data['displayName']?.toString() != displayName))) {
+      updates['displayName'] = displayName;
+    }
+    if (photoUrl != null &&
+        (!hasKey('photoUrl') || (data['photoUrl']?.toString() != photoUrl))) {
+      updates['photoUrl'] = photoUrl;
+    }
+    if (!hasKey('firstName') || (data['firstName']?.toString().trim() == '')) {
+      final firstName = _deriveFirstName(
+        displayName: displayName,
+        email: email,
+      );
+      if (firstName != null) {
+        updates['firstName'] = firstName;
+      }
+    }
+    if (!hasKey('lastName')) {
+      updates['lastName'] = null;
+    }
+    if (!hasKey('birthdate')) {
+      updates['birthdate'] = null;
+    }
+    if (!hasKey('isAdmin')) {
+      updates['isAdmin'] = false;
     }
 
     final settings = data['settings'];

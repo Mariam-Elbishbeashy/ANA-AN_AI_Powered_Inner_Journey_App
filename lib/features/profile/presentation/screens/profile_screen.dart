@@ -1,3 +1,7 @@
+import 'package:ana_ifs_app/features/profile/presentation/screens/AboutANAScreen.dart';
+import 'package:ana_ifs_app/features/profile/presentation/screens/HelpSupportScreen.dart';
+import 'package:ana_ifs_app/features/profile/presentation/screens/NotificationsScreen.dart';
+import 'package:ana_ifs_app/features/profile/presentation/screens/PrivacySecurityScreen.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
@@ -356,39 +360,58 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       subtitle: isArabicValue
                           ? 'إدارة تفضيلات الإشعارات الخاصة بك'
                           : 'Manage your notification preferences',
-                      onTap: () {},
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const NotificationsScreen(),
+                          ),
+                        );
+                      },
                     ),
+
                     _SettingsItem(
                       icon: Icons.privacy_tip_rounded,
-                      title: isArabicValue
-                          ? 'الخصوصية والأمان'
-                          : 'Privacy & Security',
+                      title: isArabicValue ? 'الخصوصية والأمان' : 'Privacy & Security',
                       subtitle: isArabicValue
                           ? 'التحكم في بياناتك وإعدادات الأمان'
                           : 'Control your data and security settings',
                       onTap: () {
                         Navigator.of(context).push(
                           MaterialPageRoute(
-                            builder: (_) => const SettingsScreen(),
+                            builder: (_) => const PrivacySecurityScreen(),
                           ),
                         );
                       },
                     ),
+
                     _SettingsItem(
                       icon: Icons.help_rounded,
                       title: isArabicValue ? 'المساعدة والدعم' : 'Help & Support',
                       subtitle: isArabicValue
                           ? 'احصل على المساعدة أو اتصل بالدعم'
                           : 'Get help or contact support',
-                      onTap: () {},
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const HelpSupportScreen(),
+                          ),
+                        );
+                      },
                     ),
+
                     _SettingsItem(
                       icon: Icons.info_rounded,
                       title: isArabicValue ? 'عن تطبيق ANA' : 'About ANA',
                       subtitle: isArabicValue
                           ? 'تعرف على المزيد حول التطبيق'
                           : 'Learn more about the app',
-                      onTap: () {},
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const AboutANAScreen(),
+                          ),
+                        );
+                      },
                     ),
 
                     const SizedBox(height: 30),
@@ -734,23 +757,23 @@ class _CharacterCard extends StatelessWidget {
                     color: Color(0xFF2A1E3B),
                   ),
                 ),
+                // const SizedBox(height: 4),
+                // Text(
+                //   'Confidence: ${(character.confidence * 100).toStringAsFixed(1)}%',
+                //   style: TextStyle(
+                //     fontSize: 14,
+                //     color: const Color(0xFF7A6A5A),
+                //   ),
+                // ),
                 const SizedBox(height: 4),
-                Text(
-                  'Confidence: ${(character.confidence * 100).toStringAsFixed(1)}%',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: const Color(0xFF7A6A5A),
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '#${character.rank}',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: color,
-                  ),
-                ),
+                // Text(
+                //   '#${character.rank}',
+                //   style: TextStyle(
+                //     fontSize: 14,
+                //     fontWeight: FontWeight.w700,
+                //     color: color,
+                //   ),
+                // ),
                 const SizedBox(height: 4),
                 Container(
                   padding: const EdgeInsets.symmetric(

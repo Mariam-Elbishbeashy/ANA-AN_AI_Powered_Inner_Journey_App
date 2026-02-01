@@ -2,6 +2,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import 'package:ana_ifs_app/l10n/app_strings.dart';
+import 'package:ana_ifs_app/core/services/firestore_service.dart';
+import 'package:ana_ifs_app/features/admin/presentation/screens/admin_screen.dart';
 import 'package:ana_ifs_app/features/character/domain/entities/user_character.dart';
 import 'package:ana_ifs_app/features/profile/presentation/screens/profile_screen.dart';
 
@@ -129,6 +131,7 @@ class _TopBarIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final adminFuture = FirestoreService().isCurrentUserAdmin();
     return Container(
       margin: const EdgeInsets.only(left: 8),
       decoration: BoxDecoration(
@@ -319,6 +322,7 @@ class SettingsBottomSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final adminFuture = FirestoreService().isCurrentUserAdmin();
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: const BoxDecoration(
@@ -386,6 +390,36 @@ class SettingsBottomSheet extends StatelessWidget {
                 onSwitchLanguage!();
               },
             ),
+          FutureBuilder<bool>(
+            future: adminFuture,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState != ConnectionState.done ||
+                  snapshot.data != true) {
+                return const SizedBox.shrink();
+              }
+              return ListTile(
+                leading: const Icon(
+                  Icons.admin_panel_settings_rounded,
+                  color: Color(0xFF8E7CFF),
+                ),
+                title: Text(tr(context, 'Admin Dashboard', 'لوحة الإدارة')),
+                subtitle: Text(
+                  tr(
+                    context,
+                    'Manage users and content',
+                    'إدارة المستخدمين والمحتوى',
+                  ),
+                ),
+                onTap: () {
+                  final navigator = Navigator.of(context, rootNavigator: true);
+                  Navigator.pop(context);
+                  navigator.push(
+                    MaterialPageRoute(builder: (_) => const AdminScreen()),
+                  );
+                },
+              );
+            },
+          ),
           ListTile(
             leading: const Icon(
               Icons.privacy_tip_rounded,
