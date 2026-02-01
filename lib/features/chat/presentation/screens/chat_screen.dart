@@ -6,12 +6,14 @@ import 'package:ana_ifs_app/l10n/app_strings.dart';
 import 'package:ana_ifs_app/core/widgets/shared_widgets.dart';
 import 'package:ana_ifs_app/features/chat/presentation/screens/guider_chat_screen.dart';
 import 'package:ana_ifs_app/features/voice_analysis/presentation/screens/voice_analysis_screen.dart';
+import 'package:ana_ifs_app/features/character/domain/entities/user_character.dart'; // Add this import
 
 class ChatScreen extends StatelessWidget {
   final String name;
   final VoidCallback onLogout;
   final VoidCallback onRetakeQuestionnaire;
   final VoidCallback? onSwitchLanguage;
+  final UserCharacter character; // Add this parameter
 
   const ChatScreen({
     super.key,
@@ -19,6 +21,7 @@ class ChatScreen extends StatelessWidget {
     required this.onLogout,
     required this.onRetakeQuestionnaire,
     this.onSwitchLanguage,
+    required this.character, // Add this parameter
   });
 
   @override
@@ -120,7 +123,7 @@ class ChatScreen extends StatelessWidget {
                             color: accent,
                             size: 20,
                           ),
-                          SizedBox(width: 10),
+                          const SizedBox(width: 10),
                           Expanded(
                             child: Text(
                               tr(context, "How it works:", "كيف يعمل:"),
@@ -182,8 +185,8 @@ class ChatScreen extends StatelessWidget {
                   onVoice: () {
                     Navigator.of(context).push(
                       MaterialPageRoute(
-                        builder: (_) => const VoiceAnalysisScreen(
-                          isGuiderMode: true,
+                        builder: (_) => VoiceAnalysisScreen(
+                          character: character, // Pass the character here
                         ),
                       ),
                     );

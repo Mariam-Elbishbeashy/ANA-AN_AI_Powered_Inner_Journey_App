@@ -197,6 +197,19 @@ class _AnaShellState extends State<AnaShell> {
     }
   }
 
+  // Helper method to get the appropriate character for ChatScreen
+  UserCharacter? _getChatCharacter() {
+    if (_userCharacters.isEmpty) return null;
+
+    // Option 1: Look for a "Guider" character specifically
+    final guiderCharacter = _userCharacters.firstWhere(
+          (character) => character.displayName.toLowerCase().contains('guider'),
+      orElse: () => _userCharacters.first, // Fallback to first character
+    );
+
+    return guiderCharacter;
+  }
+
   @override
   void dispose() {
     // Clear cache when shell is disposed (optional)
@@ -208,7 +221,9 @@ class _AnaShellState extends State<AnaShell> {
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
     final name = _getFriendlyName(user);
+    final chatCharacter = _getChatCharacter();
 
+    // If characters aren't loaded yet, show loading for ChatScreen
     final pages = <Widget>[
       HomeScreen(
         name: name,
@@ -224,12 +239,17 @@ class _AnaShellState extends State<AnaShell> {
         onRetakeQuestionnaire: _retakeQuestionnaire,
         onSwitchLanguage: _switchLanguage,
       ),
-      ChatScreen(
-        name: name,
-        onLogout: _logout,
-        onRetakeQuestionnaire: _retakeQuestionnaire,
-        onSwitchLanguage: _switchLanguage,
-      ),
+      // ChatScreen with character parameter
+      if (chatCharacter != null)
+        ChatScreen(
+          name: name,
+          onLogout: _logout,
+          onRetakeQuestionnaire: _retakeQuestionnaire,
+          onSwitchLanguage: _switchLanguage,
+          character: chatCharacter, // Pass the character here
+        )
+      else
+        _buildLoadingScreen(), // Show loading while characters load
       ReframeScreen(
         name: name,
         onLogout: _logout,
@@ -271,6 +291,32 @@ class _AnaShellState extends State<AnaShell> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  // Loading widget for when characters aren't loaded yet
+  Widget _buildLoadingScreen() {
+    return Container(
+      color: const Color(0xFFF9F6FF),
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const CircularProgressIndicator(
+              color: Color(0xFF8E7CFF),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              tr(context, 'Loading your character...', 'جاري تحميل الشخصية...'),
+              style: const TextStyle(
+                color: Color(0xFF4B3A66),
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

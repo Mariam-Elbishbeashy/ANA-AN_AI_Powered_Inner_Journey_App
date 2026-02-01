@@ -69,3 +69,6 @@ flask_server/venv_app/
 /flask_server/saved_audio_files/
 node_modules
 .venv/
+/flask_server/recordings/
+/flask_server/tts_output/
+

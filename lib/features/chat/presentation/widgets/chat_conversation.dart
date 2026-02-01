@@ -660,7 +660,7 @@ class _TypingBubble extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 6),
         child: Text(
-          '$label...',
+          '$label is thinking...',
           style: const TextStyle(color: Color(0xFF6B5C82)),
         ),
       ),

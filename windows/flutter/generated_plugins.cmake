@@ -10,6 +10,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   firebase_core
   firebase_storage
   flutter_sound
+  flutter_tts
   permission_handler_windows
   record_windows
   speech_to_text_windows
