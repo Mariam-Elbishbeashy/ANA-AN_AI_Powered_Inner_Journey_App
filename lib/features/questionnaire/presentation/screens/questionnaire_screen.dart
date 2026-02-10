@@ -20,7 +20,6 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
   late PageController _pageController;
   final FirestoreService _firestoreService = FirestoreService();
   bool _isInitialized = false;
-  bool _isSwitchingLanguage = false;
   bool _shouldSyncPageController = false;
 
   @override
@@ -80,10 +79,6 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
   Future<void> _switchLanguage(String newLanguage) async {
     if (_provider.language == newLanguage) return;
 
-    setState(() {
-      _isSwitchingLanguage = true;
-    });
-
     try {
       await _provider.switchLanguage(newLanguage);
 
@@ -115,10 +110,6 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
           duration: const Duration(seconds: 2),
         ),
       );
-    } finally {
-      setState(() {
-        _isSwitchingLanguage = false;
-      });
     }
   }
 
@@ -199,8 +190,6 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
   }
 
   void _showLanguageSwitcher(BuildContext context) {
-    if (_isSwitchingLanguage) return;
-
     final provider = Provider.of<QuestionnaireProvider>(context, listen: false);
     final currentLang = provider.language;
 
@@ -211,101 +200,69 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            return Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Padding(
-                      padding: const EdgeInsets.only(bottom: 16),
-                      child: Text(
-                        currentLang == 'ar' ? 'اختر اللغة' : 'Select Language',
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w800,
-                          color: Color(0xFF2A1E3B),
-                        ),
-                      ),
+        return Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: Text(
+                    currentLang == 'ar' ? 'اختر اللغة' : 'Select Language',
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF2A1E3B),
                     ),
                   ),
-                  const Divider(),
-
-                  // English Option
-                  ListTile(
-                    leading: _isSwitchingLanguage && currentLang != 'en'
-                        ? const SizedBox(
-                            width: 24,
-                            height: 24,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                Color(0xFF8E7CFF),
-                              ),
-                            ),
-                          )
-                        : const Icon(Icons.language, color: Color(0xFF8E7CFF)),
-                    title: const Text('English'),
-                    trailing: currentLang == 'en'
-                        ? const Icon(
-                            Icons.check_circle,
-                            color: Color(0xFF8E7CFF),
-                          )
-                        : null,
-                    onTap: () async {
-                      if (currentLang != 'en') {
-                        setModalState(() {});
-                        Navigator.pop(context);
-                        await _switchLanguage('en');
-                      }
-                    },
-                  ),
-
-                  // Arabic Option
-                  ListTile(
-                    leading: _isSwitchingLanguage && currentLang != 'ar'
-                        ? const SizedBox(
-                            width: 24,
-                            height: 24,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                Color(0xFF8E7CFF),
-                              ),
-                            ),
-                          )
-                        : const Icon(Icons.language, color: Color(0xFF8E7CFF)),
-                    title: const Text('العربية'),
-                    trailing: currentLang == 'ar'
-                        ? const Icon(
-                            Icons.check_circle,
-                            color: Color(0xFF8E7CFF),
-                          )
-                        : null,
-                    onTap: () async {
-                      if (currentLang != 'ar') {
-                        setModalState(() {});
-                        Navigator.pop(context);
-                        await _switchLanguage('ar');
-                      }
-                    },
-                  ),
-
-                  const SizedBox(height: 20),
-                  SizedBox(
-                    width: double.infinity,
-                    child: TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: Text(currentLang == 'ar' ? 'إغلاق' : 'Close'),
-                    ),
-                  ),
-                ],
+                ),
               ),
-            );
-          },
+              const Divider(),
+
+              // English Option
+              ListTile(
+                leading: const Icon(Icons.language, color: Color(0xFF8E7CFF)),
+                title: const Text('English'),
+                trailing: currentLang == 'en'
+                    ? const Icon(
+                  Icons.check_circle,
+                  color: Color(0xFF8E7CFF),
+                )
+                    : null,
+                onTap: () async {
+                  Navigator.pop(context);
+                  await _switchLanguage('en');
+                },
+              ),
+
+              // Arabic Option
+              ListTile(
+                leading: const Icon(Icons.language, color: Color(0xFF8E7CFF)),
+                title: const Text('العربية'),
+                trailing: currentLang == 'ar'
+                    ? const Icon(
+                  Icons.check_circle,
+                  color: Color(0xFF8E7CFF),
+                )
+                    : null,
+                onTap: () async {
+                  Navigator.pop(context);
+                  await _switchLanguage('ar');
+                },
+              ),
+
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: Text(currentLang == 'ar' ? 'إغلاق' : 'Close'),
+                ),
+              ),
+            ],
+          ),
         );
       },
     );
@@ -320,69 +277,55 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
         appBar: AppBar(
           backgroundColor: Colors.transparent,
           elevation: 0,
-          leading: _isSwitchingLanguage
-              ? const SizedBox(
-                  width: 40,
-                  child: Center(
-                    child: SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          Color(0xFF6A5CFF),
-                        ),
-                      ),
+          leading: IconButton(
+            icon: const Icon(
+              Icons.arrow_back_ios_new_rounded,
+              color: Color(0xFF6A5CFF),
+            ),
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder: (context) => Consumer<QuestionnaireProvider>(
+                  builder: (context, provider, child) => AlertDialog(
+                    title: Text(
+                      provider.language == 'ar'
+                          ? 'العودة إلى الشاشة الرئيسية؟'
+                          : 'Return to Welcome?',
                     ),
-                  ),
-                )
-              : IconButton(
-                  icon: const Icon(
-                    Icons.arrow_back_ios_new_rounded,
-                    color: Color(0xFF6A5CFF),
-                  ),
-                  onPressed: () {
-                    showDialog(
-                      context: context,
-                      builder: (context) => AlertDialog(
-                        title: Text(
-                          _provider.language == 'ar'
-                              ? 'العودة إلى الشاشة الرئيسية؟'
-                              : 'Return to Welcome?',
+                    content: Text(
+                      provider.language == 'ar'
+                          ? 'سيتم حفظ تقدمك. يمكنك متابعة الاستبيان من حيث توقفت.'
+                          : 'Your progress will be saved. You can continue the questionnaire from where you left off.',
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: Text(
+                          provider.language == 'ar' ? 'إلغاء' : 'Cancel',
                         ),
-                        content: Text(
-                          _provider.language == 'ar'
-                              ? 'سيتم حفظ تقدمك. يمكنك متابعة الاستبيان من حيث توقفت.'
-                              : 'Your progress will be saved. You can continue the questionnaire from where you left off.',
-                        ),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(context),
-                            child: Text(
-                              _provider.language == 'ar' ? 'إلغاء' : 'Cancel',
-                            ),
-                          ),
-                          TextButton(
-                            onPressed: () {
-                              Navigator.pop(context);
-                              Navigator.of(context).pushAndRemoveUntil(
-                                MaterialPageRoute(
-                                  builder: (_) => const AnaWelcomeScreen(),
-                                ),
-                                (route) => false,
-                              );
-                            },
-                            child: Text(
-                              _provider.language == 'ar'
-                                  ? 'العودة'
-                                  : 'Return to Welcome',
-                            ),
-                          ),
-                        ],
                       ),
-                    );
-                  },
+                      TextButton(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          Navigator.of(context).pushAndRemoveUntil(
+                            MaterialPageRoute(
+                              builder: (_) => const AnaWelcomeScreen(),
+                            ),
+                                (route) => false,
+                          );
+                        },
+                        child: Text(
+                          provider.language == 'ar'
+                              ? 'العودة'
+                              : 'Return to Welcome',
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
+              );
+            },
+          ),
           title: Consumer<QuestionnaireProvider>(
             builder: (context, provider, child) {
               return Row(
@@ -431,41 +374,22 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
             Consumer<QuestionnaireProvider>(
               builder: (context, provider, child) {
                 return IconButton(
-                  icon: _isSwitchingLanguage
-                      ? const SizedBox(
-                          width: 40,
-                          height: 40,
-                          child: Center(
-                            child: SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  Color(0xFF8E7CFF),
-                                ),
-                              ),
-                            ),
-                          ),
-                        )
-                      : Container(
-                          padding: const EdgeInsets.all(6),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF0ECF7),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Text(
-                            provider.language == 'ar' ? 'AR' : 'EN',
-                            style: const TextStyle(
-                              color: Color(0xFF8E7CFF),
-                              fontWeight: FontWeight.w800,
-                              fontSize: 14,
-                            ),
-                          ),
-                        ),
-                  onPressed: _isSwitchingLanguage
-                      ? null
-                      : () => _showLanguageSwitcher(context),
+                  icon: Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF0ECF7),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      provider.language == 'ar' ? 'AR' : 'EN',
+                      style: const TextStyle(
+                        color: Color(0xFF8E7CFF),
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+                  onPressed: () => _showLanguageSwitcher(context),
                 );
               },
             ),
@@ -473,35 +397,15 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
         ),
         body: Consumer<QuestionnaireProvider>(
           builder: (context, provider, child) {
-            // ADD THIS: Sync page controller when needed
+            // Sync page controller when needed
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (_shouldSyncPageController) {
                 _syncPageController();
               }
             });
 
-            if (_isSwitchingLanguage || provider.isLanguageSwitching) {
-              return Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const CircularProgressIndicator(color: Color(0xFF8E7CFF)),
-                    const SizedBox(height: 20),
-                    Text(
-                      provider.language == 'ar'
-                          ? 'جاري تحميل الأسئلة باللغة الجديدة...'
-                          : 'Loading questions in new language...',
-                      style: const TextStyle(
-                        color: Color(0xFF4B3A66),
-                        fontSize: 16,
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }
-
-            if (!_isInitialized || provider.isLoading) {
+            // Only show loading for initial load
+            if (!_isInitialized || (provider.isLoading && !provider.hasLoaded)) {
               return Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -545,9 +449,6 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
                     const SizedBox(height: 20),
                     ElevatedButton(
                       onPressed: () {
-                        setState(() {
-                          _isInitialized = false;
-                        });
                         _initializeProvider();
                       },
                       style: ElevatedButton.styleFrom(
@@ -566,9 +467,7 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
             return Column(
               children: [
                 LinearProgressIndicator(
-                  value:
-                      (provider.currentQuestionIndex + 1) /
-                      provider.totalQuestions,
+                  value: (provider.currentQuestionIndex + 1) / provider.totalQuestions,
                   backgroundColor: const Color(0xFFE5DEFF),
                   valueColor: const AlwaysStoppedAnimation<Color>(
                     Color(0xFF8E7CFF),
@@ -579,8 +478,7 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
                 Expanded(
                   child: NotificationListener<ScrollEndNotification>(
                     onNotification: (notification) {
-                      if (_pageController.hasClients &&
-                          _pageController.page != null) {
+                      if (_pageController.hasClients && _pageController.page != null) {
                         final currentPage = _pageController.page!.round();
                         if (currentPage != provider.currentQuestionIndex) {
                           provider.setCurrentQuestionIndex(currentPage);
@@ -609,8 +507,7 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
                   padding: const EdgeInsets.all(20),
                   child: Row(
                     children: [
-                      if (_pageController.hasClients &&
-                          provider.currentQuestionIndex > 0)
+                      if (_pageController.hasClients && provider.currentQuestionIndex > 0)
                         Expanded(
                           child: ElevatedButton(
                             onPressed: _previousQuestion,
@@ -620,9 +517,7 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(12),
                                 side: BorderSide(
-                                  color: const Color(
-                                    0xFF6A5CFF,
-                                  ).withOpacity(0.3),
+                                  color: const Color(0xFF6A5CFF).withOpacity(0.3),
                                 ),
                               ),
                               padding: const EdgeInsets.symmetric(vertical: 16),
@@ -631,17 +526,13 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
                                 Icon(
-                                  provider.language == 'ar'
-                                      ? Icons.arrow_back_rounded
-                                      : Icons.arrow_back_rounded,
+                                  Icons.arrow_back_rounded,
                                   size: 20,
                                   color: const Color(0xFF6A5CFF),
                                 ),
                                 const SizedBox(width: 8),
                                 Text(
-                                  provider.language == 'ar'
-                                      ? 'السابق'
-                                      : 'Previous',
+                                  provider.language == 'ar' ? 'السابق' : 'Previous',
                                   style: const TextStyle(
                                     color: Color(0xFF6A5CFF),
                                   ),
@@ -651,21 +542,15 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
                           ),
                         ),
 
-                      if (_pageController.hasClients &&
-                          provider.currentQuestionIndex > 0)
+                      if (_pageController.hasClients && provider.currentQuestionIndex > 0)
                         const SizedBox(width: 10),
 
                       Expanded(
-                        flex:
-                            _pageController.hasClients &&
-                                    provider.currentQuestionIndex > 0
-                                ? 1
-                                : 2,
+                        flex: _pageController.hasClients && provider.currentQuestionIndex > 0 ? 1 : 2,
                         child: ElevatedButton(
                           onPressed: () {
                             if (_pageController.hasClients &&
-                                provider.currentQuestionIndex <
-                                    provider.totalQuestions - 1) {
+                                provider.currentQuestionIndex < provider.totalQuestions - 1) {
                               _nextQuestion();
                             } else {
                               _submitQuestionnaire();
@@ -684,30 +569,21 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
                             children: [
                               Text(
                                 _pageController.hasClients &&
-                                        provider.currentQuestionIndex <
-                                            provider.totalQuestions - 1
-                                    ? (provider.language == 'ar'
-                                          ? 'التالي'
-                                          : 'Next')
-                                    : (provider.language == 'ar'
-                                          ? 'إرسال'
-                                          : 'Submit'),
+                                    provider.currentQuestionIndex < provider.totalQuestions - 1
+                                    ? (provider.language == 'ar' ? 'التالي' : 'Next')
+                                    : (provider.language == 'ar' ? 'إرسال' : 'Submit'),
                                 style: const TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.w700,
                                 ),
                               ),
                               if (_pageController.hasClients &&
-                                  provider.currentQuestionIndex <
-                                      provider.totalQuestions - 1)
+                                  provider.currentQuestionIndex < provider.totalQuestions - 1)
                                 const SizedBox(width: 8),
                               if (_pageController.hasClients &&
-                                  provider.currentQuestionIndex <
-                                      provider.totalQuestions - 1)
+                                  provider.currentQuestionIndex < provider.totalQuestions - 1)
                                 Icon(
-                                  provider.language == 'ar'
-                                      ? Icons.arrow_forward_rounded
-                                      : Icons.arrow_forward_rounded,
+                                  Icons.arrow_forward_rounded,
                                   size: 20,
                                   color: Colors.white,
                                 ),

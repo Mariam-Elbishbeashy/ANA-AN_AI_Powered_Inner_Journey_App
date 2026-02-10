@@ -63,7 +63,9 @@ class QuestionnaireProvider extends ChangeNotifier {
 
       if (loadedQuestions.isEmpty) {
         print('⚠️ No questions loaded for language $language');
-        return;
+
+        // Show a more specific error
+        throw Exception('No questions available in $language. Please check the database.');
       }
 
       // Sort questions by questionNumber
@@ -81,14 +83,15 @@ class QuestionnaireProvider extends ChangeNotifier {
       _hasLoaded = true;
       print('✅ Questions loaded successfully for $language');
 
-      // Log all question numbers for debugging
-      print(
-        '🔍 Available question numbers: ${_questions.map((q) => q.questionNumber).toList()}',
-      );
     } catch (e, stackTrace) {
       print('❌ ERROR loading questions for $language: $e');
       print('📝 Stack trace: $stackTrace');
+
+      // Reset state on error
       _hasLoaded = false;
+      _questions = [];
+      _answers = [];
+
       rethrow;
     }
   }
@@ -114,11 +117,10 @@ class QuestionnaireProvider extends ChangeNotifier {
 
     print('🔄 Switching language from $_language to $newLanguage');
 
-    // Store current question number BEFORE clearing
+    // Store current question number BEFORE switching
     int? questionNumberToRestore;
     if (_questions.isNotEmpty && _currentQuestionIndex < _questions.length) {
-      questionNumberToRestore =
-          _questions[_currentQuestionIndex].questionNumber;
+      questionNumberToRestore = _questions[_currentQuestionIndex].questionNumber;
       _lastQuestionNumberBeforeSwitch = questionNumberToRestore;
       print('💾 Storing current question: Q$questionNumberToRestore');
     }
@@ -129,30 +131,26 @@ class QuestionnaireProvider extends ChangeNotifier {
     _safeNotifyListeners();
 
     try {
-      // Save old values for fallback
-      final oldLanguage = _language;
-      final oldQuestions = List<Question>.from(_questions);
-      final oldAnswers = List<QuestionAnswer>.from(_answers);
-      final oldQuestionIndex = _currentQuestionIndex;
-
-      // Clear state but keep question number to restore
-      _questions.clear();
-      _answers.clear();
-      _currentQuestionIndex = 0; // Temporary, will be restored
-      _hasLoaded = false;
-      _language = newLanguage;
-
-      // Update language in Firestore
+      // 1. FIRST update the language in Firestore
       await _firestoreService.setUserLanguage(newLanguage);
 
-      // Load new questions
+      // 2. Update the language variable
+      _language = newLanguage;
+
+      // 3. Clear existing questions but keep reference to old ones
+      final oldQuestions = List<Question>.from(_questions);
+      final oldAnswers = List<QuestionAnswer>.from(_answers);
+
+      // 4. Reset state but don't clear arrays yet (to prevent UI flicker)
+      _hasLoaded = false;
+
+      // 5. Load new questions for the new language
       await _loadQuestionsForLanguage(newLanguage);
 
-      // RESTORE POSITION: Find the same question number in new language
+      // 6. RESTORE POSITION: Find the same question number in new language
       if (questionNumberToRestore != null && _questions.isNotEmpty) {
         _restoreQuestionPositionByNumber(questionNumberToRestore);
       } else {
-        // If no specific question to restore, stay at index 0
         _currentQuestionIndex = 0;
       }
 
