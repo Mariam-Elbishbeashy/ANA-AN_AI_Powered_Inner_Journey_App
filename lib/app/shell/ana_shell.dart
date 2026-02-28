@@ -203,7 +203,7 @@ class _AnaShellState extends State<AnaShell> {
 
     // Option 1: Look for a "Guider" character specifically
     final guiderCharacter = _userCharacters.firstWhere(
-          (character) => character.displayName.toLowerCase().contains('guider'),
+          (character) => character.displayNameEn.toLowerCase().contains('guider'),
       orElse: () => _userCharacters.first, // Fallback to first character
     );
 

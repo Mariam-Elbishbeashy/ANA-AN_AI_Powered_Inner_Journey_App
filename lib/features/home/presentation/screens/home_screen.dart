@@ -498,7 +498,7 @@ class _HomeScreenState extends State<HomeScreen>
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              character.displayName,
+                              character.getDisplayName( isArabic(context) ? 'ar' : 'en' ),
                               style: const TextStyle(
                                 fontSize: 13,
                                 fontWeight: FontWeight.w700,
@@ -533,7 +533,7 @@ class _HomeScreenState extends State<HomeScreen>
                             Text(
                               _characterDescription(
                                 context,
-                                character.displayName,
+                                character.getDisplayName( isArabic(context) ? 'ar' : 'en' ),
                               ),
                               style: const TextStyle(
                                 fontSize: 12,
@@ -1198,7 +1198,7 @@ class _CharacterCard extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Text(
-                      character.displayName,
+                      character.getDisplayName( isArabic(context) ? 'ar' : 'en' ),
                       style: const TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w700,

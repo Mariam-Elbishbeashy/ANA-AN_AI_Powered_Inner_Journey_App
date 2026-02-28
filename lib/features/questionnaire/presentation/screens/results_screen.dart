@@ -433,13 +433,13 @@ class _QuestionnaireResultsScreenState
     // Get localized display name
     final displayName = _getLocalizedDisplayName(
       character.characterName,
-      character.displayName,
+      character.displayNameEn,
     );
 
     // Get localized description
     final description = _getLocalizedDescription(
       character.characterName,
-      character.description,
+      character.descriptionEn,
     );
 
     // Create updated character with localized data
@@ -447,14 +447,18 @@ class _QuestionnaireResultsScreenState
       id: character.id,
       userId: character.userId,
       characterName: character.characterName,
-      displayName: displayName,
+      displayNameEn: displayName,
+      displayNameAr: _getLocalizedDisplayName(character.characterName, character.displayNameAr), // Add Arabic version
       archetype: character.archetype,
       confidence: character.confidence,
       rank: character.rank,
       language: _currentLanguage,
       glbFileName: glbFileName,
-      description: description,
+      descriptionEn: description,
+      descriptionAr: _getLocalizedDescription(character.characterName, character.descriptionEn), // Add Arabic version
       predictedAt: character.predictedAt,
+      isHealed: character.isHealed,
+      healedAt: character.healedAt,
     );
 
     return Container(
@@ -526,7 +530,7 @@ class _QuestionnaireResultsScreenState
 
           // Character name
           Text(
-            updatedCharacter.displayName,
+            updatedCharacter.displayNameEn,
             style: const TextStyle(
               fontSize: 22,
               fontWeight: FontWeight.w800,
@@ -602,7 +606,7 @@ class _QuestionnaireResultsScreenState
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  updatedCharacter.description,
+                  updatedCharacter.descriptionEn,
                   style: const TextStyle(
                     fontSize: 15,
                     color: Color(0xFF4B3A66),
@@ -691,7 +695,7 @@ class _QuestionnaireResultsScreenState
 
       return ModelViewer(
         src: 'assets/models/${character.glbFileName}',
-        alt: character.displayName,
+        alt: character.displayNameEn,
         ar: false,
         autoRotate: false,
         cameraControls: true,
@@ -822,8 +826,8 @@ class _QuestionnaireResultsScreenState
             const SizedBox(height: 16),
             Text(
               isArabic
-                  ? 'جاري تحميل ${character.displayName}...'
-                  : 'Loading ${character.displayName}...',
+                  ? 'جاري تحميل ${character.displayNameEn}...'
+                  : 'Loading ${character.displayNameEn}...',
               style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
@@ -862,7 +866,7 @@ class _QuestionnaireResultsScreenState
             ),
             const SizedBox(height: 12),
             Text(
-              character.displayName,
+              character.displayNameEn,
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w700,

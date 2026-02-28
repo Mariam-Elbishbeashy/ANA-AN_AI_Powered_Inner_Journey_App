@@ -404,24 +404,102 @@ class QuestionnaireProvider extends ChangeNotifier {
 
   Future<void> _savePredictions(List<Map<String, dynamic>> predictions) async {
     final userCharacters = predictions.map((prediction) {
+      // Get Arabic translations based on the English character name
+      final arabicName = _getArabicDisplayName(prediction['characterName']);
+      final arabicDescription = _getArabicDescription(prediction['characterName']);
+
       return UserCharacter(
         id: '',
         userId: _firestoreService.currentUserId ?? '',
-        characterName: prediction['characterName'],
-        displayName: prediction['displayName'],
+        characterName: prediction['characterName'], // English identifier
+        displayNameEn: prediction['displayName'], // English display name
+        displayNameAr: arabicName, // Arabic display name
         archetype: prediction['archetype'],
         confidence: prediction['confidence'],
         rank: prediction['rank'],
-        language: _language,
+        language: _language, // Language used for prediction
         glbFileName: prediction['glbFileName'],
-        description: prediction['description'],
+        descriptionEn: prediction['description'], // English description
+        descriptionAr: arabicDescription, // Arabic description
         predictedAt: DateTime.now(),
-        isHealed: false, // All characters start as UNHEALED
+        isHealed: false,
         healedAt: null,
       );
     }).toList();
 
     await _firestoreService.saveUserCharacters(userCharacters);
+  }
+
+// Add these helper methods for Arabic translations
+  String _getArabicDisplayName(String englishName) {
+    final arabicNames = {
+      'Inner Critic': 'الناقد الداخلي',
+      'Perfectionist': 'الكمالي',
+      'People Pleaser': 'المُرضي',
+      'Controller': 'المتحكم',
+      'Stoic Part': 'حمّال أسيّة',
+      'Workaholic': 'مدمن العمل',
+      'Confused Part': 'الجزء الحيران',
+      'Procrastinator': 'المماطل',
+      'Overeater': 'الآكل المفرط',
+      'Binger': 'المفرط',
+      'Overeater/Binger': 'الآكل المفرط',
+      'Excessive Gamer': 'اللاعب المفرط',
+      'Lonely Part': 'الجزء الوحيد',
+      'Fearful Part': 'الجزء الخائف',
+      'Neglected Part': 'الجزء المهمل',
+      'Ashamed Part': 'الجزء الخجول',
+      'Overwhelmed Part': 'الجزء المرهق',
+      'Dependent Part': 'الجزء المعتمد',
+      'Jealous Part': 'الجزء الغيور',
+      'Wounded Child': 'الطفل الجريح',
+    };
+
+    return arabicNames[englishName] ?? englishName;
+  }
+
+  String _getArabicDescription(String englishName) {
+    final arabicDescriptions = {
+      'Inner Critic':
+      'هذا الصوت الداخلي يُقيّم أفعالك باستمرار، مشيراً إلى العيوب والأخطاء لمنع الفشل. بينما يهدف إلى حمايتك من خلال الحفاظ على معايير عالية، إلا أنه غالباً ما يظهر كحكم ذاتي قاسٍ يمكن أن يقوّض ثقتك بنفسك.',
+      'People Pleaser':
+      'هذا الجزء يُعطي أولوية لاحتياجات الآخرين فوق احتياجاتك الخاصة، يسعى للحصول على الموافقة وتجنب الصراع بأي ثمن. يعمل على الحفاظ على الانسجام في العلاقات ولكنه قد يؤدي إلى كبت مشاعرك الحقيقية وإهمال الحدود الشخصية.',
+      'Lonely Part':
+      'هذا الجزء يحمل مشاعر عميقة بالعزلة والشوق للتواصل العميق. يحتفظ بذكريات المسافة العاطفية ويتوق لرفقة مفهمة، وغالباً ما يظهر عندما تشعر بالانفصال عن الآخرين.',
+      'Jealous Part':
+      'هذا الجزء الواقي يظهر عندما ترى الآخرين كتهديد لعلاقاتك أو نجاحك. يشير إلى احتياجات غير مُلباة للأمان والتقدير، ويهدف لحماية ما تقدّره ولكنّه أحياناً يخلق مسافة.',
+      'Ashamed Part':
+      'هذا الجزء الجريح يحمل مشاعر عميقة بعدم الاستحقاق والوعي الذاتي من تجارب سابقة. يخفي جوانب من نفسك يراها غير مقبولة، ويعمل على حمايتك من الحكم مع تقييد التعبير الحقيقي.',
+      'Workaholic':
+      'هذا الجزء يُبقيك مشغولاً ومنتجاً باستمرار كوسيلة لتجنب مواجهة المشاعر الصعبة أو الفراغ الداخلي. يستخدم الإنجاز كدرع ضد الضعف، مما يؤدي غالباً إلى الإنهاك وإهمال الاحتياجات الشخصية.',
+      'Perfectionist':
+      'هذا الجزء يطالب بالكمال في كل ما تفعله، معتقداً أن الأداء المثالي سيمنع الانتقاد ويضمن القبول. بينما يهدف إلى التميز، إلا أنه غالباً ما يخلق معايير غير واقعية تسبب القلق والتسويف.',
+      'Procrastinator':
+      'هذا الجزء الواقي يُؤجل المهام المهمة لتجنب الفشل المحتمل أو الإرهاق أو مواجهة المشاعر الصعبة. يوفر راحة مؤقتة ولكنه يزيد الضغط في النهاية ويقوّض إحساسك بالقدرة.',
+      'Excessive Gamer':
+      'هذا الجزء يستخدم الألعاب كهروب من تحديات العالم الحقيقي، أو المشاعر غير المريحة، أو مشاعر النقص. يوفر إشباعاً فورياً وسيطرة في عالم افتراضي مع إهمال المسؤوليات الحياتية.',
+      'Confused Part':
+      'هذا الجزء يظهر عندما تشعر بالإرهاق من الخيارات، أو عدم اليقين بشأن القرارات، أو الانفصال عن حدسك. يمثل قلق عدم معرفة المسار "الصحيح" ويسعى للوضوح وسط عدم اليقين.',
+      'Dependent Part':
+      'هذا الجزء يخاف من الاستقلالية ويسعى باستمرار للتحقق الخارجي والدعم. يقلق بشأن اتخاذ القرارات بشكل مستقل ويعتمد بشدة على موافقة الآخرين، مما يحد من تطوير الثقة بالنفس.',
+      'Fearful Part':
+      'هذا الجزء اليقظ يمسح باستمرار للبحث عن التهديدات والمخاطر المحتملة. يهدف إلى إبقائك آمناً من خلال توقع المشاكل ولكن يمكن أن يصبح مفرط اليقظة، مما يخلق قلقاً بشأن مواقف قد لا تحدث أبداً.',
+      'Neglected Part':
+      'هذا الجزء الجريح يحتفظ بذكريات الإهمال، أو عدم الاستماع، أو الهجر العاطفي. يحمل ألم الاحتياجات غير الملباة في الطفولة ويسعى للاعتراف والرعاية التي لم يتلقاها.',
+      'Overeater/Binger':
+      'هذا الجزء يستخدم الطعام لتهدئة الألم العاطفي، أو ملء الفراغ الداخلي، أو تخدير المشاعر الصعبة. يوفر راحة مؤقتة ولكن غالباً ما يؤدي إلى دورات من الذنب والمزيد من الأكل العاطفي.',
+      'Overwhelmed Part':
+      'هذا الجزء يشعر بعدم القدرة على التعامل مع مطالب ومسؤوليات الحياة. يمثل إرهاق محاولة إدارة كل شيء ويحتاج إلى دعم في وضع الحدود وتحديد أولويات الرعاية الذاتية.',
+      'Stoic Part':
+      'هذا الجزء يكبت المشاعر ويحافظ على المسافة العاطفية كاستراتيجية بقاء. يعتقد أن إظهار الضعف خطير ويخلق مظهراً خارجياً متحكماً بينما تظل المشاعر الداخلية غير معالجة.',
+      'Wounded Child':
+      'هذا الجزء الضعيف يحمل ألم الطفولة، والصدمة، والاحتياجات العاطفية غير الملباة. يحتفظ بالبراءة التي أذيَت ويحتاج إلى اهتمام عطوف للشفاء والشعور بالأمان مرة أخرى.',
+      'Controller Part':
+      'هذا الجزء يحاول إدارة كل شيء وكل شخص لخلق إحساس بالأمان والقابلية للتنبؤ. يخاف من الفوضى وفقدان السيطرة، ويعمل بلا كلل للحفاظ على النظام ولكنه غالباً ما يخلق جموداً.',
+    };
+
+    return arabicDescriptions[englishName] ??
+        'تلعب هذه الشخصية الداخلية دوراً مهماً في مشهدك العاطفي. ظهرت كآلية وقائية خلال تجارب صعبة وتستمر في التأثير على كيفية تنقلك في العلاقات، والتحديات، وتصور الذات.';
   }
 
   void clearAnswers() {

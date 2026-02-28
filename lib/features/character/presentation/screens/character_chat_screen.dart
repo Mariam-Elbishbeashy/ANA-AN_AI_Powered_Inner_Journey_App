@@ -72,7 +72,7 @@ class _CharacterChatScreenState extends State<CharacterChatScreen> {
   }
 
   Future<InnerCharacterProfile?> _loadCharacterProfile() {
-    final primaryName = widget.character.displayName;
+    final primaryName = widget.character.displayNameEn;
     final secondaryName = widget.character.characterName;
     return _characterDataSource
         .findCharacterByName(primaryName)
@@ -82,11 +82,18 @@ class _CharacterChatScreenState extends State<CharacterChatScreen> {
   }
 
   String _getTitle(BuildContext context) {
-    final name = widget.character.displayName.trim();
-    final normalized = name.toLowerCase().startsWith('the ')
-        ? name.substring(4)
-        : name;
-    return tr(context, 'Your $normalized', '$normalized الخاص بك');
+    final isArabic = Localizations.localeOf(context).languageCode == 'ar';
+
+    final displayName = widget.character.getDisplayName(isArabic ? 'ar' : 'en');
+
+    if (isArabic) {
+      return displayName;
+    } else {
+      final normalized = displayName.toLowerCase().startsWith('the ')
+          ? displayName.substring(4)
+          : displayName;
+      return tr(context, 'Your $normalized', '$normalized الخاص بك');
+    }
   }
 
   /// Show modal to invite or remove the Guider
@@ -96,7 +103,7 @@ class _CharacterChatScreenState extends State<CharacterChatScreen> {
       backgroundColor: Colors.transparent,
       builder: (context) => _GuiderModal(
         isGuiderInChat: _isGuiderInChat,
-        characterName: widget.character.displayName,
+        characterName: widget.character.displayNameEn,
         onInviteGuider: () {
           Navigator.pop(context);
           setState(() {
@@ -178,7 +185,7 @@ class _CharacterChatScreenState extends State<CharacterChatScreen> {
                     return ChatConversation(
                       characterId: characterId,
                       characterType: 'inner_character',
-                      fallbackTitle: widget.character.displayName,
+                      fallbackTitle: widget.character.displayNameEn,
                       fallbackSubtitle: tr(
                         context,
                         'A protective inner part.',
@@ -204,7 +211,7 @@ class _CharacterChatScreenState extends State<CharacterChatScreen> {
   String _fallbackCharacterId() {
     final raw = widget.character.characterName.isNotEmpty
         ? widget.character.characterName
-        : widget.character.displayName;
+        : widget.character.displayNameEn;
     final normalized = raw
         .toLowerCase()
         .replaceAll('the ', '')
@@ -407,7 +414,7 @@ class _GuiderModal extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(vertical: 14),
                   ),
                   child: Text(
-                    tr(context, 'Continue without The Guider', 
+                    tr(context, 'Continue without The Guider',
                         'استمر بدون المُرشد'),
                     style: const TextStyle(
                       fontSize: 15,
@@ -434,7 +441,7 @@ class _GuiderModal extends StatelessWidget {
                         padding: const EdgeInsets.symmetric(vertical: 14),
                       ),
                       child: Text(
-                        tr(context, 'Yes, invite The Guider', 
+                        tr(context, 'Yes, invite The Guider',
                             'نعم، ادعُ المُرشد'),
                         style: const TextStyle(
                           fontSize: 15,

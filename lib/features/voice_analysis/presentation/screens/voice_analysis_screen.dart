@@ -415,10 +415,18 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
     super.dispose();
   }
 
+  // In _getTitle method:
   String _getTitle(BuildContext context) {
-    final name = widget.character.displayName.trim();
-    final normalized =
-    name.toLowerCase().startsWith('the ') ? name.substring(4) : name;
+    final isArabic = Localizations.localeOf(context).languageCode == 'ar';
+
+    if (isArabic && widget.character.displayNameAr.isNotEmpty) {
+      return '${widget.character.displayNameAr} الخاص بك';
+    }
+
+    final name = widget.character.getDisplayName(isArabic ? 'ar' : 'en').trim();
+    final normalized = name.toLowerCase().startsWith('the ')
+        ? name.substring(4)
+        : name;
     return tr(context, 'Your $normalized', '$normalized الخاص بك');
   }
 

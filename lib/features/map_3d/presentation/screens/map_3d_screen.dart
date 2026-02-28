@@ -73,9 +73,9 @@ class _Map3DScreenState extends State<Map3DScreen> {
       print('DEBUG: Loaded ${unhealed.length} unhealed characters');
 
       if (healed.isNotEmpty) {
-        print('DEBUG: Healed character names: ${healed.map((c) => c.displayName).toList()}');
+        print('DEBUG: Healed character names: ${healed.map((c) => c.displayNameEn).toList()}');
         for (var char in healed) {
-          print('DEBUG: ${char.displayName} - isHealed: ${char.isHealed}, predictedAt: ${char.predictedAt}');
+          print('DEBUG: ${char.displayNameEn} - isHealed: ${char.isHealed}, predictedAt: ${char.predictedAt}');
         }
       }
 
@@ -101,7 +101,7 @@ class _Map3DScreenState extends State<Map3DScreen> {
       for (int i = 0; i < allCharacters.length && i < mapSlots.length; i++) {
         mapSlots[i] = allCharacters[i];
         assignedCount++;
-        print('DEBUG: Slot $i assigned: ${allCharacters[i].displayName} '
+        print('DEBUG: Slot $i assigned: ${allCharacters[i].displayNameEn} '
             '(Healed: ${allCharacters[i].isHealed}, '
             'Archetype: ${allCharacters[i].archetype})');
       }
@@ -160,7 +160,7 @@ class _Map3DScreenState extends State<Map3DScreen> {
 
     for (int i = 0; i < allCharacters.length && i < mapSlots.length; i++) {
       mapSlots[i] = allCharacters[i];
-      print('DEBUG: Slot $i assigned from initial: ${allCharacters[i].displayName} '
+      print('DEBUG: Slot $i assigned from initial: ${allCharacters[i].displayNameEn} '
           '(Healed: ${allCharacters[i].isHealed})');
     }
   }
@@ -207,13 +207,13 @@ class _Map3DScreenState extends State<Map3DScreen> {
     for (final otherChar in otherCharacters) {
       final relation = _getArchetypeRelation(character.archetype, otherChar.archetype, isArabic);
       if (relation.isNotEmpty) {
-        relationships.add("${otherChar.displayName} ($relation)");
+        relationships.add("${otherChar.displayNameEn} ($relation)");
       }
     }
 
     // If no specific relationships found, show all other parts
     if (relationships.isEmpty) {
-      return otherCharacters.map((c) => c.displayName).toList();
+      return otherCharacters.map((c) => c.displayNameEn).toList();
     }
 
     return relationships;
