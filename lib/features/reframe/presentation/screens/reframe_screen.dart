@@ -284,13 +284,15 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
           id: characterId,
           userId: _currentUserId!,
           characterName: characterName,
-          displayName: displayName,
+          displayNameEn: displayName,
+          displayNameAr: displayName,
           archetype: archetype,
           confidence: confidence,
           rank: rank,
           language: detectedLanguage,
           glbFileName: glbFileName,
-          description: description,
+          descriptionEn: description,
+          descriptionAr: description,
           predictedAt: timestamp,
           isHealed: false,
           healedAt: null,
@@ -354,7 +356,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
 
       print('🔍 Found ${characters.length} existing characters for user:');
       for (final character in characters) {
-        print('   - ${character.displayName} (Rank: ${character.rank}, ID: ${character.id})');
+        print('   - ${character.displayNameEn} (Rank: ${character.rank}, ID: ${character.id})');
       }
 
       return characters;

@@ -65,7 +65,9 @@ class CharacterDetailDialog extends StatelessWidget {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          character.displayName.toUpperCase(),
+                          isArabic && character.displayNameAr.isNotEmpty
+                              ? character.displayNameAr.toUpperCase()
+                              : character.displayNameEn.toUpperCase(),
                           style: const TextStyle(
                             letterSpacing: 1.5,
                             fontSize: 12,
@@ -401,7 +403,9 @@ class CharacterDetailDialog extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           Text(
-            character.description,
+            isArabic && character.descriptionAr.isNotEmpty
+                ? character.descriptionAr
+                : character.descriptionEn,
             style: const TextStyle(
               fontSize: 14,
               height: 1.6,
@@ -530,7 +534,7 @@ class CharacterDetailDialog extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           Text(
-            _getCharacterInsights(character.displayName.toLowerCase()),
+            _getCharacterInsights(character.displayNameEn.toLowerCase()),
             style: const TextStyle(
               fontSize: 13.5,
               height: 1.6,
@@ -677,7 +681,7 @@ class CharacterDetailDialog extends StatelessWidget {
         return Icons.people_alt;
       default:
       // Fallback to character-specific icons
-        return _getSpecificCharacterIcon(character.displayName.toLowerCase());
+        return _getSpecificCharacterIcon(character.displayNameEn.toLowerCase());
     }
   }
 

@@ -44,13 +44,15 @@ class _AdminInnerCharactersScreenState extends State<AdminInnerCharactersScreen>
           id: id,
           userId: 'inner_characters',
           characterName: displayName,
-          displayName: displayName,
+          displayNameEn: displayName,
+          displayNameAr: displayName,
           archetype: role.toLowerCase(),
           confidence: 1.0,
           rank: i + 1,
           language: 'en',
           glbFileName: '',
-          description: entry['shortDescription']?.toString() ?? '',
+          descriptionEn: entry['shortDescription']?.toString() ?? '',
+          descriptionAr: entry['shortDescription']?.toString() ?? '',
           predictedAt: now,
           isHealed: false,
           healedAt: null,
@@ -271,7 +273,7 @@ class _InnerCharacterCard extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Text(
-                      character.displayName,
+                      character.getDisplayName( isArabic(context) ? 'ar' : 'en' ),
                       style: const TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w700,

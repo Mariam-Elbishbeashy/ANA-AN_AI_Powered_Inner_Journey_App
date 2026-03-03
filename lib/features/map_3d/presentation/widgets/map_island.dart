@@ -24,7 +24,7 @@ class MapIsland extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // DEBUG LOGGING
-    print('DEBUG MapIsland: Building for ${userCharacter?.displayName ?? "empty"}, '
+    print('DEBUG MapIsland: Building for ${userCharacter?.displayNameEn ?? "empty"}, '
         'colorTheme: ${colorTheme.name}, isHealed: ${userCharacter?.isHealed ?? false}');
 
     Color mainColor;
@@ -36,13 +36,13 @@ class MapIsland extends StatelessWidget {
       mainColor = const Color(0xFFA5D6A7);
       sideColor = const Color(0xFF66BB6A);
       glowColor = const Color(0xFF5CB85C).withOpacity(0.3);
-      print('DEBUG MapIsland: Using GREEN theme for ${userCharacter?.displayName ?? "empty"}');
+      print('DEBUG MapIsland: Using GREEN theme for ${userCharacter?.displayNameEn ?? "empty"}');
     } else {
       // Unhealed character - Purple theme
       mainColor = const Color(0xFFCE93D8);
       sideColor = const Color(0xFFAB47BC);
       glowColor = const Color(0xFFAB47BC).withOpacity(0.3);
-      print('DEBUG MapIsland: Using PURPLE theme for ${userCharacter?.displayName ?? "empty"}');
+      print('DEBUG MapIsland: Using PURPLE theme for ${userCharacter?.displayNameEn ?? "empty"}');
     }
 
     return GestureDetector(
@@ -197,13 +197,15 @@ class MapIsland extends StatelessWidget {
                   child: Column(
                     children: [
                       Text(
-                        userCharacter!.displayName,
+                        isArabic && userCharacter!.displayNameAr.isNotEmpty
+                            ? userCharacter!.displayNameAr
+                            : userCharacter!.displayNameEn,
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.bold,
                           color: colorTheme == IslandTheme.green
-                              ? const Color(0xFF2E7D32) // Dark green for healed
-                              : const Color(0xFF4A148C), // Purple for unhealed
+                              ? const Color(0xFF2E7D32)
+                              : const Color(0xFF4A148C),
                         ),
                         textAlign: TextAlign.center,
                       ),

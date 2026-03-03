@@ -39,9 +39,9 @@ class _CharacterProfileScreenState extends State<CharacterProfileScreen> {
       final decoded = jsonDecode(raw);
       if (decoded is List) {
         final targetNames = <String>{
-          _normalize(widget.character.displayName),
+          _normalize(widget.character.displayNameEn),
           _normalize(widget.character.characterName),
-          _compact(widget.character.displayName),
+          _compact(widget.character.displayNameEn),
           _compact(widget.character.characterName),
         }..removeWhere((value) => value.isEmpty);
         for (final entry in decoded) {
@@ -71,7 +71,7 @@ class _CharacterProfileScreenState extends State<CharacterProfileScreen> {
       }
     } catch (_) {}
     return _ProfileData.fallback(
-      widget.character.displayName,
+      widget.character.displayNameEn,
       widget.character.archetype,
     );
   }
@@ -166,7 +166,7 @@ class _CharacterProfileScreenState extends State<CharacterProfileScreen> {
             builder: (context, snapshot) {
               final data = snapshot.data ??
                   _ProfileData.fallback(
-                    widget.character.displayName,
+                    widget.character.displayNameEn,
                     widget.character.archetype,
                   );
               final roleColor = _roleColor(data.role);

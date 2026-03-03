@@ -245,9 +245,20 @@ class FirestoreService {
       if (userId != null) {
         for (final character in characters) {
           final docId = '${userId}_char_${character.rank}';
-          // Save with default isHealed = false (unhealed)
+          // Save with bilingual fields
           await userCharactersCollection.doc(docId).set({
-            ...character.toMap(),
+            'userId': character.userId,
+            'characterName': character.characterName,
+            'displayNameEn': character.displayNameEn,
+            'displayNameAr': character.displayNameAr,
+            'archetype': character.archetype,
+            'confidence': character.confidence,
+            'rank': character.rank,
+            'language': character.language,
+            'glbFileName': character.glbFileName,
+            'descriptionEn': character.descriptionEn,
+            'descriptionAr': character.descriptionAr,
+            'predictedAt': character.predictedAt.toIso8601String(),
             'isHealed': false, // Default to unhealed when created
             'healedAt': null,
           });
@@ -916,7 +927,7 @@ class FirestoreService {
 
       if (healedCharacters.isNotEmpty) {
         for (final character in healedCharacters) {
-          print('   - ${character.displayName} (healed at: ${character.healedAt})');
+          print('   - ${character.displayNameEn} (healed at: ${character.healedAt})');
         }
       }
 

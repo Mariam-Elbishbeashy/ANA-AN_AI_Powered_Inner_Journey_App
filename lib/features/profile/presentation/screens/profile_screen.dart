@@ -750,7 +750,9 @@ class _CharacterCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  character.displayName,
+                  isArabic(context) && character.displayNameAr.isNotEmpty
+                      ? character.displayNameAr
+                      : character.displayNameEn,
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
