@@ -10,9 +10,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:ana_ifs_app/l10n/app_strings.dart';
 import 'package:ana_ifs_app/core/widgets/shared_widgets.dart';
-import 'package:ana_ifs_app/features/home/presentation/screens/home_screen.dart';
-
-import '../../../character/domain/entities/user_character.dart';
+import 'package:ana_ifs_app/features/character/domain/entities/user_character.dart';
 
 enum _ReframeMode { chat, voice, video }
 enum _UsedInputType { none, text, voice, video }
@@ -86,13 +84,13 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
     // Check for characters after getting current user
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await Future.delayed(const Duration(milliseconds: 500));
-      await _checkForHealedCharacters();
-
-      // // Check if user should be restricted from accessing this screen
-      // if (_shouldRestrictAccess() && mounted) {
-      //   _showRestrictedAccessDialog();
-      // }
+      await _refreshCharacterData();
     });
+  }
+
+  // Refresh character data from database
+  Future<void> _refreshCharacterData() async {
+    await _checkForHealedCharacters();
   }
 
   // Check if user has 3 or more unhealed characters
@@ -131,10 +129,6 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
 
       print('📊 Character Stats: $healedCount healed, $unhealedCount unhealed');
 
-      if (unhealedCount >= 3) {
-        print('⚠️ User has 3+ unhealed characters - restricting access to Reframe');
-      }
-
     } catch (e) {
       print('❌ Error checking characters: $e');
       setState(() {
@@ -144,11 +138,30 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
     }
   }
 
+  // Check if a character already exists for this user
+  Future<bool> _characterExists(String characterName) async {
+    try {
+      if (_currentUserId == null) return false;
+
+      final querySnapshot = await _firestore
+          .collection('user_characters')
+          .where('userId', isEqualTo: _currentUserId)
+          .where('characterName', isEqualTo: characterName)
+          .limit(1)
+          .get();
+
+      return querySnapshot.docs.isNotEmpty;
+    } catch (e) {
+      print('❌ Error checking for duplicate character: $e');
+      return false;
+    }
+  }
+
   // Show restricted access dialog
   void _showRestrictedAccessDialog() {
     showDialog(
       context: context,
-      barrierDismissible: true, // Allow tapping outside to close
+      barrierDismissible: true,
       builder: (context) => AlertDialog(
         backgroundColor: Colors.white,
         shape: RoundedRectangleBorder(
@@ -158,7 +171,6 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Close button at top right
             Align(
               alignment: Alignment.topRight,
               child: IconButton(
@@ -168,10 +180,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                 constraints: const BoxConstraints(),
               ),
             ),
-
             const SizedBox(height: 8),
-
-            // Lock icon
             Container(
               width: 80,
               height: 80,
@@ -185,28 +194,21 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                 color: Color(0xFF8E7CFF),
               ),
             ),
-
             const SizedBox(height: 20),
-
-            // Title
             Text(
-              tr(context,  "Continue Your Healing Journey",  // English version
-                "استمر في رحلة شفائك"),
-                textAlign: TextAlign.center,
+              tr(context, "Continue Your Healing Journey", "استمر في رحلة شفائك"),
+              textAlign: TextAlign.center,
               style: const TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.w700,
                 color: Color(0xFF2A1E3B),
               ),
             ),
-
             const SizedBox(height: 16),
-
-            // Message
             Text(
               tr(context,
                   "To ensure each inner part receives the care it deserves, we gently pause new discoveries. You have $_unhealedCharacterCount parts awaiting your attention - nurturing them will renew your capacity for insight.",
-                  "لضمان حصول كل جزء داخلي على الرعاية التي يستحقها، نتوقف بلطف عن الاكتشافات الجديدة. لديك $_unhealedCharacterCount جزءًا تنتظر اهتمامك - رعايتها ستعيد تجديد قدرتك على البصيرة."    ),
+                  "لضمان حصول كل جزء داخلي على الرعاية التي يستحقها، نتوقف بلطف عن الاكتشافات الجديدة. لديك $_unhealedCharacterCount جزءًا تنتظر اهتمامك - رعايتها ستعيد تجديد قدرتك على البصيرة."),
               textAlign: TextAlign.center,
               style: const TextStyle(
                 color: Color(0xFF4B3A66),
@@ -218,6 +220,149 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
         ),
       ),
     );
+  }
+
+  // Helper methods for Arabic translations (from QuestionnaireProvider)
+  String _getArabicDisplayName(String englishName) {
+    final arabicNames = {
+      'Inner Critic': 'الناقد الداخلي',
+      'Perfectionist': 'الكمالي',
+      'People Pleaser': 'المُرضي',
+      'Controller': 'المتحكم',
+      'Stoic Part': 'حمّال أسيّة',
+      'Workaholic': 'مدمن العمل',
+      'Confused Part': 'الجزء الحيران',
+      'Procrastinator': 'المماطل',
+      'Overeater': 'الآكل المفرط',
+      'Binger': 'المفرط',
+      'Overeater/Binger': 'الآكل المفرط',
+      'Excessive Gamer': 'اللاعب المفرط',
+      'Lonely Part': 'الجزء الوحيد',
+      'Fearful Part': 'الجزء الخائف',
+      'Neglected Part': 'الجزء المهمل',
+      'Ashamed Part': 'الجزء الخجول',
+      'Overwhelmed Part': 'الجزء المرهق',
+      'Dependent Part': 'الجزء المعتمد',
+      'Jealous Part': 'الجزء الغيور',
+      'Wounded Child': 'الطفل الجريح',
+    };
+
+    return arabicNames[englishName] ?? englishName;
+  }
+
+  String _getArabicDescription(String englishName) {
+    final arabicDescriptions = {
+      'Inner Critic':
+      'هذا الصوت الداخلي يُقيّم أفعالك باستمرار، مشيراً إلى العيوب والأخطاء لمنع الفشل. بينما يهدف إلى حمايتك من خلال الحفاظ على معايير عالية، إلا أنه غالباً ما يظهر كحكم ذاتي قاسٍ يمكن أن يقوّض ثقتك بنفسك.',
+      'People Pleaser':
+      'هذا الجزء يُعطي أولوية لاحتياجات الآخرين فوق احتياجاتك الخاصة، يسعى للحصول على الموافقة وتجنب الصراع بأي ثمن. يعمل على الحفاظ على الانسجام في العلاقات ولكنه قد يؤدي إلى كبت مشاعرك الحقيقية وإهمال الحدود الشخصية.',
+      'Lonely Part':
+      'هذا الجزء يحمل مشاعر عميقة بالعزلة والشوق للتواصل العميق. يحتفظ بذكريات المسافة العاطفية ويتوق لرفقة مفهمة، وغالباً ما يظهر عندما تشعر بالانفصال عن الآخرين.',
+      'Jealous Part':
+      'هذا الجزء الواقي يظهر عندما ترى الآخرين كتهديد لعلاقاتك أو نجاحك. يشير إلى احتياجات غير مُلباة للأمان والتقدير، ويهدف لحماية ما تقدّره ولكنّه أحياناً يخلق مسافة.',
+      'Ashamed Part':
+      'هذا الجزء الجريح يحمل مشاعر عميقة بعدم الاستحقاق والوعي الذاتي من تجارب سابقة. يخفي جوانب من نفسك يراها غير مقبولة، ويعمل على حمايتك من الحكم مع تقييد التعبير الحقيقي.',
+      'Workaholic':
+      'هذا الجزء يُبقيك مشغولاً ومنتجاً باستمرار كوسيلة لتجنب مواجهة المشاعر الصعبة أو الفراغ الداخلي. يستخدم الإنجاز كدرع ضد الضعف، مما يؤدي غالباً إلى الإنهاك وإهمال الاحتياجات الشخصية.',
+      'Perfectionist':
+      'هذا الجزء يطالب بالكمال في كل ما تفعله، معتقداً أن الأداء المثالي سيمنع الانتقاد ويضمن القبول. بينما يهدف إلى التميز، إلا أنه غالباً ما يخلق معايير غير واقعية تسبب القلق والتسويف.',
+      'Procrastinator':
+      'هذا الجزء الواقي يُؤجل المهام المهمة لتجنب الفشل المحتمل أو الإرهاق أو مواجهة المشاعر الصعبة. يوفر راحة مؤقتة ولكنه يزيد الضغط في النهاية ويقوّض إحساسك بالقدرة.',
+      'Excessive Gamer':
+      'هذا الجزء يستخدم الألعاب كهروب من تحديات العالم الحقيقي، أو المشاعر غير المريحة، أو مشاعر النقص. يوفر إشباعاً فورياً وسيطرة في عالم افتراضي مع إهمال المسؤوليات الحياتية.',
+      'Confused Part':
+      'هذا الجزء يظهر عندما تشعر بالإرهاق من الخيارات، أو عدم اليقين بشأن القرارات، أو الانفصال عن حدسك. يمثل قلق عدم معرفة المسار "الصحيح" ويسعى للوضوح وسط عدم اليقين.',
+      'Dependent Part':
+      'هذا الجزء يخاف من الاستقلالية ويسعى باستمرار للتحقق الخارجي والدعم. يقلق بشأن اتخاذ القرارات بشكل مستقل ويعتمد بشدة على موافقة الآخرين، مما يحد من تطوير الثقة بالنفس.',
+      'Fearful Part':
+      'هذا الجزء اليقظ يمسح باستمرار للبحث عن التهديدات والمخاطر المحتملة. يهدف إلى إبقائك آمناً من خلال توقع المشاكل ولكن يمكن أن يصبح مفرط اليقظة، مما يخلق قلقاً بشأن مواقف قد لا تحدث أبداً.',
+      'Neglected Part':
+      'هذا الجزء الجريح يحتفظ بذكريات الإهمال، أو عدم الاستماع، أو الهجر العاطفي. يحمل ألم الاحتياجات غير الملباة في الطفولة ويسعى للاعتراف والرعاية التي لم يتلقاها.',
+      'Overeater/Binger':
+      'هذا الجزء يستخدم الطعام لتهدئة الألم العاطفي، أو ملء الفراغ الداخلي، أو تخدير المشاعر الصعبة. يوفر راحة مؤقتة ولكن غالباً ما يؤدي إلى دورات من الذنب والمزيد من الأكل العاطفي.',
+      'Overeater':
+      'هذا الجزء يستخدم الطعام لتهدئة الألم العاطفي، أو ملء الفراغ الداخلي، أو تخدير المشاعر الصعبة. يوفر راحة مؤقتة ولكن غالباً ما يؤدي إلى دورات من الذنب والمزيد من الأكل العاطفي.',
+      'Binger':
+      'هذا الجزء يستخدم الطعام لتهدئة الألم العاطفي، أو ملء الفراغ الداخلي، أو تخدير المشاعر الصعبة. يوفر راحة مؤقتة ولكن غالباً ما يؤدي إلى دورات من الذنب والمزيد من الأكل العاطفي.',
+      'Overwhelmed Part':
+      'هذا الجزء يشعر بعدم القدرة على التعامل مع مطالب ومسؤوليات الحياة. يمثل إرهاق محاولة إدارة كل شيء ويحتاج إلى دعم في وضع الحدود وتحديد أولويات الرعاية الذاتية.',
+      'Stoic Part':
+      'هذا الجزء يكبت المشاعر ويحافظ على المسافة العاطفية كاستراتيجية بقاء. يعتقد أن إظهار الضعف خطير ويخلق مظهراً خارجياً متحكماً بينما تظل المشاعر الداخلية غير معالجة.',
+      'Wounded Child':
+      'هذا الجزء الضعيف يحمل ألم الطفولة، والصدمة، والاحتياجات العاطفية غير الملباة. يحتفظ بالبراءة التي أذيَت ويحتاج إلى اهتمام عطوف للشفاء والشعور بالأمان مرة أخرى.',
+      'Controller':
+      'هذا الجزء يحاول إدارة كل شيء وكل شخص لخلق إحساس بالأمان والقابلية للتنبؤ. يخاف من الفوضى وفقدان السيطرة، ويعمل بلا كلل للحفاظ على النظام ولكنه غالباً ما يخلق جموداً.',
+      'Controller Part':
+      'هذا الجزء يحاول إدارة كل شيء وكل شخص لخلق إحساس بالأمان والقابلية للتنبؤ. يخاف من الفوضى وفقدان السيطرة، ويعمل بلا كلل للحفاظ على النظام ولكنه غالباً ما يخلق جموداً.',
+    };
+
+    return arabicDescriptions[englishName] ??
+        'تلعب هذه الشخصية الداخلية دوراً مهماً في مشهدك العاطفي. ظهرت كآلية وقائية خلال تجارب صعبة وتستمر في التأثير على كيفية تنقلك في العلاقات، والتحديات، وتصور الذات.';
+  }
+
+  String _getEnglishDescription(String englishName) {
+    final englishDescriptions = {
+      'Inner Critic': 'This part helps you stay safe by pointing out potential mistakes and keeping you from taking risks.',
+      'People Pleaser': 'Seeks approval and validation from others, often at the expense of personal needs.',
+      'Lonely Part': 'Feels isolated and disconnected, longing for connection and belonging.',
+      'Jealous Part': 'Experiences envy and comparison, often feeling inadequate next to others.',
+      'Ashamed Part': 'Carries feelings of shame and unworthiness, often hiding from others.',
+      'Workaholic': 'Uses work to avoid feelings, often leading to burnout and imbalance.',
+      'Perfectionist': 'Driven by fear of failure, seeks flawlessness in all endeavors.',
+      'Procrastinator': 'Avoids tasks and decisions, often due to fear or overwhelm.',
+      'Excessive Gamer': 'Escapes reality through gaming, often to avoid emotional discomfort.',
+      'Confused Part': 'Feels uncertain and indecisive, struggling with clarity and direction.',
+      'Dependent Part': 'Relies heavily on others for validation, decisions, and emotional support.',
+      'Fearful Part': 'Experiences anxiety and worry, often anticipating negative outcomes.',
+      'Neglected Part': 'Feels unseen and unheard, craving attention and care.',
+      'Overeater': 'Uses food for comfort or distraction from emotional pain.',
+      'Binger': 'Engages in compulsive behaviors to numb or escape feelings.',
+      'Overeater/Binger': 'Uses food for comfort or distraction from emotional pain.',
+      'Overwhelmed Part': 'Feels burdened by responsibilities and emotions, struggling to cope.',
+      'Stoic Part': 'Suppresses emotions and maintains emotional distance as protection.',
+      'Wounded Child': 'Carries childhood pain and trauma, often feeling vulnerable and hurt.',
+      'Controller': 'Seeks to control situations and people to feel safe and secure.',
+      'Controller Part': 'Seeks to control situations and people to feel safe and secure.',
+    };
+
+    return englishDescriptions[englishName] ??
+        'An inner part that has been identified through reflection. This part holds emotions, beliefs, or patterns that influence your thoughts and behaviors.';
+  }
+
+  // Helper method to detect if text is Arabic
+  bool _isArabicText(String text) {
+    if (text.isEmpty) return false;
+    final arabicPattern = RegExp(r'[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]');
+    return arabicPattern.hasMatch(text);
+  }
+
+  // Helper method to get English display name based on character name
+  String _getEnglishDisplayName(String characterName) {
+    final englishNames = {
+      'Inner Critic': 'The Inner Critic',
+      'People Pleaser': 'The People Pleaser',
+      'Lonely Part': 'The Lonely Part',
+      'Jealous Part': 'The Jealous Part',
+      'Ashamed Part': 'The Ashamed Part',
+      'Workaholic': 'The Workaholic',
+      'Perfectionist': 'The Perfectionist',
+      'Procrastinator': 'The Procrastinator',
+      'Excessive Gamer': 'The Excessive Gamer',
+      'Confused Part': 'The Confused Part',
+      'Dependent Part': 'The Dependent Part',
+      'Fearful Part': 'The Fearful Part',
+      'Neglected Part': 'The Neglected Part',
+      'Overeater': 'The Overeater',
+      'Binger': 'The Binger',
+      'Overeater/Binger': 'The Overeater',
+      'Overwhelmed Part': 'The Overwhelmed Part',
+      'Stoic Part': 'The Stoic Part',
+      'Wounded Child': 'The Wounded Child',
+      'Controller': 'The Controller',
+      'Controller Part': 'The Controller',
+    };
+
+    return englishNames[characterName] ?? characterName;
   }
 
   // Save high confidence characters to user collection
@@ -251,75 +396,155 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
         return confB.compareTo(confA);
       });
 
-      // Get existing user characters to determine the next rank
+      // Get existing user characters to determine the next rank AND check for duplicates
       final existingCharacters = await _getUserCharacters();
+
+      // Create a set of existing character names for quick lookup
+      final existingCharacterNames = existingCharacters
+          .map((c) => c.characterName.toLowerCase().trim())
+          .toSet();
+
       int maxRank = 0;
       for (final character in existingCharacters) {
         if (character.rank > maxRank) {
           maxRank = character.rank;
         }
       }
+
       int nextRank = maxRank + 1;
+      int newCharactersCount = 0;
 
       print('📊 Existing characters: ${existingCharacters.length}, Max rank: $maxRank, Next rank: $nextRank');
 
       final batch = _firestore.batch();
       final timestamp = DateTime.now();
 
-      // Save each high confidence character with sequential ranks
+      // Save each high confidence character that doesn't already exist
       for (int i = 0; i < highConfidenceCharacters.length; i++) {
         final character = highConfidenceCharacters[i];
-        final characterName = character['character']?.toString() ?? 'Unknown';
-        final displayName = character['character_name']?.toString() ?? characterName;
+
+        // Get character name - handle both possible formats from API
+        String characterName = character['character']?.toString() ?? 'Unknown';
+
+        // Get display names - handle based on language
+        String displayNameEn;
+        String displayNameAr;
+
+        // Check if the API provided language-specific names
+        if (character['character_name_en'] != null) {
+          // API provided separate English and Arabic names
+          displayNameEn = character['character_name_en'].toString();
+          displayNameAr = character['character_name_ar']?.toString() ?? _getArabicDisplayName(characterName);
+        } else if (character['character_name'] != null) {
+          // API provided a single name - determine if it's Arabic or English
+          String singleName = character['character_name'].toString();
+          bool isArabic = _isArabicText(singleName);
+
+          if (isArabic) {
+            // If the single name is Arabic, set it as Arabic name and use English default
+            displayNameAr = singleName;
+            displayNameEn = _getEnglishDisplayName(characterName);
+          } else {
+            // If the single name is English, set it as English name and use Arabic default
+            displayNameEn = singleName;
+            displayNameAr = _getArabicDisplayName(characterName);
+          }
+        } else {
+          // No display name provided, use defaults based on character name
+          displayNameEn = _getEnglishDisplayName(characterName);
+          displayNameAr = _getArabicDisplayName(characterName);
+        }
+
+        // Check if character already exists (case-insensitive)
+        final characterNameLower = characterName.toLowerCase().trim();
+        if (existingCharacterNames.contains(characterNameLower)) {
+          print('⏭️ Skipping duplicate character: $characterName (already exists)');
+          continue;
+        }
+
         final confidence = (character['confidence'] ?? 0.0) as double;
-        final rank = nextRank + i;
+        final rank = nextRank + newCharactersCount;
+        newCharactersCount++;
 
         final archetype = _determineArchetype(characterName);
         final characterDocRef = _firestore.collection('user_characters').doc();
-        final characterId = characterDocRef.id;
-        final description = _getCharacterDescription(characterName, detectedLanguage);
+
+        // Get descriptions using the helper methods
+        String descriptionEn = _getEnglishDescription(characterName);
+        String descriptionAr = _getArabicDescription(characterName);
+
         final glbFileName = _getGLBFileName(characterName);
 
-        final userCharacter = UserCharacter(
-          id: characterId,
-          userId: _currentUserId!,
-          characterName: characterName,
-          displayNameEn: displayName,
-          displayNameAr: displayName,
-          archetype: archetype,
-          confidence: confidence,
-          rank: rank,
-          language: detectedLanguage,
-          glbFileName: glbFileName,
-          descriptionEn: description,
-          descriptionAr: description,
-          predictedAt: timestamp,
-          isHealed: false,
-          healedAt: null,
-        );
+        // Create character data that matches the UserCharacter entity structure
+        final characterData = {
+          'userId': _currentUserId!,
+          'characterName': characterName,
+          'displayNameEn': displayNameEn,
+          'displayNameAr': displayNameAr,
+          'archetype': archetype,
+          'confidence': confidence,
+          'rank': rank,
+          'language': detectedLanguage,
+          'glbFileName': glbFileName,
+          'descriptionEn': descriptionEn,
+          'descriptionAr': descriptionAr,
+          'predictedAt': timestamp.toIso8601String(),
+          'isHealed': false,
+          'healedAt': null,
+        };
 
-        batch.set(characterDocRef, userCharacter.toMap());
-
-        print('📝 Saving character: $characterName (Rank: $rank, ${(confidence * 100).toStringAsFixed(1)}%)');
+        batch.set(characterDocRef, characterData);
+        print('📝 Saving new character: $characterName');
+        print('   - displayNameEn: $displayNameEn');
+        print('   - displayNameAr: $displayNameAr');
+        print('   - Rank: $rank, Confidence: ${(confidence * 100).toStringAsFixed(1)}%');
       }
 
-      await batch.commit();
+      if (newCharactersCount > 0) {
+        await batch.commit();
+        print('✅ Successfully saved $newCharactersCount new high confidence characters');
 
-      print('✅ Successfully saved ${highConfidenceCharacters.length} high confidence characters');
+        // Refresh character counts after saving
+        await _refreshCharacterData();
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              tr(context,
-                  '${highConfidenceCharacters.length} inner characters added to your collection!',
-                  'تم إضافة ${highConfidenceCharacters.length} من الشخصيات الداخلية إلى مجموعتك!'
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                tr(context,
+                    '$newCharactersCount new inner ${newCharactersCount == 1 ? 'character' : 'characters'} added to your collection!',
+                    'تم إضافة $newCharactersCount من الشخصيات الداخلية الجديدة إلى مجموعتك!'
+                ),
+              ),
+              backgroundColor: const Color(0xFF8E7CFF),
+              duration: const Duration(seconds: 3),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
               ),
             ),
-            backgroundColor: const Color(0xFF8E7CFF),
-            duration: const Duration(seconds: 3),
-          ),
-        );
+          );
+        }
+      } else {
+        print('ℹ️ No new characters to save (all were duplicates)');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                tr(context,
+                    'These characters are already in your collection',
+                    'هذه الشخصيات موجودة بالفعل في مجموعتك'
+                ),
+              ),
+              backgroundColor: const Color(0xFF9E9E9E),
+              duration: const Duration(seconds: 2),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          );
+        }
       }
 
     } catch (e) {
@@ -334,6 +559,10 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
               ),
             ),
             backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
           ),
         );
       }
@@ -394,60 +623,6 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
     return 'exile';
   }
 
-  // Helper method to get character description
-  String _getCharacterDescription(String characterName, String language) {
-    final descriptions = {
-      'english': {
-        'Inner Critic': 'The voice of self-judgment and high standards. Often pushes for perfection but can be harsh.',
-        'People Pleaser': 'Seeks approval and validation from others, often at the expense of personal needs.',
-        'Lonely Part': 'Feels isolated and disconnected, longing for connection and belonging.',
-        'Jealous Part': 'Experiences envy and comparison, often feeling inadequate next to others.',
-        'Ashamed Part': 'Carries feelings of shame and unworthiness, often hiding from others.',
-        'Workaholic': 'Uses work to avoid feelings, often leading to burnout and imbalance.',
-        'Perfectionist': 'Driven by fear of failure, seeks flawlessness in all endeavors.',
-        'Procrastinator': 'Avoids tasks and decisions, often due to fear or overwhelm.',
-        'Excessive Gamer': 'Escapes reality through gaming, often to avoid emotional discomfort.',
-        'Confused Part': 'Feels uncertain and indecisive, struggling with clarity and direction.',
-        'Dependent Part': 'Relies heavily on others for validation, decisions, and emotional support.',
-        'Fearful Part': 'Experiences anxiety and worry, often anticipating negative outcomes.',
-        'Neglected Part': 'Feels unseen and unheard, craving attention and care.',
-        'Overeater': 'Uses food for comfort or distraction from emotional pain.',
-        'Binger': 'Engages in compulsive behaviors to numb or escape feelings.',
-        'Overwhelmed Part': 'Feels burdened by responsibilities and emotions, struggling to cope.',
-        'Stoic Part': 'Suppresses emotions and maintains emotional distance as protection.',
-        'Wounded Child': 'Carries childhood pain and trauma, often feeling vulnerable and hurt.',
-        'Controller': 'Seeks to control situations and people to feel safe and secure.',
-      },
-      'arabic': {
-        'Inner Critic': 'صوت الحكم الذاتي والمعايير العالية. غالبًا ما يدفع نحو الكمال ولكن يمكن أن يكون قاسيًا.',
-        'People Pleaser': 'يسعى للحصول على الموافقة والتصديق من الآخرين، غالبًا على حساب الاحتياجات الشخصية.',
-        'Lonely Part': 'يشعر بالعزلة والانفصال، يتوق للاتصال والانتماء.',
-        'Jealous Part': 'يشعر بالحسد والمقارنة، غالبًا ما يشعر بعدم الكفاءة بجانب الآخرين.',
-        'Ashamed Part': 'يحمل مشاعر الخزي وعدم الاستحقاق، غالبًا ما يختبئ من الآخرين.',
-        'Workaholic': 'يستخدم العمل لتجنب المشاعر، مما يؤدي غالبًا إلى الإرهاق وعدم التوازن.',
-        'Perfectionist': 'مدفوع بخشية الفشل، يسعى للكمال في جميع المساعي.',
-        'Procrastinator': 'يتجنب المهام والقرارات، غالبًا بسبب الخوف أو الإرهاق.',
-        'Excessive Gamer': 'يهرب من الواقع عبر الألعاب، غالبًا لتجنب الانزعاج العاطفي.',
-        'Confused Part': 'يشعر بعدم اليقين والتردد، يكافح من أجل الوضوح والاتجاه.',
-        'Dependent Part': 'يعتمد بشدة على الآخرين للتصديق، القرارات، والدعم العاطفي.',
-        'Fearful Part': 'يشعر بالقلق والخوف، غالبًا يتوقع النتائج السلبية.',
-        'Neglected Part': 'يشعر بأنه غير مرئي وغير مسموع، يتوق للاهتمام والرعاية.',
-        'Overeater': 'يستخدم الطعام للراحة أو التشتيت من الألم العاطفي.',
-        'Binger': 'ينخرط في سلوكيات قهرية لتخدير أو الهروب من المشاعر.',
-        'Overwhelmed Part': 'يشعر بالإرهاق من المسؤوليات والمشاعر، يكافح للتكيف.',
-        'Stoic Part': 'يكبح المشاعر ويحافظ على المسافة العاطفية كحماية.',
-        'Wounded Child': 'يحمل ألم وصدمة الطفولة، غالبًا ما يشعر بالضعف والأذى.',
-        'Controller': 'يسعى للتحكم في المواقف والأشخاص ليشعر بالأمان والأمن.',
-      }
-    };
-
-    final lang = language.toLowerCase().contains('arabic') ? 'arabic' : 'english';
-    final langDescriptions = descriptions[lang] ?? descriptions['english']!;
-
-    return langDescriptions[characterName] ??
-        'An inner part that has been identified through reflection. This part holds emotions, beliefs, or patterns that influence your thoughts and behaviors.';
-  }
-
   // Helper method to get GLB file name
   String _getGLBFileName(String characterName) {
     final fileMap = {
@@ -466,10 +641,12 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
       'Neglected Part': 'neglected_part.glb',
       'Overeater': 'overeater.glb',
       'Binger': 'binger.glb',
+      'Overeater/Binger': 'overeater_binger.glb',
       'Overwhelmed Part': 'overwhelmed_part.glb',
       'Stoic Part': 'stoic_part.glb',
       'Wounded Child': 'wounded_child.glb',
       'Controller': 'controller.glb',
+      'Controller Part': 'controller.glb',
     };
 
     return fileMap[characterName] ?? 'default_character.glb';
@@ -528,8 +705,6 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
             return;
           }
         }
-
-        _showActiveSessionDialog();
       } else {
         setState(() {
           _hasActiveSession = false;
@@ -715,9 +890,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
 
   // Text Analysis
   Future<void> _analyzeText() async {
-    // Check if user already has active session
     if (_hasActiveSession && _usedInputType == _UsedInputType.none) {
-      _showActiveSessionDialog();
       return;
     }
 
@@ -801,9 +974,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
 
   // Voice Recording & Analysis
   Future<void> _startVoiceRecording() async {
-    // Check if user already has active session
     if (_hasActiveSession && _usedInputType == _UsedInputType.none) {
-      _showActiveSessionDialog();
       return;
     }
 
@@ -965,9 +1136,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
 
   // Video Recording & Analysis
   Future<void> _startVideoRecording() async {
-    // Check if user already has active session
     if (_hasActiveSession && _usedInputType == _UsedInputType.none) {
-      _showActiveSessionDialog();
       return;
     }
 
@@ -1249,9 +1418,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
   }
 
   Future<void> _switchToMode(_ReframeMode newMode) async {
-    // Check if trying to enter new data with active session
     if (_hasActiveSession && _usedInputType == _UsedInputType.none) {
-      _showActiveSessionDialog();
       return;
     }
 
@@ -1298,7 +1465,6 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Close button at top right
             Align(
               alignment: Alignment.topRight,
               child: IconButton(
@@ -1308,19 +1474,13 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                 constraints: const BoxConstraints(),
               ),
             ),
-
             const SizedBox(height: 8),
-
-            // Icon
             const Icon(
               Icons.emoji_objects_outlined,
               color: Color(0xFF8E7CFF),
               size: 48,
             ),
-
             const SizedBox(height: 20),
-
-            // Title
             Text(
               tr(context, "Continue Your Journey", "استمر في رحلتك"),
               textAlign: TextAlign.center,
@@ -1330,10 +1490,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                 color: Color(0xFF2A1E3B),
               ),
             ),
-
             const SizedBox(height: 16),
-
-            // Message
             Text(
               tr(context,
                   "You've already begun something meaningful. We'll return home so you can move forward with it.",
@@ -1346,7 +1503,6 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                 height: 1.5,
               ),
             ),
-
             if (_sessionStartTime != null) ...[
               const SizedBox(height: 16),
               Container(
@@ -1472,8 +1628,8 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                       Text(
                         tr(
                             context,
-                            "Some parts of your inner world are still in progress. Let’s care for them first, then you can continue to a new insight.",
-                            "بعض الأجزاء في عالمك الداخلي ما زالت قيد التكوّن. دعنا نعتني بها أولًا، ثم يمكنك المتابعة لاكتشاف فهم جديد.من الأجزاء الداخلية التي تحتاج إلى اهتمامك. يرجى الاعتناء بها في مجموعتك قبل اكتشاف أجزاء جديدة."
+                            "Some parts of your inner world are still in progress. Let's care for them first, then you can continue to a new insight.",
+                            "بعض الأجزاء في عالمك الداخلي ما زالت قيد التكوّن. دعنا نعتني بها أولًا، ثم يمكنك المتابعة لاكتشاف فهم جديد."
                         ),
                         textAlign: TextAlign.center,
                         style: const TextStyle(
