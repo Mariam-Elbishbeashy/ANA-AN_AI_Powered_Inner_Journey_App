@@ -6,6 +6,9 @@ import 'package:ana_ifs_app/core/services/firestore_service.dart';
 import 'package:ana_ifs_app/core/widgets/shared_widgets.dart';
 import 'package:ana_ifs_app/features/character/domain/entities/user_character.dart';
 import 'package:ana_ifs_app/features/character/presentation/screens/character_profile_screen.dart';
+import 'package:provider/provider.dart';
+import 'package:ana_ifs_app/features/progress/presentation/providers/daily_activity_provider.dart';
+import 'package:ana_ifs_app/features/progress/domain/entities/daily_activity.dart';
 
 class HomeScreen extends StatefulWidget {
   final String name;
@@ -650,463 +653,1072 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    _gifController ??= GifController(vsync: this);
-    return Stack(
-      children: [
-        Column(
-          children: [
-            TopHelloBar(
-              name: widget.name,
-              onLogout: widget.onLogout,
-              onSettings: () {
-                showModalBottomSheet(
-                  context: context,
-                  builder: (context) => SettingsBottomSheet(
-                    onRetakeQuestionnaire: widget.onRetakeQuestionnaire,
-                    onSwitchLanguage: widget.onSwitchLanguage,
-                  ),
-                );
-              },
+  Widget _buildDailyTasksSection(BuildContext context,
+      DailyActivityProvider provider) {
+    if (!provider.hasActivities) {
+      return Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: const Color(0xFFE5DEFF)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
             ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.self_improvement_rounded, color: Color(0xFF8E7CFF)),
+            const SizedBox(width: 12),
             Expanded(
-              child: SingleChildScrollView(
-                padding: EdgeInsets.fromLTRB(
-                  20,
-                  20,
-                  20,
-                  20 + 92 + MediaQuery.of(context).padding.bottom,
+              child: Text(
+                tr(context, 'Loading today\'s activities...',
+                    'جارٍ تحميل أنشطة اليوم...'),
+                style: TextStyle(color: Color(0xFF4B3A66)),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final activities = provider.todaysActivities;
+    final completed = provider.completedActivities;
+    final completedCount = completed.values
+        .where((c) => c)
+        .length;
+    final totalCount = activities.length;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          tr(context, 'Take a Moment', 'خدلك لحظة'),
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+            color: Color(0xFF2A1E3B),
+          ),
+        ),
+        const SizedBox(height: 10),
+
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: const Color(0xFFE5DEFF)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.05),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF8E7CFF).withOpacity(0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.self_improvement_rounded,
+                          color: Color(0xFF8E7CFF),
+                          size: 20,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        tr(context, 'Today\'s Activities', 'أنشطة اليوم'),
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF2A1E3B),
+                        ),
+                      ),
+                    ],
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: completedCount == totalCount
+                          ? Color(0xFF4CAF50).withOpacity(0.1)
+                          : Color(0xFF8E7CFF).withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      '$completedCount/$totalCount',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: completedCount == totalCount
+                            ? Color(0xFF4CAF50)
+                            : Color(0xFF8E7CFF),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 16),
+
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: LinearProgressIndicator(
+                  value: provider.completionPercentage,
+                  backgroundColor: const Color(0xFFF0ECF7),
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    completedCount == totalCount ? Color(0xFF4CAF50) : Color(
+                        0xFF8E7CFF),
+                  ),
+                  minHeight: 6,
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const SizedBox(height: 20),
-                    // Welcome card
-                    Container(
-                      padding: const EdgeInsets.all(20),
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFF8E7CFF), Color(0xFFB79CFF)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
+              ),
+
+              const SizedBox(height: 20),
+
+              ...activities.map((activity) =>
+                  _buildSimpleActivityItem(
+                    context,
+                    activity,
+                    completed[activity.id] ?? false,
+                        () => provider.toggleActivityCompletion(activity.id),
+                  )
+              ).toList(),
+
+              const SizedBox(height: 8),
+
+              if (completedCount < totalCount)
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF0ECF7),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                          Icons.emoji_objects_rounded, color: Color(0xFF8E7CFF),
+                          size: 18),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          tr(context,
+                              'Small steps lead to big changes',
+                              'خطوات صغيرة تقود إلى تغييرات كبيرة'
+                          ),
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: Color(0xFF4B3A66),
+                          ),
                         ),
-                        borderRadius: BorderRadius.circular(20),
-                        boxShadow: [
-                          BoxShadow(
-                            color: const Color(0xFF8E7CFF).withOpacity(0.3),
-                            blurRadius: 15,
-                            offset: const Offset(0, 5),
-                          ),
-                        ],
                       ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            tr(
-                              context,
-                              'Welcome to Your Inner Sanctuary',
-                              'مرحباً بك في ملاذك الداخلي',
-                            ),
-                            style: const TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.w800,
-                              color: Colors.white,
-                            ),
+                    ],
+                  ),
+                )
+              else
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Color(0xFF4CAF50).withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                        color: Color(0xFF4CAF50).withOpacity(0.3)),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.celebration_rounded, color: Color(0xFF4CAF50),
+                          size: 18),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          tr(context,
+                              'Amazing! You completed all activities today!',
+                              'مذهل! لقد أكملت جميع الأنشطة اليوم!'
                           ),
-                          const SizedBox(height: 10),
-                          Text(
-                            tr(
-                              context,
-                              'Hello ${widget.name}, your inner characters are waiting to connect with you.',
-                              'مرحباً ${widget.name}، شخصياتك الداخلية بانتظار التواصل معك.',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF2A1E3B),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSimpleActivityItem(BuildContext context,
+      DailyActivity activity,
+      bool completed,
+      VoidCallback onTap,) {
+
+    final isAr = isArabic(context);
+    final title = isAr ? activity.titleAr : activity.titleEn;
+    final description = isAr ? activity.descriptionAr : activity.descriptionEn;
+
+    final preview = description.length > (isAr ? 35 : 30)  // Increased Arabic character limit
+        ? '${description.substring(0, isAr ? 35 : 30)}...'
+        : description;
+
+    Color getCategoryColor() {
+      switch (activity.category) {
+        case 'morning':
+          return const Color(0xFFFFB74D);
+        case 'afternoon':
+          return const Color(0xFF4CAF50);
+        case 'evening':
+          return const Color(0xFF7B1FA2);
+        default:
+          return const Color(0xFF8E7CFF);
+      }
+    }
+
+    void _showActivityDetails() {
+      showDialog(
+        context: context,
+        builder: (BuildContext context) {
+          // Use consistent reactive check for dialog content
+          final dialogIsAr = isArabic(context);
+          final currentTitle = dialogIsAr ? activity.titleAr : activity.titleEn;
+          final currentDescription = dialogIsAr ? activity.descriptionAr : activity.descriptionEn;
+
+          return Dialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: getCategoryColor().withOpacity(0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          activity.category == 'morning'
+                              ? Icons.wb_sunny_rounded
+                              : activity.category == 'afternoon'
+                              ? Icons.wb_twilight_rounded
+                              : Icons.nightlight_round,
+                          color: getCategoryColor(),
+                          size: 20,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          currentTitle,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF2A1E3B),
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        icon: const Icon(Icons.close_rounded),
+                        color: const Color(0xFF8E7CFF),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: getCategoryColor().withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.timer_rounded,
+                              size: 14,
+                              color: getCategoryColor(),
                             ),
-                            style: const TextStyle(
+                            const SizedBox(width: 4),
+                            Text(
+                              dialogIsAr
+                                  ? (activity.estimatedMinutes == 1
+                                  ? '${activity.estimatedMinutes} دقيقة'
+                                  : '${activity.estimatedMinutes} دقائق')
+                                  : '${activity.estimatedMinutes} min',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: getCategoryColor(),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          // FIXED: Translate the category text
+                          dialogIsAr
+                              ? (activity.category == 'morning'
+                              ? 'صباح'
+                              : activity.category == 'afternoon'
+                              ? 'بعد الظهر'
+                              : 'مساء')
+                              : activity.category.toUpperCase(),
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  Text(
+                    currentDescription,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      height: 1.5,
+                      color: Color(0xFF4B3A66),
+                    ),
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: activity.tags.map((tag) {
+                      return Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF0ECF7),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          dialogIsAr ? tag.ar : tag.en,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: Color(0xFF6A5CFF),
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  if (!completed)
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: () {
+                          onTap();
+                          Navigator.of(context).pop();
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF8E7CFF),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                        child: Text(
+                          tr(context, 'Mark as Complete', 'تحديد كمكتمل'),
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    )
+                  else
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade50,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: Colors.green.shade200),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.check_circle_rounded,
+                            color: Colors.green.shade600,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            tr(context, 'Completed', 'مكتمل'),
+                            style: TextStyle(
                               fontSize: 16,
-                              color: Colors.white,
-                              height: 1.5,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.green.shade700,
                             ),
-                          ),
-                          const SizedBox(height: 15),
-                          Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 8,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.2),
-                                  borderRadius: BorderRadius.circular(20),
-                                ),
-                                child: Text(
-                                  tr(
-                                    context,
-                                    '${_characters.length} Characters Identified',
-                                    'تم تحديد ${_characters.length} شخصية',
-                                  ),
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                              const Spacer(),
-                              const Icon(
-                                Icons.auto_awesome_rounded,
-                                color: Colors.white,
-                                size: 24,
-                              ),
-                            ],
                           ),
                         ],
                       ),
                     ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+    }
 
-                    const SizedBox(height: 30),
+    return GestureDetector(
+      onTap: _showActivityDetails,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: completed ? const Color(0xFFF5F3FF) : Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: completed
+                ? const Color(0xFF8E7CFF).withOpacity(0.3)
+                : const Color(0xFFE5DEFF),
+          ),
+        ),
+        child: Row(
+          children: [
+            GestureDetector(
+              onTap: onTap,
+              child: Container(
+                width: 22,
+                height: 22,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: completed ? const Color(0xFF8E7CFF) : Colors.transparent,
+                  border: Border.all(
+                    color: completed ? const Color(0xFF8E7CFF) : const Color(0xFF9C90B3),
+                    width: 2,
+                  ),
+                ),
+                child: completed
+                    ? const Icon(
+                  Icons.check_rounded,
+                  color: Colors.white,
+                  size: 14,
+                )
+                    : null,
+              ),
+            ),
 
-                    // Robot Guide Section
-                    Container(
-                      padding: const EdgeInsets.all(20),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: const Color(0xFFE5DEFF)),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.05),
-                            blurRadius: 10,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        children: [
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              // Robot GIF on the left
-                              SizedBox(
-                                width: 120,
-                                height: 120,
-                                child: Gif(
-                                  image: const AssetImage(
-                                    'assets/animations/guider.gif',
-                                  ),
-                                  controller: _gifController!,
-                                  autostart: Autostart.once,
-                                  fit: BoxFit.contain,
-                                ),
-                              ),
-                              const SizedBox(width: 16),
-                              // Speech bubble with text
-                              Expanded(
-                                child: Padding(
-                                  padding: const EdgeInsets.only(top: 8),
-                                  child: _SpeechBubble(
-                                    child: _GuiderSpeechText(),
-                                    backgroundColor: const Color(0xFFF0ECF7),
-                                    borderColor: const Color(0xFFE5DEFF),
-                                    textColor: const Color(0xDF2A1E3B),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 24),
-                          if (_isLoading)
-                            const Padding(
-                              padding: EdgeInsets.all(20.0),
-                              child: CircularProgressIndicator(
-                                color: Color(0xFF8E7CFF),
-                              ),
-                            )
-                          else if (_characters.isEmpty)
-                            Padding(
-                              padding: const EdgeInsets.all(20.0),
-                              child: Text(
-                                tr(
-                                  context,
-                                  'No unhealed characters found.',
-                                  'لم يتم العثور على شخصيات غير مُعالجة.',
-                                ),
-                                style: const TextStyle(
-                                  color: Color(0xFF7A6A5A),
-                                  fontSize: 14,
-                                ),
-                                textAlign: TextAlign.center,
-                              ),
-                            )
-                          else
-                            LayoutBuilder(
-                              builder: (context, constraints) {
-                                final cardWidth = 150.0;
-                                Widget buildCard(UserCharacter character) {
-                                  final color = _getCharacterColor(
-                                    character.archetype,
-                                  );
-                                  final imagePath = _getImagePathForCharacter(
-                                    character.characterName,
-                                  );
-                                  return SizedBox(
-                                    width: cardWidth,
-                                    child: _CharacterCard(
-                                      character: character,
-                                      color: color,
-                                      imagePath: imagePath,
-                                      onTap: () {
-                                        Navigator.of(context).push(
-                                          PageRouteBuilder(
-                                            transitionDuration:
-                                            const Duration(milliseconds: 420),
-                                            pageBuilder: (_, animation, __) {
-                                              return CharacterProfileScreen(
-                                                character: character,
-                                              );
-                                            },
-                                            transitionsBuilder:
-                                                (_, animation, __, child) {
-                                              final curve = CurvedAnimation(
-                                                parent: animation,
-                                                curve: Curves.easeOutCubic,
-                                              );
-                                              return FadeTransition(
-                                                opacity: curve,
-                                                child: ScaleTransition(
-                                                  scale: Tween<double>(
-                                                    begin: 0.86,
-                                                    end: 1.0,
-                                                  ).animate(curve),
-                                                  child: child,
-                                                ),
-                                              );
-                                            },
-                                          ),
-                                        );
-                                      },
-                                    ),
-                                  );
-                                }
+            const SizedBox(width: 12),
 
-                                if (_characters.length == 1) {
-                                  return Center(child: buildCard(_characters[0]));
-                                }
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: getCategoryColor(),
+              ),
+            ),
 
-                                if (_characters.length == 2) {
-                                  return Row(
-                                    mainAxisAlignment:
-                                    MainAxisAlignment.spaceEvenly,
-                                    children: [
-                                      buildCard(_characters[0]),
-                                      buildCard(_characters[1]),
-                                    ],
-                                  );
-                                }
+            const SizedBox(width: 8),
 
-                                if (_characters.length == 3) {
-                                  return Column(
-                                    children: [
-                                      Row(
-                                        mainAxisAlignment:
-                                        MainAxisAlignment.spaceEvenly,
-                                        children: [
-                                          buildCard(_characters[0]),
-                                          buildCard(_characters[1]),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 16),
-                                      Center(child: buildCard(_characters[2])),
-                                    ],
-                                  );
-                                }
-
-                                return Wrap(
-                                  spacing: 12,
-                                  runSpacing: 12,
-                                  alignment: WrapAlignment.center,
-                                  children: _characters
-                                      .map((c) => buildCard(c))
-                                      .toList(),
-                                );
-                              },
-                            ),
-                        ],
-                      ),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF2A1E3B),
+                      decoration: completed
+                          ? TextDecoration.lineThrough
+                          : TextDecoration.none,
+                      decorationColor: const Color(0xFF8E7CFF),
                     ),
-
-                    const SizedBox(height: 30),
-
-                    // Recent insights
-                    Text(
-                      tr(context, 'Recent Insights', 'أحدث الرؤى'),
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF2A1E3B),
-                      ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    preview,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.grey.shade600,
                     ),
-                    const SizedBox(height: 10),
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: const Color(0xFFE5DEFF)),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Container(
-                                width: 40,
-                                height: 40,
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF8E7CFF).withOpacity(0.1),
-                                  shape: BoxShape.circle,
-                                ),
-                                child: const Icon(
-                                  Icons.insights_rounded,
-                                  color: Color(0xFF8E7CFF),
-                                  size: 20,
-                                ),
-                              ),
-                              const SizedBox(width: 15),
-                              Expanded(
-                                child: Text(
-                                  tr(
-                                    context,
-                                    'Your Inner Critic has been active this week',
-                                    'كان ناقدك الداخلي نشطًا هذا الأسبوع',
-                                  ),
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                    color: Color(0xFF2A1E3B),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 15),
-                          Text(
-                            tr(
-                              context,
-                              'This might be a sign that you\'re facing new challenges or stepping out of your comfort zone. Remember, your inner critic is trying to protect you.',
-                              'قد يكون هذا علامة على أنك تواجه تحديات جديدة أو تخرج من منطقة الراحة. تذكر أن ناقدك الداخلي يحاول حمايتك.',
-                            ),
-                            style: const TextStyle(
-                              fontSize: 14,
-                              color: Color(0xFF7A6A5A),
-                              height: 1.5,
-                            ),
-                          ),
-                          const SizedBox(height: 15),
-                          Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 6,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFF0ECF7),
-                                  borderRadius: BorderRadius.circular(20),
-                                ),
-                                child: Text(
-                                  tr(context, 'Weekly Pattern', 'نمط أسبوعي'),
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: Color(0xFF6A5CFF),
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                              const Spacer(),
-                              Text(
-                                tr(context, '2 days ago', 'قبل يومين'),
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color:
-                                  const Color(0xFF7A6A5A).withOpacity(0.7),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
 
-                    const SizedBox(height: 30),
-
-                    // Quick actions
-                    Text(
-                      tr(context, 'Quick Actions', 'إجراءات سريعة'),
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF2A1E3B),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _QuickActionButton(
-                            icon: Icons.psychology_rounded,
-                            label: tr(
-                              context,
-                              'What is\nIFS?',
-                              'ما هو\nIFS؟',
-                            ),
-                            color: const Color(0xFF8E7CFF),
-                            onTap: () {
-                              _showIfsInfoDialog();
-                            },
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: _QuickActionButton(
-                            icon: Icons.groups_rounded,
-                            label: tr(
-                              context,
-                              'Learn About\nYour Characters',
-                              'تعرّف على\nشخصياتك',
-                            ),
-                            color: const Color(0xFF8E7CFF),
-                            onTap: () {
-                              _showCharactersInfoDialog();
-                            },
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: _QuickActionButton(
-                            icon: Icons.self_improvement_rounded,
-                            label: tr(
-                              context,
-                              'Daily\nReflection',
-                              'تأمل\nيومي',
-                            ),
-                            color: const Color(0xFF8E7CFF),
-                            onTap: () {
-                              _showReflectionPromptDialog();
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 40),
-                  ],
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: getCategoryColor().withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                isAr
+                    ? (activity.estimatedMinutes == 1
+                    ? '${activity.estimatedMinutes} دقيقة'
+                    : '${activity.estimatedMinutes} دقائق')
+                    : '${activity.estimatedMinutes} min',                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: getCategoryColor(),
                 ),
               ),
             ),
           ],
         ),
-      ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    _gifController ??= GifController(vsync: this);
+
+    return ChangeNotifierProvider(
+      create: (context) =>
+      DailyActivityProvider()
+        ..initializeDailyActivities(),
+      child: Consumer<DailyActivityProvider>(
+        builder: (context, activityProvider, child) {
+          return Stack(
+            children: [
+              Column(
+                children: [
+                  TopHelloBar(
+                    name: widget.name,
+                    onLogout: widget.onLogout,
+                    onSettings: () {
+                      showModalBottomSheet(
+                        context: context,
+                        builder: (context) =>
+                            SettingsBottomSheet(
+                              onRetakeQuestionnaire: widget
+                                  .onRetakeQuestionnaire,
+                              onSwitchLanguage: widget.onSwitchLanguage,
+                            ),
+                      );
+                    },
+                  ),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: EdgeInsets.fromLTRB(
+                        20,
+                        20,
+                        20,
+                        20 + 92 + MediaQuery
+                            .of(context)
+                            .padding
+                            .bottom,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const SizedBox(height: 20),
+
+                          // Welcome card (your existing code - unchanged)
+                          Container(
+                            padding: const EdgeInsets.all(20),
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [Color(0xFF8E7CFF), Color(0xFFB79CFF)],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                              borderRadius: BorderRadius.circular(20),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: const Color(0xFF8E7CFF).withOpacity(
+                                      0.3),
+                                  blurRadius: 15,
+                                  offset: const Offset(0, 5),
+                                ),
+                              ],
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  tr(
+                                    context,
+                                    'Welcome to Your Inner Sanctuary',
+                                    'مرحباً بك في ملاذك الداخلي',
+                                  ),
+                                  style: const TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w800,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                                const SizedBox(height: 10),
+                                Text(
+                                  tr(
+                                    context,
+                                    'Hello ${widget
+                                        .name}, your inner characters are waiting to connect with you.',
+                                    'مرحباً ${widget
+                                        .name}، شخصياتك الداخلية بانتظار التواصل معك.',
+                                  ),
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    color: Colors.white,
+                                    height: 1.5,
+                                  ),
+                                ),
+                                const SizedBox(height: 15),
+                                Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                        vertical: 8,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withOpacity(0.2),
+                                        borderRadius: BorderRadius.circular(20),
+                                      ),
+                                      child: Text(
+                                        tr(
+                                          context,
+                                          '${_characters
+                                              .length} Characters Identified',
+                                          'تم تحديد ${_characters
+                                              .length} شخصية',
+                                        ),
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                    const Spacer(),
+                                    const Icon(
+                                      Icons.auto_awesome_rounded,
+                                      color: Colors.white,
+                                      size: 24,
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          const SizedBox(height: 30),
+
+                          Container(
+                            padding: const EdgeInsets.all(20),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                  color: const Color(0xFFE5DEFF)),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.05),
+                                  blurRadius: 10,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
+                            ),
+                            child: Column(
+                              children: [
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    SizedBox(
+                                      width: 120,
+                                      height: 120,
+                                      child: Gif(
+                                        image: const AssetImage(
+                                          'assets/animations/guider.gif',
+                                        ),
+                                        controller: _gifController!,
+                                        autostart: Autostart.once,
+                                        fit: BoxFit.contain,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 16),
+                                    Expanded(
+                                      child: Padding(
+                                        padding: const EdgeInsets.only(top: 8),
+                                        child: _SpeechBubble(
+                                          child: _GuiderSpeechText(),
+                                          backgroundColor: const Color(
+                                              0xFFF0ECF7),
+                                          borderColor: const Color(0xFFE5DEFF),
+                                          textColor: const Color(0xDF2A1E3B),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 24),
+                                if (_isLoading)
+                                  const Padding(
+                                    padding: EdgeInsets.all(20.0),
+                                    child: CircularProgressIndicator(
+                                      color: Color(0xFF8E7CFF),
+                                    ),
+                                  )
+                                else
+                                  if (_characters.isEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.all(20.0),
+                                      child: Text(
+                                        tr(
+                                          context,
+                                          'No unhealed characters found.',
+                                          'لم يتم العثور على شخصيات غير مُعالجة.',
+                                        ),
+                                        style: const TextStyle(
+                                          color: Color(0xFF7A6A5A),
+                                          fontSize: 14,
+                                        ),
+                                        textAlign: TextAlign.center,
+                                      ),
+                                    )
+                                  else
+                                    LayoutBuilder(
+                                      builder: (context, constraints) {
+                                        final cardWidth = 150.0;
+                                        Widget buildCard(
+                                            UserCharacter character) {
+                                          final color = _getCharacterColor(
+                                            character.archetype,
+                                          );
+                                          final imagePath = _getImagePathForCharacter(
+                                            character.characterName,
+                                          );
+                                          return SizedBox(
+                                            width: cardWidth,
+                                            child: _CharacterCard(
+                                              character: character,
+                                              color: color,
+                                              imagePath: imagePath,
+                                              onTap: () {
+                                                Navigator.of(context).push(
+                                                  PageRouteBuilder(
+                                                    transitionDuration:
+                                                    const Duration(
+                                                        milliseconds: 420),
+                                                    pageBuilder: (_, animation,
+                                                        __) {
+                                                      return CharacterProfileScreen(
+                                                        character: character,
+                                                      );
+                                                    },
+                                                    transitionsBuilder:
+                                                        (_, animation, __,
+                                                        child) {
+                                                      final curve = CurvedAnimation(
+                                                        parent: animation,
+                                                        curve: Curves
+                                                            .easeOutCubic,
+                                                      );
+                                                      return FadeTransition(
+                                                        opacity: curve,
+                                                        child: ScaleTransition(
+                                                          scale: Tween<double>(
+                                                            begin: 0.86,
+                                                            end: 1.0,
+                                                          ).animate(curve),
+                                                          child: child,
+                                                        ),
+                                                      );
+                                                    },
+                                                  ),
+                                                );
+                                              },
+                                            ),
+                                          );
+                                        }
+
+                                        if (_characters.length == 1) {
+                                          return Center(
+                                              child: buildCard(_characters[0]));
+                                        }
+
+                                        if (_characters.length == 2) {
+                                          return Row(
+                                            mainAxisAlignment:
+                                            MainAxisAlignment.spaceEvenly,
+                                            children: [
+                                              buildCard(_characters[0]),
+                                              buildCard(_characters[1]),
+                                            ],
+                                          );
+                                        }
+
+                                        if (_characters.length == 3) {
+                                          return Column(
+                                            children: [
+                                              Row(
+                                                mainAxisAlignment:
+                                                MainAxisAlignment.spaceEvenly,
+                                                children: [
+                                                  buildCard(_characters[0]),
+                                                  buildCard(_characters[1]),
+                                                ],
+                                              ),
+                                              const SizedBox(height: 16),
+                                              Center(child: buildCard(
+                                                  _characters[2])),
+                                            ],
+                                          );
+                                        }
+
+                                        return Wrap(
+                                          spacing: 12,
+                                          runSpacing: 12,
+                                          alignment: WrapAlignment.center,
+                                          children: _characters
+                                              .map((c) => buildCard(c))
+                                              .toList(),
+                                        );
+                                      },
+                                    ),
+                              ],
+                            ),
+                          ),
+
+
+
+                          const SizedBox(height: 30),
+
+                          Text(
+                            tr(context, 'Recent Insights', 'أحدث الرؤى'),
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF2A1E3B),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                  color: const Color(0xFFE5DEFF)),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Container(
+                                      width: 40,
+                                      height: 40,
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFF8E7CFF)
+                                            .withOpacity(0.1),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(
+                                        Icons.insights_rounded,
+                                        color: Color(0xFF8E7CFF),
+                                        size: 20,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 15),
+                                    Expanded(
+                                      child: Text(
+                                        tr(
+                                          context,
+                                          'Your Inner Critic has been active this week',
+                                          'كان ناقدك الداخلي نشطًا هذا الأسبوع',
+                                        ),
+                                        style: const TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w600,
+                                          color: Color(0xFF2A1E3B),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 15),
+                                Text(
+                                  tr(
+                                    context,
+                                    'This might be a sign that you\'re facing new challenges or stepping out of your comfort zone. Remember, your inner critic is trying to protect you.',
+                                    'قد يكون هذا علامة على أنك تواجه تحديات جديدة أو تخرج من منطقة الراحة. تذكر أن ناقدك الداخلي يحاول حمايتك.',
+                                  ),
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    color: Color(0xFF7A6A5A),
+                                    height: 1.5,
+                                  ),
+                                ),
+                                const SizedBox(height: 15),
+                                Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 6,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFF0ECF7),
+                                        borderRadius: BorderRadius.circular(20),
+                                      ),
+                                      child: Text(
+                                        tr(context, 'Weekly Pattern',
+                                            'نمط أسبوعي'),
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          color: Color(0xFF6A5CFF),
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                    const Spacer(),
+                                    Text(
+                                      tr(context, '2 days ago', 'قبل يومين'),
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color:
+                                        const Color(0xFF7A6A5A).withOpacity(
+                                            0.7),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 30),
+
+                          _buildDailyTasksSection(context, activityProvider),
+                          const SizedBox(height: 30),
+
+                          // Quick actions (your existing code - unchanged)
+                          Text(
+                            tr(context, 'Quick Actions', 'إجراءات سريعة'),
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF2A1E3B),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _QuickActionButton(
+                                  icon: Icons.psychology_rounded,
+                                  label: tr(
+                                    context,
+                                    'What is\nIFS?',
+                                    'ما هو\nIFS؟',
+                                  ),
+                                  color: const Color(0xFF8E7CFF),
+                                  onTap: () {
+                                    _showIfsInfoDialog();
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: _QuickActionButton(
+                                  icon: Icons.groups_rounded,
+                                  label: tr(
+                                    context,
+                                    'Learn About\nYour Characters',
+                                    'تعرّف على\nشخصياتك',
+                                  ),
+                                  color: const Color(0xFF8E7CFF),
+                                  onTap: () {
+                                    _showCharactersInfoDialog();
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: _QuickActionButton(
+                                  icon: Icons.self_improvement_rounded,
+                                  label: tr(
+                                    context,
+                                    'Daily\nReflection',
+                                    'تأمل\nيومي',
+                                  ),
+                                  color: const Color(0xFF8E7CFF),
+                                  onTap: () {
+                                    _showReflectionPromptDialog();
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+
+                          const SizedBox(height: 40),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 }

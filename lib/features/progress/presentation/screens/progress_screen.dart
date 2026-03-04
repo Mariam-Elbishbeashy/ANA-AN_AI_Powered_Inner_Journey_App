@@ -1,11 +1,11 @@
+// lib/features/progress/presentation/screens/progress_screen.dart
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'package:ana_ifs_app/l10n/app_strings.dart';
 import 'package:ana_ifs_app/core/widgets/shared_widgets.dart';
 import 'package:ana_ifs_app/features/progress/presentation/providers/milestone_provider.dart';
-import 'package:ana_ifs_app/features/progress/domain/entities/daily_activity.dart';
-
 import '../../domain/entities/milestone.dart';
 
 class ProgressScreen extends StatefulWidget {
@@ -198,7 +198,7 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
               20,
               20,
               20,
-              20 + MediaQuery.of(context).padding.bottom + 80, // Extra padding for bottom navbar
+              20 + MediaQuery.of(context).padding.bottom + 80,
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -212,11 +212,6 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
                 // Daily streak section
                 if (dailyMilestones.isNotEmpty)
                   _buildDailyStreakSection(dailyMilestones.first, context),
-
-                const SizedBox(height: 30),
-
-                // Today's Wellness Activities
-                _buildTodaysActivities(context, milestoneProvider),
 
                 const SizedBox(height: 30),
 
@@ -263,7 +258,7 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
                 if (completedAchievements.isNotEmpty)
                   _buildAchievementHistorySection(completedAchievements, context),
 
-                const SizedBox(height: 40), // Extra spacing at the bottom
+                const SizedBox(height: 40),
               ],
             ),
           ),
@@ -304,7 +299,6 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
                 ),
               ],
             ),
-            // Show "See More" button only if there are more than 2 milestones
             if (allMilestones.length > 2)
               TextButton(
                 onPressed: () {
@@ -365,7 +359,6 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
                 ),
               ],
             ),
-            // Show "See More" button only if there are more than 2 milestones
             if (allMilestones.length > 2)
               TextButton(
                 onPressed: () {
@@ -586,276 +579,6 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
     );
   }
 
-  Widget _buildTodaysActivities(BuildContext context, MilestoneProvider milestoneProvider) {
-    final activitiesData = milestoneProvider.getTodaysActivities();
-    final activities = activitiesData['activities'] as List<DailyActivity>;
-    final completed = activitiesData['completed'] as Map<String, bool>;
-    final hasActivities = activitiesData['hasActivities'] as bool;
-    final isToday = activitiesData['isToday'] as bool;
-
-    if (!hasActivities || !isToday) {
-      return Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: const Color(0xFFE5DEFF)),
-        ),
-        child: Column(
-          children: [
-            Icon(
-              Icons.psychology_rounded,
-              color: Color(0xFF8E7CFF),
-              size: 40,
-            ),
-            const SizedBox(height: 10),
-            Text(
-              tr(context, 'Loading today\'s activities...', 'جارٍ تحميل أنشطة اليوم...'),
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Color(0xFF4B3A66),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    // Group by category
-    final morningActivities = activities.where((a) => a.category == 'morning').toList();
-    final afternoonActivities = activities.where((a) => a.category == 'afternoon').toList();
-    final eveningActivities = activities.where((a) => a.category == 'evening').toList();
-
-    final completedCount = completed.values.where((c) => c).length;
-    final totalCount = activities.length;
-
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFE5DEFF)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                children: [
-                  Icon(
-                    Icons.psychology_rounded,
-                    color: Color(0xFF8E7CFF),
-                    size: 24,
-                  ),
-                  const SizedBox(width: 10),
-                  Text(
-                    tr(context, 'Today\'s Wellness Activities', 'أنشطة العافية اليومية'),
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF2A1E3B),
-                    ),
-                  ),
-                ],
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                decoration: BoxDecoration(
-                  color: completedCount == totalCount
-                      ? Color(0xFF4CAF50).withOpacity(0.1)
-                      : Color(0xFF8E7CFF).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  '$completedCount/$totalCount',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: completedCount == totalCount
-                        ? Color(0xFF4CAF50)
-                        : Color(0xFF8E7CFF),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Text(
-            tr(context,
-                'Small steps for a calmer day. Try to complete all three!',
-                'خطوات صغيرة ليوم أكثر هدوءًا. حاول إكمال جميع الأنشطة الثلاثة!'
-            ),
-            style: TextStyle(
-              fontSize: 14,
-              color: const Color(0xFF7A6A5A).withOpacity(0.8),
-            ),
-          ),
-          const SizedBox(height: 20),
-
-          // Morning Activities
-          if (morningActivities.isNotEmpty)
-            _buildActivityCategorySection(
-              context: context,
-              title: tr(context, 'Morning Calm', 'هدوء الصباح'),
-              icon: Icons.wb_sunny_rounded,
-              iconColor: Color(0xFFFFB74D),
-              activities: morningActivities,
-              completed: completed,
-              milestoneProvider: milestoneProvider,
-            ),
-
-          const SizedBox(height: 20),
-
-          // Afternoon Activities
-          if (afternoonActivities.isNotEmpty)
-            _buildActivityCategorySection(
-              context: context,
-              title: tr(context, 'Midday Reset', 'استراحة الظهيرة'),
-              icon: Icons.light_mode_rounded,
-              iconColor: Color(0xFF4CAF50),
-              activities: afternoonActivities,
-              completed: completed,
-              milestoneProvider: milestoneProvider,
-            ),
-
-          const SizedBox(height: 20),
-
-          // Evening Activities
-          if (eveningActivities.isNotEmpty)
-            _buildActivityCategorySection(
-              context: context,
-              title: tr(context, 'Evening Wind Down', 'استرخاء المساء'),
-              icon: Icons.nightlight_rounded,
-              iconColor: Color(0xFF7B1FA2),
-              activities: eveningActivities,
-              completed: completed,
-              milestoneProvider: milestoneProvider,
-            ),
-
-          const SizedBox(height: 10),
-
-          // Completion encouragement
-          if (completedCount < totalCount)
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFF8E7CFF).withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFF8E7CFF).withOpacity(0.3)),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.emoji_objects_rounded,
-                    color: Color(0xFF8E7CFF),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      tr(context,
-                          'Complete all activities to boost your wellbeing!',
-                          'أكمل جميع الأنشطة لتعزيز عافيتك!'
-                      ),
-                      style: TextStyle(
-                        color: Color(0xFF2A1E3B),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            )
-          else
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFF4CAF50).withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFF4CAF50).withOpacity(0.3)),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.celebration_rounded,
-                    color: Color(0xFF4CAF50),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      tr(context,
-                          'Amazing! You completed all wellness activities today!',
-                          'مذهل! لقد أكملت جميع أنشطة العافية اليوم!'
-                      ),
-                      style: TextStyle(
-                        color: Color(0xFF2A1E3B),
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildActivityCategorySection({
-    required BuildContext context,
-    required String title,
-    required IconData icon,
-    required Color iconColor,
-    required List<DailyActivity> activities,
-    required Map<String, bool> completed,
-    required MilestoneProvider milestoneProvider,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: iconColor.withOpacity(0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, color: iconColor, size: 20),
-            ),
-            const SizedBox(width: 10),
-            Text(
-              title,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFF2A1E3B),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        ...activities.map((activity) => _DailyActivityItem(
-          activity: activity,
-          completed: completed[activity.id] ?? false,
-          onTap: () async {
-            try {
-              final isCurrentlyCompleted = completed[activity.id] ?? false;
-              await milestoneProvider.completeDailyActivity(
-                activity.id,
-                completed: !isCurrentlyCompleted,
-              );
-            } catch (e) {
-              print('Error toggling activity: $e');
-            }
-          },
-          context: context,
-        )).toList(),
-      ],
-    );
-  }
-
   Widget _buildStreakAchievementsSection(List<Milestone> streakAchievements, MilestoneProvider milestoneProvider) {
     if (streakAchievements.isEmpty) return const SizedBox();
 
@@ -888,7 +611,6 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
                 ),
               ],
             ),
-            // Show "See More" button only if there are more achievements to show
             if (milestoneProvider.getAllStreakAchievements().length > 2)
               TextButton(
                 onPressed: () {
@@ -1029,7 +751,6 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
         if (_showAchievementHistory) ...[
           const SizedBox(height: 15),
 
-          // Completed achievements grid
           GridView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
@@ -1053,7 +774,6 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
 
           const SizedBox(height: 10),
 
-          // View all button
           Center(
             child: TextButton(
               onPressed: () {
@@ -1689,361 +1409,5 @@ class _AchievementCard extends StatelessWidget {
       default:
         return Color(0xFF8E7CFF);
     }
-  }
-}
-
-class _DailyActivityItem extends StatelessWidget {
-  final DailyActivity activity;
-  final bool completed;
-  final VoidCallback onTap;
-  final BuildContext context;
-
-  const _DailyActivityItem({
-    required this.activity,
-    required this.completed,
-    required this.onTap,
-    required this.context,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isArabic = Localizations.localeOf(context).languageCode == 'ar';
-    final title = isArabic ? activity.titleAr : activity.titleEn;
-    final description = isArabic ? activity.descriptionAr : activity.descriptionEn;
-
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: completed
-                ? Color(0xFF4CAF50).withOpacity(0.3)
-                : const Color(0xFFE5DEFF),
-            width: completed ? 2 : 1,
-          ),
-          boxShadow: completed ? [
-            BoxShadow(
-              color: Color(0xFF4CAF50).withOpacity(0.1),
-              blurRadius: 8,
-              offset: Offset(0, 2),
-            )
-          ] : null,
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Checkbox container
-            GestureDetector(
-              onTap: onTap,
-              child: AnimatedContainer(
-                duration: Duration(milliseconds: 200),
-                width: 24,
-                height: 24,
-                margin: const EdgeInsets.only(top: 2),
-                decoration: BoxDecoration(
-                  color: completed ? Color(0xFF4CAF50) : Colors.transparent,
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(
-                    color: completed ? Color(0xFF4CAF50) : Color(0xFF9C90B3),
-                    width: 2,
-                  ),
-                ),
-                child: completed
-                    ? Icon(
-                  Icons.check_rounded,
-                  color: Colors.white,
-                  size: 16,
-                )
-                    : null,
-              ),
-            ),
-
-            const SizedBox(width: 15),
-
-            // Content
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          title,
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: completed
-                                ? Color(0xFF2A1E3B)
-                                : Color(0xFF2A1E3B),
-                            decoration: completed
-                                ? TextDecoration.lineThrough
-                                : TextDecoration.none,
-                          ),
-                        ),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: _getCategoryColor(activity.category)
-                              .withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Text(
-                          '${activity.estimatedMinutes} min',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: _getCategoryColor(activity.category),
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 6),
-
-                  Text(
-                    description,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: completed
-                          ? const Color(0xFF7A6A5A).withOpacity(0.7)
-                          : const Color(0xFF7A6A5A),
-                      height: 1.4,
-                    ),
-                  ),
-
-                  const SizedBox(height: 8),
-
-                  // Tags
-                  if (activity.tags.isNotEmpty)
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 4,
-                      children: activity.tags.map((tag) {
-                        return Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: completed
-                                ? const Color(0xFFE8F5E9)
-                                : const Color(0xFFF5F3FF),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Text(
-                            _getTagLabel(tag, context),
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: completed
-                                  ? const Color(0xFF4CAF50)
-                                  : const Color(0xFF7A6A5A),
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Color _getCategoryColor(String category) {
-    switch (category) {
-      case 'morning':
-        return Color(0xFFFFB74D);
-      case 'afternoon':
-        return Color(0xFF4CAF50);
-      case 'evening':
-        return Color(0xFF7B1FA2);
-      default:
-        return Color(0xFF8E7CFF);
-    }
-  }
-
-  String _getTagLabel(String tag, BuildContext context) {
-    final isArabic = Localizations.localeOf(context).languageCode == 'ar';
-
-    final Map<String, Map<String, String>> tagTranslations = {
-      'mindfulness': {
-        'en': 'Mindfulness',
-        'ar': 'وعي',
-      },
-      'gratitude': {
-        'en': 'Gratitude',
-        'ar': 'امتنان',
-      },
-      'breathing': {
-        'en': 'Breathing',
-        'ar': 'تنفس',
-      },
-      'stress_relief': {
-        'en': 'Stress Relief',
-        'ar': 'تخفيف التوتر',
-      },
-      'physical_health': {
-        'en': 'Physical Health',
-        'ar': 'صحة بدنية',
-      },
-      'digital_detox': {
-        'en': 'Digital Detox',
-        'ar': 'صيام رقمي',
-      },
-      'nature': {
-        'en': 'Nature',
-        'ar': 'طبيعة',
-      },
-      'journaling': {
-        'en': 'Journaling',
-        'ar': 'يوميات',
-      },
-      'positive_thinking': {
-        'en': 'Positive Thinking',
-        'ar': 'تفكير إيجابي',
-      },
-      'self_care': {
-        'en': 'Self-Care',
-        'ar': 'عناية ذاتية',
-      },
-      'sensory_awareness': {
-        'en': 'Sensory Awareness',
-        'ar': 'وعي حسي',
-      },
-      'energy': {
-        'en': 'Energy',
-        'ar': 'طاقة',
-      },
-      'flexibility': {
-        'en': 'Flexibility',
-        'ar': 'مرونة',
-      },
-      'self_esteem': {
-        'en': 'Self-Esteem',
-        'ar': 'ثقة بالنفس',
-      },
-      'reflection': {
-        'en': 'Reflection',
-        'ar': 'تأمل',
-      },
-      'nutrition': {
-        'en': 'Nutrition',
-        'ar': 'تغذية',
-      },
-      'body_awareness': {
-        'en': 'Body Awareness',
-        'ar': 'وعي جسدي',
-      },
-      'aromatherapy': {
-        'en': 'Aromatherapy',
-        'ar': 'علاج عطري',
-      },
-      'hydration': {
-        'en': 'Hydration',
-        'ar': 'ترطيب',
-      },
-      'exercise': {
-        'en': 'Exercise',
-        'ar': 'تمرين',
-      },
-      'ergonomics': {
-        'en': 'Ergonomics',
-        'ar': 'بيئة عمل',
-      },
-      'eye_rest': {
-        'en': 'Eye Rest',
-        'ar': 'راحة عينين',
-      },
-      'mindful_eating': {
-        'en': 'Mindful Eating',
-        'ar': 'أكل واعٍ',
-      },
-      'posture': {
-        'en': 'Posture',
-        'ar': 'وضعية جسم',
-      },
-      'kindness': {
-        'en': 'Kindness',
-        'ar': 'لطافة',
-      },
-      'compassion': {
-        'en': 'Compassion',
-        'ar': 'تعاطف',
-      },
-      'music': {
-        'en': 'Music',
-        'ar': 'موسيقى',
-      },
-      'relaxation': {
-        'en': 'Relaxation',
-        'ar': 'استرخاء',
-      },
-      'social': {
-        'en': 'Social',
-        'ar': 'اجتماعي',
-      },
-      'communication': {
-        'en': 'Communication',
-        'ar': 'تواصل',
-      },
-      'productivity': {
-        'en': 'Productivity',
-        'ar': 'إنتاجية',
-      },
-      'organization': {
-        'en': 'Organization',
-        'ar': 'تنظيم',
-      },
-      'eye_health': {
-        'en': 'Eye Health',
-        'ar': 'صحة عيون',
-      },
-      'energy_boost': {
-        'en': 'Energy Boost',
-        'ar': 'نشاط',
-      },
-      'meditation': {
-        'en': 'Meditation',
-        'ar': 'تأمل',
-      },
-      'sleep_hygiene': {
-        'en': 'Sleep Hygiene',
-        'ar': 'نظافة نوم',
-      },
-      'learning': {
-        'en': 'Learning',
-        'ar': 'تعلم',
-      },
-      'environment': {
-        'en': 'Environment',
-        'ar': 'بيئة',
-      },
-      'hygiene': {
-        'en': 'Hygiene',
-        'ar': 'نظافة',
-      },
-      'emotional_release': {
-        'en': 'Emotional Release',
-        'ar': 'تحرير عاطفي',
-      },
-      'self_compassion': {
-        'en': 'Self-Compassion',
-        'ar': 'تعاطف ذاتي',
-      },
-    };
-
-    return tagTranslations[tag]?[isArabic ? 'ar' : 'en'] ?? tag;
   }
 }
