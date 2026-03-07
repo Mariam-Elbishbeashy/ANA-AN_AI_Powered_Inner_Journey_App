@@ -6,7 +6,9 @@ import 'package:provider/provider.dart';
 import 'package:ana_ifs_app/l10n/app_strings.dart';
 import 'package:ana_ifs_app/core/widgets/shared_widgets.dart';
 import 'package:ana_ifs_app/features/progress/presentation/providers/milestone_provider.dart';
+import 'package:ana_ifs_app/features/progress/presentation/widgets/progress_charts.dart';
 import '../../domain/entities/milestone.dart';
+import '../widgets/progress_background.dart';
 
 class ProgressScreen extends StatefulWidget {
   final String name;
@@ -63,6 +65,9 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
   bool _showAchievementHistory = false;
   bool _showAllCharacterDiscovery = false;
   bool _showAllHealingProgress = false;
+
+  // New toggle state
+  bool _showChartsView = true; // true = charts, false = achievements
 
   @override
   void initState() {
@@ -131,37 +136,40 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
   }
 
   Widget _buildLoadingState() {
-    return Column(
-      children: [
-        TopHelloBar(
-          name: widget.name,
-          onLogout: widget.onLogout,
-          onSettings: () {
-            showModalBottomSheet(
-              context: context,
-              builder: (context) => SettingsBottomSheet(
-                onRetakeQuestionnaire: widget.onRetakeQuestionnaire,
-                onSwitchLanguage: widget.onSwitchLanguage,
-              ),
-            );
-          },
-        ),
-        Expanded(
-          child: Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                CircularProgressIndicator(color: Color(0xFF8E7CFF)),
-                SizedBox(height: 20),
-                Text(
-                  'Loading your progress...',
-                  style: TextStyle(color: Color(0xFF4B3A66)),
+    return ProgressBackground(  // Wrap with background
+      isLoading: true,
+      child: Column(
+        children: [
+          TopHelloBar(
+            name: widget.name,
+            onLogout: widget.onLogout,
+            onSettings: () {
+              showModalBottomSheet(
+                context: context,
+                builder: (context) => SettingsBottomSheet(
+                  onRetakeQuestionnaire: widget.onRetakeQuestionnaire,
+                  onSwitchLanguage: widget.onSwitchLanguage,
                 ),
-              ],
+              );
+            },
+          ),
+          Expanded(
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(color: Color(0xFF8E7CFF)),
+                  SizedBox(height: 20),
+                  Text(
+                    'Loading your progress...',
+                    style: TextStyle(color: Color(0xFF4B3A66)),
+                  ),
+                ],
+              ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -177,6 +185,31 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
       List<Milestone> streakAchievements,
       MilestoneProvider milestoneProvider,
       ) {
+    // Weekly mood tracking data structure - this would come from database later
+    final weekDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final today = DateTime.now().weekday; // Monday = 1, Sunday = 7
+    final todayIndex = today - 1; // Convert to 0-based index
+
+    final moodOptions = {
+      'Happy': Icons.sentiment_satisfied_rounded,
+      'Sad': Icons.sentiment_dissatisfied_rounded,
+      'Tired': Icons.battery_alert_rounded,
+      'Energetic': Icons.bolt_rounded,
+      'Calm': Icons.spa_rounded,
+      'Anxious': Icons.psychology_rounded,
+    };
+
+    // Sample mood data - in real app, this would come from database
+    final List<Map<String, dynamic>> weeklyMoods = [
+      {'day': 'Mon', 'mood': 'Happy', 'note': 'Feeling good'},
+      {'day': 'Tue', 'mood': 'Tired', 'note': 'Didn\'t sleep well'},
+      {'day': 'Wed', 'mood': 'Calm', 'note': 'Peaceful day'},
+      {'day': 'Thu', 'mood': 'Anxious', 'note': 'Busy day'},
+      {'day': 'Fri', 'mood': 'Sad', 'note': 'Missing someone'},
+      {'day': 'Sat', 'mood': 'Energetic', 'note': 'Workout day'},
+      {'day': 'Sun', 'mood': 'Happy', 'note': 'Relaxing'},
+    ];
+
     return Column(
       children: [
         TopHelloBar(
@@ -193,77 +226,460 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
           },
         ),
         Expanded(
-          child: SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(
-              20,
-              20,
-              20,
-              20 + MediaQuery.of(context).padding.bottom + 80,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 20),
+          child: ProgressBackground(
+            isLoading: milestoneProvider.isLoading && milestoneProvider.milestones.isEmpty,
+            child: SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(
+                20,
+                20,
+                20,
+                20 + MediaQuery.of(context).padding.bottom + 80,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 20),
 
-                // Progress overview with streak
-                _buildProgressOverview(stats, context),
-                const SizedBox(height: 30),
+                  // Progress overview with streak
+                  _buildProgressOverview(stats, context),
+                  const SizedBox(height: 30),
 
-                // Daily streak section
-                if (dailyMilestones.isNotEmpty)
-                  _buildDailyStreakSection(dailyMilestones.first, context),
+                  // Weekly Mood Tracking Section
+                  _buildWeeklyMoodSection(weekDays, todayIndex, weeklyMoods, moodOptions, context),
 
-                const SizedBox(height: 30),
+                  const SizedBox(height: 30),
 
-                // Character Discovery Achievements
-                if (allCharacterDiscoveryMilestones.isNotEmpty)
-                  _buildCharacterDiscoverySection(
-                    characterDiscoveryMilestones,
-                    allCharacterDiscoveryMilestones,
-                    context,
-                  ),
+                  // View Toggle (Charts / Achievements)
+                  _buildViewToggle(context),
 
-                const SizedBox(height: 30),
+                  const SizedBox(height: 30),
 
-                // Streak Achievements
-                if (streakAchievements.isNotEmpty)
-                  _buildStreakAchievementsSection(streakAchievements, milestoneProvider),
+                  // Conditional content based on toggle
+                  if (_showChartsView)
+                    _buildChartsView()
+                  else
+                    _buildAchievementsView(
+                      allCharacterDiscoveryMilestones,
+                      characterDiscoveryMilestones,
+                      streakAchievements,
+                      milestoneProvider,
+                      allHealingMilestones,
+                      healingMilestones,
+                      activeAchievements,
+                      completedAchievements,
+                      context,
+                    ),
 
-                const SizedBox(height: 30),
-
-                // Healing Progress
-                if (allHealingMilestones.isNotEmpty)
-                  _buildHealingSection(
-                    healingMilestones,
-                    allHealingMilestones,
-                    context,
-                  ),
-
-                const SizedBox(height: 10),
-
-                // Active Achievements
-                if (activeAchievements.isNotEmpty)
-                  _buildActiveAchievementsSection(activeAchievements, context),
-
-                // Separation line before Achievement History
-                Container(
-                  height: 1,
-                  color: Color(0xFFE5DEFF),
-                  margin: EdgeInsets.symmetric(vertical: 10),
-                ),
-
-                const SizedBox(height: 10),
-
-                // Achievement History (Completed Achievements)
-                if (completedAchievements.isNotEmpty)
-                  _buildAchievementHistorySection(completedAchievements, context),
-
-                const SizedBox(height: 40),
-              ],
+                  const SizedBox(height: 40),
+                ],
+              ),
             ),
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildViewToggle(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(30),
+        border: Border.all(color: const Color(0xFFE5DEFF)),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF8E7CFF).withOpacity(0.1),
+            blurRadius: 8,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: GestureDetector(
+              onTap: () {
+                setState(() {
+                  _showChartsView = true;
+                });
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                decoration: BoxDecoration(
+                  color: _showChartsView ? const Color(0xFF8E7CFF) : Colors.transparent,
+                  borderRadius: BorderRadius.circular(25),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.bar_chart_rounded,
+                      size: 18,
+                      color: _showChartsView ? Colors.white : const Color(0xFF7A6A5A),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      tr(context, 'Charts', 'الرسوم البيانية'),
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: _showChartsView ? Colors.white : const Color(0xFF7A6A5A),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: GestureDetector(
+              onTap: () {
+                setState(() {
+                  _showChartsView = false;
+                });
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                decoration: BoxDecoration(
+                  color: !_showChartsView ? const Color(0xFF8E7CFF) : Colors.transparent,
+                  borderRadius: BorderRadius.circular(25),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.emoji_events_rounded,
+                      size: 18,
+                      color: !_showChartsView ? Colors.white : const Color(0xFF7A6A5A),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      tr(context, 'Achievements', 'الإنجازات'),
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: !_showChartsView ? Colors.white : const Color(0xFF7A6A5A),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildChartsView() {
+    return const ProgressCharts();
+  }
+
+  Widget _buildAchievementsView(
+      List<Milestone> allCharacterDiscoveryMilestones,
+      List<Milestone> characterDiscoveryMilestones,
+      List<Milestone> streakAchievements,
+      MilestoneProvider milestoneProvider,
+      List<Milestone> allHealingMilestones,
+      List<Milestone> healingMilestones,
+      List<Milestone> activeAchievements,
+      List<Milestone> completedAchievements,
+      BuildContext context,
+      ) {
+    return Column(
+      children: [
+        // Character Discovery Achievements
+        if (allCharacterDiscoveryMilestones.isNotEmpty)
+          _buildCharacterDiscoverySection(
+            characterDiscoveryMilestones,
+            allCharacterDiscoveryMilestones,
+            context,
+          ),
+
+        const SizedBox(height: 30),
+
+        // Streak Achievements
+        if (streakAchievements.isNotEmpty)
+          _buildStreakAchievementsSection(streakAchievements, milestoneProvider),
+
+        const SizedBox(height: 30),
+
+        // Healing Progress
+        if (allHealingMilestones.isNotEmpty)
+          _buildHealingSection(
+            healingMilestones,
+            allHealingMilestones,
+            context,
+          ),
+
+        const SizedBox(height: 10),
+
+        // Active Achievements
+        if (activeAchievements.isNotEmpty)
+          _buildActiveAchievementsSection(activeAchievements, context),
+
+        // Separation line before Achievement History
+        Container(
+          height: 1,
+          color: Color(0xFFE5DEFF),
+          margin: EdgeInsets.symmetric(vertical: 10),
+        ),
+
+        const SizedBox(height: 10),
+
+        // Achievement History (Completed Achievements)
+        if (completedAchievements.isNotEmpty)
+          _buildAchievementHistorySection(completedAchievements, context),
+      ],
+    );
+  }
+
+  Widget _buildWeeklyMoodSection(
+      List<String> weekDays,
+      int todayIndex,
+      List<Map<String, dynamic>> weeklyMoods,
+      Map<String, IconData> moodOptions,
+      BuildContext context,
+      ) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFE5DEFF)),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF8E7CFF).withOpacity(0.1),
+            blurRadius: 12,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header with emotion theme
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF8E7CFF).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  Icons.emoji_emotions_rounded,
+                  color: const Color(0xFF8E7CFF),
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      tr(context, 'Mood Predictions', 'توقعات المزاج'),
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF2A1E3B),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      tr(context, 'Next 1w', 'الأسبوع القادم'),
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: const Color(0xFF7A6A5A).withOpacity(0.8),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 20),
+
+          // Weekly mood grid
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: List.generate(7, (index) {
+              final day = weekDays[index];
+              final dayData = weeklyMoods.firstWhere(
+                    (m) => m['day'] == day,
+                orElse: () => {'day': day, 'mood': null},
+              );
+              final isToday = index == todayIndex;
+              final mood = dayData['mood'];
+              final hasMood = mood != null;
+
+              return Expanded(
+                child: Container(
+                  margin: EdgeInsets.only(right: index < 6 ? 4 : 0),
+                  child: Column(
+                    children: [
+                      // Day label
+                      Text(
+                        day,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: isToday ? FontWeight.w700 : FontWeight.w500,
+                          color: isToday
+                              ? const Color(0xFF8E7CFF)
+                              : const Color(0xFF7A6A5A),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+
+                      // Mood indicator - only tappable for today
+                      GestureDetector(
+                        onTap: isToday
+                            ? () {
+                          _showMoodSelectionDialog(context, day, moodOptions);
+                        }
+                            : null, // No tap for other days
+                        child: Container(
+                          width: double.infinity,
+                          height: 60,
+                          decoration: BoxDecoration(
+                            color: hasMood
+                                ? const Color(0xFF8E7CFF).withOpacity(0.15)
+                                : const Color(0xFFF5F5F5),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: isToday
+                                  ? const Color(0xFF8E7CFF)
+                                  : (hasMood
+                                  ? const Color(0xFF8E7CFF).withOpacity(0.3)
+                                  : const Color(0xFFE5DEFF)),
+                              width: isToday ? 2 : 1,
+                            ),
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              if (hasMood)
+                                Icon(
+                                  moodOptions[mood] ?? Icons.help_outline_rounded,
+                                  color: isToday
+                                      ? const Color(0xFF8E7CFF)
+                                      : const Color(0xFF9C90B3),
+                                  size: 24,
+                                )
+                              else
+                                Icon(
+                                  // Show different icon based on whether it's today or not
+                                  isToday
+                                      ? Icons.add_circle_outline_rounded
+                                      : Icons.remove_circle_outline_rounded,
+                                  color: isToday
+                                      ? const Color(0xFF8E7CFF).withOpacity(0.5)
+                                      : const Color(0xFF9C90B3).withOpacity(0.3),
+                                  size: 20,
+                                ),
+                              if (hasMood) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  mood,
+                                  style: TextStyle(
+                                    fontSize: 8,
+                                    fontWeight: FontWeight.w600,
+                                    color: isToday
+                                        ? const Color(0xFF8E7CFF)
+                                        : const Color(0xFF9C90B3),
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+
+                      // Today indicator
+                      if (isToday)
+                        Container(
+                          margin: const EdgeInsets.only(top: 6),
+                          width: 6,
+                          height: 6,
+                          decoration: const BoxDecoration(
+                            color: Color(0xFF8E7CFF),
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            }),
+          ),
+
+          const SizedBox(height: 20),
+
+          // Note about tapping to log mood - updated to only mention today
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.info_outline_rounded,
+                size: 14,
+                color: const Color(0xFF7A6A5A).withOpacity(0.6),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  tr(context, 'Tap today\'s mood to update it', 'اضغط على مزاج اليوم لتحديثه'),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: const Color(0xFF7A6A5A).withOpacity(0.8),
+                    fontStyle: FontStyle.italic,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showMoodSelectionDialog(BuildContext context, String day, Map<String, IconData> moodOptions) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(tr(context, 'Update Today\'s Mood', 'تحديث مزاج اليوم')),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: moodOptions.entries.map((entry) {
+            return ListTile(
+              leading: Icon(entry.value, color: Color(0xFF8E7CFF)),
+              title: Text(entry.key),
+              onTap: () {
+                // This would save to database for today only
+                Navigator.pop(context);
+                // Show confirmation
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('${entry.key} ${tr(context, 'logged for today', 'تم تسجيله لليوم')}'),
+                    backgroundColor: Color(0xFF8E7CFF),
+                  ),
+                );
+              },
+            );
+          }).toList(),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(tr(context, 'Cancel', 'إلغاء')),
+          ),
+        ],
+      ),
     );
   }
 
@@ -438,144 +854,6 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
           ],
         ),
       ],
-    );
-  }
-
-  Widget _buildDailyStreakSection(Milestone milestone, BuildContext context) {
-    final progress = milestone.currentCount / milestone.targetCount;
-
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFE5DEFF)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(
-                Icons.local_fire_department_rounded,
-                color: Color(0xFFFF6B6B),
-                size: 24,
-              ),
-              const SizedBox(width: 10),
-              Text(
-                tr(context, 'Daily Streak', 'السلسلة اليومية'),
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF2A1E3B),
-                ),
-              ),
-              const Spacer(),
-              Text(
-                '${milestone.streakDays} ${tr(context, 'days', 'يوم')}',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFFFF6B6B),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-
-          // Progress bar for 7-day milestone
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    milestone.title,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF2A1E3B),
-                    ),
-                  ),
-                  Text(
-                    '${milestone.currentCount}/${milestone.targetCount}',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF4B3A66),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              LinearProgressIndicator(
-                value: progress,
-                backgroundColor: const Color(0xFFE5DEFF),
-                valueColor: AlwaysStoppedAnimation<Color>(
-                  progress >= 1 ? Color(0xFF4CAF50) : Color(0xFF8E7CFF),
-                ),
-                minHeight: 10,
-                borderRadius: BorderRadius.circular(5),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                milestone.description,
-                style: TextStyle(
-                  fontSize: 14,
-                  color: const Color(0xFF7A6A5A).withOpacity(0.8),
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 20),
-
-          // Daily check-in prompt
-          if (!milestone.isAchieved && milestone.currentCount < milestone.targetCount)
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFF8E7CFF).withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFF8E7CFF).withOpacity(0.3)),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.check_circle_rounded,
-                    color: Color(0xFF8E7CFF),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          tr(context, 'Check in today!', 'سجل دخولك اليوم!'),
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF2A1E3B),
-                          ),
-                        ),
-                        Text(
-                          tr(
-                            context,
-                            'Open the app tomorrow to continue your streak',
-                            'افتح التطبيق غدًا لمواصلة سلسلتك',
-                          ),
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: const Color(0xFF7A6A5A),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-        ],
-      ),
     );
   }
 
