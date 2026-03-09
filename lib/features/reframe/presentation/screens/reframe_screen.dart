@@ -8,12 +8,12 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_storage/firebase_storage.dart' as firebase_storage;
 import 'package:ana_ifs_app/l10n/app_strings.dart';
 import 'package:ana_ifs_app/core/widgets/shared_widgets.dart';
 import 'package:ana_ifs_app/features/character/domain/entities/user_character.dart';
 
 enum _ReframeMode { chat, voice, video }
-enum _UsedInputType { none, text, voice, video }
 
 class ReframeScreen extends StatefulWidget {
   final String name;
@@ -56,9 +56,6 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
   int _healedCharacterCount = 0;
   int _unhealedCharacterCount = 0;
 
-  // Track which input type has been used
-  _UsedInputType _usedInputType = _UsedInputType.none;
-
   // Audio recording for video mode
   bool _videoAudioRecording = false;
   String? _videoAudioFilePath;
@@ -66,9 +63,8 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
 
   // Firebase
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final firebase_storage.FirebaseStorage _storage = firebase_storage.FirebaseStorage.instance;
   String? _currentUserId;
-  bool _hasActiveSession = false;
-  DateTime? _sessionStartTime;
 
   // High confidence threshold
   final double _highConfidenceThreshold = 0.75;
@@ -138,25 +134,6 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
     }
   }
 
-  // Check if a character already exists for this user
-  Future<bool> _characterExists(String characterName) async {
-    try {
-      if (_currentUserId == null) return false;
-
-      final querySnapshot = await _firestore
-          .collection('user_characters')
-          .where('userId', isEqualTo: _currentUserId)
-          .where('characterName', isEqualTo: characterName)
-          .limit(1)
-          .get();
-
-      return querySnapshot.docs.isNotEmpty;
-    } catch (e) {
-      print('❌ Error checking for duplicate character: $e');
-      return false;
-    }
-  }
-
   // Show restricted access dialog
   void _showRestrictedAccessDialog() {
     showDialog(
@@ -222,7 +199,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
     );
   }
 
-  // Helper methods for Arabic translations (from QuestionnaireProvider)
+  // Helper methods for Arabic translations
   String _getArabicDisplayName(String englishName) {
     final arabicNames = {
       'Inner Critic': 'الناقد الداخلي',
@@ -365,20 +342,138 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
     return englishNames[characterName] ?? characterName;
   }
 
-  // Save high confidence characters to user collection
-  Future<void> _saveHighConfidenceCharacters(Map<String, dynamic> analysisResult) async {
+  // Helper method to verify media files
+  Future<bool> _verifyMediaFile(String? filePath) async {
+    if (filePath == null || filePath.isEmpty) {
+      return false;
+    }
+
+    try {
+      final file = File(filePath);
+      if (!await file.exists()) {
+        print('❌ File does not exist: $filePath');
+        return false;
+      }
+
+      final fileSize = await file.length();
+      if (fileSize == 0) {
+        print('❌ File is empty: $filePath');
+        return false;
+      }
+
+      print('✅ File verified: $filePath (${fileSize} bytes)');
+      return true;
+    } catch (e) {
+      print('❌ Error verifying file: $e');
+      return false;
+    }
+  }
+
+  // Upload media file to Firebase Storage
+  Future<String?> _uploadMediaFile(
+      String filePath,
+      String mediaType,
+      String sessionId,
+      ) async {
+    try {
+      // Verify file exists and has content
+      if (!await _verifyMediaFile(filePath)) {
+        return null;
+      }
+
+      final file = File(filePath);
+
+      // Create a unique filename with timestamp to avoid collisions
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final fileExtension = filePath.split('.').last;
+      final fileName = '${mediaType}_$timestamp.$fileExtension';
+      final storagePath = 'users/$_currentUserId/characters/$mediaType/$sessionId/$fileName';
+
+      print('📤 Uploading $mediaType to: $storagePath');
+
+      // Upload to Firebase Storage with metadata
+      final ref = _storage.ref().child(storagePath);
+
+      // Add metadata
+      final metadata = firebase_storage.SettableMetadata(
+        contentType: mediaType == 'audio' ? 'audio/wav' : 'video/mp4',
+        customMetadata: {
+          'userId': _currentUserId ?? '',
+          'sessionId': sessionId,
+          'uploadedAt': DateTime.now().toIso8601String(),
+        },
+      );
+
+      final uploadTask = await ref.putFile(file, metadata);
+
+      // Verify upload was successful
+      if (uploadTask.state == firebase_storage.TaskState.success) {
+        // Get the download URL
+        final downloadUrl = await ref.getDownloadURL();
+        print('✅ Media uploaded successfully: $downloadUrl');
+        return downloadUrl;
+      } else {
+        print('❌ Upload failed with state: ${uploadTask.state}');
+        return null;
+      }
+
+    } catch (e) {
+      print('❌ Error uploading media file: $e');
+      return null;
+    }
+  }
+
+  // Save high confidence characters to user collection with media
+  // Save high confidence characters to user collection with only UserCharacter attributes
+  Future<void> _saveHighConfidenceCharacters(
+      Map<String, dynamic> analysisResult, {
+        String? audioFilePath,
+        String? videoFilePath,
+        String? inputType,
+      }) async {
     try {
       if (_currentUserId == null) {
         print('❌ No user ID available');
         return;
       }
 
-      final List<dynamic> innerCharacters = analysisResult['inner_characters'] ?? [];
+      // Get inner_characters from analysis result
+      List<dynamic> innerCharacters = [];
+
+      if (analysisResult.containsKey('inner_characters')) {
+        innerCharacters = analysisResult['inner_characters'] as List<dynamic>? ?? [];
+      } else if (analysisResult.containsKey('analysisResult') &&
+          analysisResult['analysisResult'] is Map) {
+        final nested = analysisResult['analysisResult'] as Map;
+        if (nested.containsKey('inner_characters')) {
+          innerCharacters = nested['inner_characters'] as List<dynamic>? ?? [];
+        }
+      } else if (analysisResult.containsKey('primary_character') &&
+          analysisResult['primary_character'] != 'Unknown') {
+        final primaryChar = analysisResult['primary_character'];
+        final confidence = analysisResult['confidence'] ?? 0.0;
+
+        innerCharacters = [
+          {
+            'character': primaryChar,
+            'character_name': analysisResult['character_name'] ?? primaryChar,
+            'confidence': confidence,
+          }
+        ];
+      }
+
       final String detectedLanguage = analysisResult['detected_language'] ?? 'english';
 
       // Filter characters with high confidence
       final highConfidenceCharacters = innerCharacters.where((character) {
-        final confidence = (character['confidence'] ?? 0.0) as double;
+        double confidence = 0.0;
+        if (character is Map) {
+          if (character.containsKey('confidence')) {
+            confidence = (character['confidence'] as num?)?.toDouble() ?? 0.0;
+          } else if (character.containsKey('score')) {
+            confidence = (character['score'] as num?)?.toDouble() ?? 0.0;
+          }
+        }
         return confidence >= _highConfidenceThreshold;
       }).toList();
 
@@ -387,19 +482,15 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
         return;
       }
 
-      print('✅ Found ${highConfidenceCharacters.length} high confidence characters to save');
-
-      // Sort characters by confidence in descending order
+      // Sort characters by confidence
       highConfidenceCharacters.sort((a, b) {
-        final confA = (a['confidence'] ?? 0.0) as double;
-        final confB = (b['confidence'] ?? 0.0) as double;
+        final confA = (a['confidence'] as num?)?.toDouble() ?? 0.0;
+        final confB = (b['confidence'] as num?)?.toDouble() ?? 0.0;
         return confB.compareTo(confA);
       });
 
-      // Get existing user characters to determine the next rank AND check for duplicates
+      // Get existing user characters
       final existingCharacters = await _getUserCharacters();
-
-      // Create a set of existing character names for quick lookup
       final existingCharacterNames = existingCharacters
           .map((c) => c.characterName.toLowerCase().trim())
           .toSet();
@@ -414,68 +505,80 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
       int nextRank = maxRank + 1;
       int newCharactersCount = 0;
 
-      print('📊 Existing characters: ${existingCharacters.length}, Max rank: $maxRank, Next rank: $nextRank');
-
       final batch = _firestore.batch();
       final timestamp = DateTime.now();
 
-      // Save each high confidence character that doesn't already exist
+      // Save each high confidence character
       for (int i = 0; i < highConfidenceCharacters.length; i++) {
         final character = highConfidenceCharacters[i];
 
-        // Get character name - handle both possible formats from API
-        String characterName = character['character']?.toString() ?? 'Unknown';
-
-        // Get display names - handle based on language
-        String displayNameEn;
-        String displayNameAr;
-
-        // Check if the API provided language-specific names
-        if (character['character_name_en'] != null) {
-          // API provided separate English and Arabic names
-          displayNameEn = character['character_name_en'].toString();
-          displayNameAr = character['character_name_ar']?.toString() ?? _getArabicDisplayName(characterName);
-        } else if (character['character_name'] != null) {
-          // API provided a single name - determine if it's Arabic or English
-          String singleName = character['character_name'].toString();
-          bool isArabic = _isArabicText(singleName);
-
-          if (isArabic) {
-            // If the single name is Arabic, set it as Arabic name and use English default
-            displayNameAr = singleName;
-            displayNameEn = _getEnglishDisplayName(characterName);
-          } else {
-            // If the single name is English, set it as English name and use Arabic default
-            displayNameEn = singleName;
-            displayNameAr = _getArabicDisplayName(characterName);
+        // Get character name
+        String characterName = 'Unknown';
+        if (character is Map) {
+          if (character.containsKey('character')) {
+            characterName = character['character']?.toString() ?? 'Unknown';
+          } else if (character.containsKey('character_name')) {
+            characterName = character['character_name']?.toString() ?? 'Unknown';
           }
-        } else {
-          // No display name provided, use defaults based on character name
-          displayNameEn = _getEnglishDisplayName(characterName);
-          displayNameAr = _getArabicDisplayName(characterName);
         }
 
-        // Check if character already exists (case-insensitive)
-        final characterNameLower = characterName.toLowerCase().trim();
-        if (existingCharacterNames.contains(characterNameLower)) {
-          print('⏭️ Skipping duplicate character: $characterName (already exists)');
+        if (characterName == 'Unknown') {
+          print('⚠️ Skipping character with unknown name');
           continue;
         }
 
-        final confidence = (character['confidence'] ?? 0.0) as double;
+        // Check for duplicates
+        final characterNameLower = characterName.toLowerCase().trim();
+        if (existingCharacterNames.contains(characterNameLower)) {
+          print('⏭️ Skipping duplicate character: $characterName');
+          continue;
+        }
+
+        // Get confidence
+        double confidence = 0.0;
+        if (character is Map) {
+          if (character.containsKey('confidence')) {
+            confidence = (character['confidence'] as num?)?.toDouble() ?? 0.0;
+          } else if (character.containsKey('score')) {
+            confidence = (character['score'] as num?)?.toDouble() ?? 0.0;
+          }
+        }
+
         final rank = nextRank + newCharactersCount;
         newCharactersCount++;
 
-        final archetype = _determineArchetype(characterName);
-        final characterDocRef = _firestore.collection('user_characters').doc();
+        // Get display names
+        String displayNameEn = _getEnglishDisplayName(characterName);
+        String displayNameAr = _getArabicDisplayName(characterName);
 
-        // Get descriptions using the helper methods
+        // If character has a display name from API, use it
+        if (character is Map) {
+          if (character.containsKey('character_name_en')) {
+            displayNameEn = character['character_name_en'].toString();
+            displayNameAr = character['character_name_ar']?.toString() ?? displayNameAr;
+          } else if (character.containsKey('character_name')) {
+            String singleName = character['character_name'].toString();
+            bool isArabic = _isArabicText(singleName);
+
+            if (isArabic) {
+              displayNameAr = singleName;
+            } else {
+              displayNameEn = singleName;
+            }
+          }
+        }
+
+        final archetype = _determineArchetype(characterName);
+        final glbFileName = _getGLBFileName(characterName);
+
+        // Get descriptions
         String descriptionEn = _getEnglishDescription(characterName);
         String descriptionAr = _getArabicDescription(characterName);
 
-        final glbFileName = _getGLBFileName(characterName);
+        // Create character document reference
+        final characterDocRef = _firestore.collection('user_characters').doc();
 
-        // Create character data that matches the UserCharacter entity structure
+        // Create data with EXACTLY the UserCharacter attributes
         final characterData = {
           'userId': _currentUserId!,
           'characterName': characterName,
@@ -494,17 +597,16 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
         };
 
         batch.set(characterDocRef, characterData);
-        print('📝 Saving new character: $characterName');
-        print('   - displayNameEn: $displayNameEn');
-        print('   - displayNameAr: $displayNameAr');
-        print('   - Rank: $rank, Confidence: ${(confidence * 100).toStringAsFixed(1)}%');
+        print('📝 Saving character: $characterName (Rank: $rank)');
+
+        // Add to existing names to prevent duplicates in same batch
+        existingCharacterNames.add(characterNameLower);
       }
 
       if (newCharactersCount > 0) {
         await batch.commit();
-        print('✅ Successfully saved $newCharactersCount new high confidence characters');
+        print('✅ Saved $newCharactersCount new characters');
 
-        // Refresh character counts after saving
         await _refreshCharacterData();
 
         if (mounted) {
@@ -512,8 +614,8 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
             SnackBar(
               content: Text(
                 tr(context,
-                    '$newCharactersCount new inner ${newCharactersCount == 1 ? 'character' : 'characters'} added to your collection!',
-                    'تم إضافة $newCharactersCount من الشخصيات الداخلية الجديدة إلى مجموعتك!'
+                    '$newCharactersCount new inner ${newCharactersCount == 1 ? 'character' : 'characters'} added!',
+                    'تم إضافة $newCharactersCount من الشخصيات الداخلية الجديدة!'
                 ),
               ),
               backgroundColor: const Color(0xFF8E7CFF),
@@ -525,44 +627,18 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
             ),
           );
         }
-      } else {
-        print('ℹ️ No new characters to save (all were duplicates)');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                tr(context,
-                    'These characters are already in your collection',
-                    'هذه الشخصيات موجودة بالفعل في مجموعتك'
-                ),
-              ),
-              backgroundColor: const Color(0xFF9E9E9E),
-              duration: const Duration(seconds: 2),
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-          );
-        }
       }
 
     } catch (e) {
-      print('❌ Error saving high confidence characters: $e');
+      print('❌ Error saving characters: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              tr(context,
-                  'Error saving characters to collection',
-                  'حدث خطأ في حفظ الشخصيات إلى المجموعة'
-              ),
+              tr(context, 'Error saving characters', 'حدث خطأ في حفظ الشخصيات'),
             ),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
           ),
         );
       }
@@ -570,25 +646,22 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
   }
 
   // Helper method to get existing user characters
+  // Helper method to get existing user characters
   Future<List<UserCharacter>> _getUserCharacters() async {
     try {
-      if (_currentUserId == null) return [];
+      if (_currentUserId == null) {
+        return [];
+      }
 
       final querySnapshot = await _firestore
           .collection('user_characters')
           .where('userId', isEqualTo: _currentUserId)
           .get();
 
-      final characters = querySnapshot.docs.map((doc) {
+      return querySnapshot.docs.map((doc) {
         return UserCharacter.fromMap(doc.data() as Map<String, dynamic>, doc.id);
       }).toList();
 
-      print('🔍 Found ${characters.length} existing characters for user:');
-      for (final character in characters) {
-        print('   - ${character.displayNameEn} (Rank: ${character.rank}, ID: ${character.id})');
-      }
-
-      return characters;
     } catch (e) {
       print('❌ Error getting user characters: $e');
       return [];
@@ -659,72 +732,8 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
         _currentUserId = user?.uid;
       });
       print('👤 Current user ID: $_currentUserId');
-
-      if (_currentUserId != null) {
-        await _checkForActiveSession();
-      }
     } catch (e) {
       print('❌ Error getting current user: $e');
-    }
-  }
-
-  Future<void> _checkForActiveSession() async {
-    try {
-      final querySnapshot = await _firestore
-          .collection('reframe_sessions')
-          .where('userId', isEqualTo: _currentUserId)
-          .where('isActive', isEqualTo: true)
-          .limit(1)
-          .get();
-
-      if (querySnapshot.docs.isNotEmpty) {
-        final doc = querySnapshot.docs.first;
-        final data = doc.data();
-        final timestamp = data['timestamp'] as Timestamp?;
-        final createdAt = data['createdAt'] as String?;
-
-        if (timestamp != null) {
-          _sessionStartTime = timestamp.toDate();
-        } else if (createdAt != null) {
-          _sessionStartTime = DateTime.parse(createdAt);
-        }
-
-        setState(() {
-          _hasActiveSession = true;
-        });
-
-        if (_sessionStartTime != null) {
-          final now = DateTime.now();
-          final difference = now.difference(_sessionStartTime!);
-          if (difference.inHours >= 24) {
-            await _deactivateSession(doc.id);
-            setState(() {
-              _hasActiveSession = false;
-              _sessionStartTime = null;
-            });
-            return;
-          }
-        }
-      } else {
-        setState(() {
-          _hasActiveSession = false;
-          _sessionStartTime = null;
-        });
-      }
-    } catch (e) {
-      print('❌ Error checking active session: $e');
-    }
-  }
-
-  Future<void> _deactivateSession(String sessionId) async {
-    try {
-      await _firestore
-          .collection('reframe_sessions')
-          .doc(sessionId)
-          .update({'isActive': false});
-      print('✅ Session deactivated after 24 hours');
-    } catch (e) {
-      print('❌ Error deactivating session: $e');
     }
   }
 
@@ -847,18 +856,6 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
     try {
       if (_currentUserId == null) return;
 
-      final activeSessions = await _firestore
-          .collection('reframe_sessions')
-          .where('userId', isEqualTo: _currentUserId)
-          .where('isActive', isEqualTo: true)
-          .get();
-
-      final batch = _firestore.batch();
-      for (final doc in activeSessions.docs) {
-        batch.update(doc.reference, {'isActive': false});
-      }
-      await batch.commit();
-
       final sessionData = {
         'userId': _currentUserId!,
         'inputType': inputType,
@@ -869,18 +866,12 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
         'videoFilePath': videoFilePath,
         'timestamp': FieldValue.serverTimestamp(),
         'createdAt': DateTime.now().toIso8601String(),
-        'isActive': true,
         'primaryCharacter': analysisResult['primary_character'] ?? 'Unknown',
         'confidence': analysisResult['confidence'] ?? 0.0,
         'characterName': analysisResult['character_name'] ?? '',
       };
 
       await _firestore.collection('reframe_sessions').add(sessionData);
-
-      setState(() {
-        _hasActiveSession = true;
-        _sessionStartTime = DateTime.now();
-      });
 
       print('✅ Reframe session saved to database');
     } catch (e) {
@@ -890,10 +881,6 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
 
   // Text Analysis
   Future<void> _analyzeText() async {
-    if (_hasActiveSession && _usedInputType == _UsedInputType.none) {
-      return;
-    }
-
     if (_chatController.text.trim().isEmpty) {
       return;
     }
@@ -909,9 +896,6 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
         'input': text,
         'language': language,
       };
-      if (_usedInputType == _UsedInputType.none) {
-        _usedInputType = _UsedInputType.text;
-      }
     });
 
     try {
@@ -928,6 +912,8 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
 
       if (response.statusCode == 200) {
         final result = jsonDecode(response.body);
+        print('📊 API Response: $result');
+
         if (result['success'] == true) {
           final analysisData = {
             'type': 'text',
@@ -958,7 +944,12 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
             language: result['detected_language'] ?? language,
             analysisResult: analysisData,
           );
-          await _saveHighConfidenceCharacters(analysisData);
+
+          // Save high confidence characters (text input has no media files)
+          await _saveHighConfidenceCharacters(
+            analysisData,
+            inputType: 'text',
+          );
 
           _scrollToResults();
         }
@@ -974,10 +965,6 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
 
   // Voice Recording & Analysis
   Future<void> _startVoiceRecording() async {
-    if (_hasActiveSession && _usedInputType == _UsedInputType.none) {
-      return;
-    }
-
     try {
       if (!await Permission.microphone.isGranted) {
         final status = await Permission.microphone.request();
@@ -1002,9 +989,6 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
 
       setState(() {
         _voiceRecording = true;
-        if (_usedInputType == _UsedInputType.none) {
-          _usedInputType = _UsedInputType.voice;
-        }
       });
 
       print('🎤 Started voice recording');
@@ -1072,6 +1056,8 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
 
       if (response.statusCode == 200) {
         final result = jsonDecode(response.body);
+        print('📊 API Response: $result');
+
         if (result['success'] == true) {
           final voiceEmotions = result['voice_emotions'] ?? [];
           final primaryVoiceEmotion = result['primary_voice_emotion'] ?? 'Unknown';
@@ -1112,7 +1098,13 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
             analysisResult: analysisData,
             audioFilePath: _audioFilePath,
           );
-          await _saveHighConfidenceCharacters(analysisData);
+
+          // Save high confidence characters with media
+          await _saveHighConfidenceCharacters(
+            analysisData,
+            audioFilePath: _audioFilePath,
+            inputType: 'voice',
+          );
 
           _scrollToResults();
         }
@@ -1136,10 +1128,6 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
 
   // Video Recording & Analysis
   Future<void> _startVideoRecording() async {
-    if (_hasActiveSession && _usedInputType == _UsedInputType.none) {
-      return;
-    }
-
     if (!_isCameraInitialized || _cameraController == null) {
       return;
     }
@@ -1156,9 +1144,6 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
 
       setState(() {
         _videoRecording = true;
-        if (_usedInputType == _UsedInputType.none) {
-          _usedInputType = _UsedInputType.video;
-        }
       });
 
       print('✅ Video recording started');
@@ -1293,6 +1278,8 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
 
       if (response.statusCode == 200) {
         final result = jsonDecode(response.body);
+        print('📊 API Response: $result');
+
         if (result['success'] == true) {
           final voiceEmotions = result['voice_emotions'] ?? [];
           final primaryVoiceEmotion = result['primary_voice_emotion'] ?? 'Unknown';
@@ -1334,7 +1321,14 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
             videoFilePath: _videoFilePath,
             audioFilePath: _videoAudioFilePath,
           );
-          await _saveHighConfidenceCharacters(analysisData);
+
+          // Save high confidence characters with media
+          await _saveHighConfidenceCharacters(
+            analysisData,
+            videoFilePath: _videoFilePath,
+            audioFilePath: _videoAudioFilePath,
+            inputType: 'video',
+          );
 
           _scrollToResults();
         }
@@ -1389,43 +1383,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
     });
   }
 
-  bool _canSwitchToMode(_ReframeMode newMode) {
-    if (_usedInputType == _UsedInputType.none) {
-      return true;
-    }
-
-    switch (_usedInputType) {
-      case _UsedInputType.text:
-        if (newMode != _ReframeMode.chat) {
-          return false;
-        }
-        break;
-      case _UsedInputType.voice:
-        if (newMode != _ReframeMode.voice) {
-          return false;
-        }
-        break;
-      case _UsedInputType.video:
-        if (newMode != _ReframeMode.video) {
-          return false;
-        }
-        break;
-      case _UsedInputType.none:
-        break;
-    }
-
-    return true;
-  }
-
   Future<void> _switchToMode(_ReframeMode newMode) async {
-    if (_hasActiveSession && _usedInputType == _UsedInputType.none) {
-      return;
-    }
-
-    if (!_canSwitchToMode(newMode)) {
-      return;
-    }
-
     if (newMode == _ReframeMode.video && _mode != _ReframeMode.video) {
       setState(() {
         _isCameraInitialized = false;
@@ -1438,119 +1396,6 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
     setState(() {
       _mode = newMode;
     });
-  }
-
-  void _showActiveSessionDialog() {
-    if (_sessionStartTime != null) {
-      final now = DateTime.now();
-      final difference = now.difference(_sessionStartTime!);
-      if (difference.inHours >= 24) {
-        setState(() {
-          _hasActiveSession = false;
-          _sessionStartTime = null;
-        });
-        return;
-      }
-    }
-
-    showDialog(
-      context: context,
-      barrierDismissible: true,
-      builder: (context) => AlertDialog(
-        backgroundColor: Colors.white,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
-        contentPadding: const EdgeInsets.all(24),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Align(
-              alignment: Alignment.topRight,
-              child: IconButton(
-                icon: const Icon(Icons.close, size: 24),
-                onPressed: () => Navigator.of(context).pop(),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Icon(
-              Icons.emoji_objects_outlined,
-              color: Color(0xFF8E7CFF),
-              size: 48,
-            ),
-            const SizedBox(height: 20),
-            Text(
-              tr(context, "Continue Your Journey", "استمر في رحلتك"),
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFF2A1E3B),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              tr(context,
-                  "You've already begun something meaningful. We'll return home so you can move forward with it.",
-                  "لقد بدأت بالفعل شيئًا ذا معنى. سنعود إلى الصفحة الرئيسية حتى تتمكن من المضي قدمًا فيه."
-              ),
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Color(0xFF4B3A66),
-                fontSize: 15,
-                height: 1.5,
-              ),
-            ),
-            if (_sessionStartTime != null) ...[
-              const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF3EDFF),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(
-                      Icons.access_time,
-                      color: Color(0xFF8E7CFF),
-                      size: 16,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      _getTimeRemainingText(),
-                      style: const TextStyle(
-                        color: Color(0xFF4B3A66),
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  String _getTimeRemainingText() {
-    if (_sessionStartTime == null) return '';
-
-    final now = DateTime.now();
-    final difference = now.difference(_sessionStartTime!);
-    final hoursRemaining = 24 - difference.inHours;
-
-    if (hoursRemaining <= 0) {
-      return 'Session expired';
-    } else if (hoursRemaining == 1) {
-      return 'Available for 1 more hour';
-    } else {
-      return 'Available for $hoursRemaining more hours';
-    }
   }
 
   void _navigateToHomeScreen() {
@@ -1776,8 +1621,6 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
           hint: tr(context, "Write what you're feeling...", "اكتب ما تشعر به..."),
           isAnalyzing: _isAnalyzing,
           onAnalyze: _analyzeText,
-          usedInputType: _usedInputType,
-          hasActiveSession: _hasActiveSession,
         );
       case _ReframeMode.voice:
         return _VoiceInputCard(
@@ -1785,8 +1628,6 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
           recording: _voiceRecording,
           isAnalyzing: _isAnalyzing,
           onToggle: _toggleVoiceRecording,
-          usedInputType: _usedInputType,
-          hasActiveSession: _hasActiveSession,
         );
       case _ReframeMode.video:
         return _VideoInputCard(
@@ -1796,8 +1637,6 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
           isRecording: _videoRecording,
           isAnalyzing: _isAnalyzing,
           onToggleRecording: _toggleVideoRecording,
-          usedInputType: _usedInputType,
-          hasActiveSession: _hasActiveSession,
         );
     }
   }
@@ -1869,7 +1708,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                   CircularProgressIndicator(
                     color: Color(0xFF8E7CFF),
                   ),
-                  SizedBox(height: 16),
+                  const SizedBox(height: 16),
                   Text(
                     'Analyzing...',
                     style: TextStyle(
@@ -2561,8 +2400,6 @@ class _ChatInputCard extends StatelessWidget {
   final String hint;
   final bool isAnalyzing;
   final VoidCallback onAnalyze;
-  final _UsedInputType usedInputType;
-  final bool hasActiveSession;
 
   const _ChatInputCard({
     super.key,
@@ -2570,14 +2407,11 @@ class _ChatInputCard extends StatelessWidget {
     required this.hint,
     required this.isAnalyzing,
     required this.onAnalyze,
-    required this.usedInputType,
-    required this.hasActiveSession,
   });
 
   @override
   Widget build(BuildContext context) {
     final hasText = controller.text.trim().isNotEmpty;
-    final canUseChat = (usedInputType == _UsedInputType.none || usedInputType == _UsedInputType.text) && !hasActiveSession;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -2585,7 +2419,7 @@ class _ChatInputCard extends StatelessWidget {
         color: Colors.white,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
-          color: canUseChat ? const Color(0xFFE5DEFF) : const Color(0xFFE5DEFF),
+          color: const Color(0xFFE5DEFF),
         ),
         boxShadow: [
           BoxShadow(
@@ -2601,16 +2435,16 @@ class _ChatInputCard extends StatelessWidget {
           TextField(
             controller: controller,
             maxLines: 4,
-            enabled: canUseChat,
+            enabled: true,
             decoration: InputDecoration(
               hintText: hint,
               border: InputBorder.none,
               hintStyle: TextStyle(
-                color: canUseChat ? const Color(0xFF4B3A66).withOpacity(0.5) : const Color(0xFFCCCCCC),
+                color: const Color(0xFF4B3A66).withOpacity(0.5),
               ),
             ),
-            style: TextStyle(
-              color: canUseChat ? const Color(0xFF4B3A66) : const Color(0xFFCCCCCC),
+            style: const TextStyle(
+              color: Color(0xFF4B3A66),
             ),
           ),
 
@@ -2619,9 +2453,9 @@ class _ChatInputCard extends StatelessWidget {
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
-              onPressed: canUseChat && hasText && !isAnalyzing ? onAnalyze : null,
+              onPressed: hasText && !isAnalyzing ? onAnalyze : null,
               style: ElevatedButton.styleFrom(
-                backgroundColor: canUseChat && hasText ? const Color(0xFF8E7CFF) : const Color(0xFFCCCCCC),
+                backgroundColor: hasText ? const Color(0xFF8E7CFF) : const Color(0xFFCCCCCC),
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(
@@ -2664,27 +2498,18 @@ class _VoiceInputCard extends StatelessWidget {
   final bool recording;
   final bool isAnalyzing;
   final VoidCallback onToggle;
-  final _UsedInputType usedInputType;
-  final bool hasActiveSession;
 
   const _VoiceInputCard({
     super.key,
     required this.recording,
     required this.isAnalyzing,
     required this.onToggle,
-    required this.usedInputType,
-    required this.hasActiveSession,
   });
 
   @override
   Widget build(BuildContext context) {
-    final canUseVoice = (usedInputType == _UsedInputType.none || usedInputType == _UsedInputType.voice) && !hasActiveSession;
-    final color = canUseVoice
-        ? (recording ? const Color(0xFF8E7CFF) : const Color(0xFFEDE7FF))
-        : const Color(0xFFCCCCCC);
-    final iconColor = canUseVoice
-        ? (recording ? Colors.white : const Color(0xFF8E7CFF))
-        : Colors.white;
+    final color = recording ? const Color(0xFF8E7CFF) : const Color(0xFFEDE7FF);
+    final iconColor = recording ? Colors.white : const Color(0xFF8E7CFF);
 
     return Column(
       children: [
@@ -2694,7 +2519,7 @@ class _VoiceInputCard extends StatelessWidget {
             color: Colors.white,
             borderRadius: BorderRadius.circular(18),
             border: Border.all(
-              color: canUseVoice ? const Color(0xFFE5DEFF) : const Color(0xFFE5DEFF),
+              color: const Color(0xFFE5DEFF),
             ),
             boxShadow: [
               BoxShadow(
@@ -2707,7 +2532,7 @@ class _VoiceInputCard extends StatelessWidget {
           child: Row(
             children: [
               GestureDetector(
-                onTap: canUseVoice && !isAnalyzing ? onToggle : null,
+                onTap: !isAnalyzing ? onToggle : null,
                 child: Container(
                   width: 52,
                   height: 52,
@@ -2728,31 +2553,23 @@ class _VoiceInputCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      hasActiveSession
-                          ? tr(context, "Session Active", "جلسة نشطة")
-                          : !canUseVoice
-                          ? tr(context, "Input method locked", "طريقة الإدخال مقفلة")
-                          : recording
+                      recording
                           ? tr(context, "Recording...", "جارٍ التسجيل...")
                           : tr(context, "Tap to record", "اضغط للتسجيل"),
-                      style: TextStyle(
+                      style: const TextStyle(
                         fontSize: 16,
-                        color: canUseVoice ? const Color(0xFF4B3A66) : const Color(0xFFCCCCCC),
+                        color: Color(0xFF4B3A66),
                         fontWeight: FontWeight.w600,
                       ),
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      hasActiveSession
-                          ? tr(context, "Return to home to continue", "ارجع للصفحة الرئيسية للمتابعة")
-                          : !canUseVoice
-                          ? tr(context, "Cannot start new session", "لا يمكن بدء جلسة جديدة")
-                          : recording
+                      recording
                           ? tr(context, "Tap stop when finished", "اضغط إيقاف عند الانتهاء")
                           : tr(context, "Speak clearly for best results", "تحدث بوضوح للحصول على أفضل النتائج"),
                       style: TextStyle(
                         fontSize: 12,
-                        color: canUseVoice ? const Color(0xFF4B3A66).withOpacity(0.7) : const Color(0xFFCCCCCC),
+                        color: const Color(0xFF4B3A66).withOpacity(0.7),
                       ),
                     ),
                   ],
@@ -2806,8 +2623,6 @@ class _VideoInputCard extends StatelessWidget {
   final bool isRecording;
   final bool isAnalyzing;
   final VoidCallback onToggleRecording;
-  final _UsedInputType usedInputType;
-  final bool hasActiveSession;
 
   const _VideoInputCard({
     super.key,
@@ -2816,13 +2631,10 @@ class _VideoInputCard extends StatelessWidget {
     required this.isRecording,
     required this.isAnalyzing,
     required this.onToggleRecording,
-    required this.usedInputType,
-    required this.hasActiveSession,
   });
 
   @override
   Widget build(BuildContext context) {
-    final canUseVideo = (usedInputType == _UsedInputType.none || usedInputType == _UsedInputType.video) && !hasActiveSession;
     final screenWidth = MediaQuery.of(context).size.width;
     final padding = 20.0;
     final videoWidth = screenWidth - (2 * padding);
@@ -2836,7 +2648,7 @@ class _VideoInputCard extends StatelessWidget {
             color: Colors.black,
             borderRadius: BorderRadius.circular(18),
             border: Border.all(
-              color: canUseVideo ? const Color(0xFFE5DEFF) : const Color(0xFFE5DEFF),
+              color: const Color(0xFFE5DEFF),
             ),
           ),
           child: ClipRRect(
@@ -2855,7 +2667,7 @@ class _VideoInputCard extends StatelessWidget {
             color: Colors.white,
             borderRadius: BorderRadius.circular(18),
             border: Border.all(
-              color: canUseVideo ? const Color(0xFFE5DEFF) : const Color(0xFFE5DEFF),
+              color: const Color(0xFFE5DEFF),
             ),
             boxShadow: [
               BoxShadow(
@@ -2868,14 +2680,12 @@ class _VideoInputCard extends StatelessWidget {
           child: Row(
             children: [
               GestureDetector(
-                onTap: canUseVideo && isCameraInitialized && !isAnalyzing ? onToggleRecording : null,
+                onTap: isCameraInitialized && !isAnalyzing ? onToggleRecording : null,
                 child: Container(
                   width: 52,
                   height: 52,
                   decoration: BoxDecoration(
-                    color: !canUseVideo
-                        ? const Color(0xFFCCCCCC)
-                        : isRecording
+                    color: isRecording
                         ? const Color(0xFFFF6B6B)
                         : isCameraInitialized
                         ? const Color(0xFF8E7CFF)
@@ -2895,33 +2705,25 @@ class _VideoInputCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      hasActiveSession
-                          ? tr(context, "Session Active", "جلسة نشطة")
-                          : !canUseVideo
-                          ? tr(context, "Input method locked", "طريقة الإدخال مقفلة")
-                          : !isCameraInitialized
+                      !isCameraInitialized
                           ? tr(context, "Camera initializing...", "جاري تهيئة الكاميرا...")
                           : isRecording
                           ? tr(context, "Recording...", "جارٍ التسجيل...")
                           : tr(context, "Ready to record video", "جاهز لتسجيل فيديو"),
-                      style: TextStyle(
+                      style: const TextStyle(
                         fontSize: 16,
-                        color: canUseVideo ? const Color(0xFF4B3A66) : const Color(0xFFCCCCCC),
+                        color: Color(0xFF4B3A66),
                         fontWeight: FontWeight.w600,
                       ),
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      hasActiveSession
-                          ? tr(context, "Return to home to continue", "ارجع للصفحة الرئيسية للمتابعة")
-                          : !canUseVideo
-                          ? tr(context, "Cannot start new session", "لا يمكن بدء جلسة جديدة")
-                          : isRecording
+                      isRecording
                           ? tr(context, "Tap stop when finished", "اضغط إيقاف عند الانتهاء")
                           : tr(context, "Look at the camera and speak", "انظر إلى الكاميرا وتحدث"),
                       style: TextStyle(
                         fontSize: 12,
-                        color: canUseVideo ? const Color(0xFF4B3A66).withOpacity(0.7) : const Color(0xFFCCCCCC),
+                        color: const Color(0xFF4B3A66).withOpacity(0.7),
                       ),
                     ),
                   ],
