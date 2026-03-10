@@ -6,6 +6,8 @@ import 'package:ana_ifs_app/core/services/firestore_service.dart';
 import 'package:ana_ifs_app/features/character/domain/entities/user_character.dart';
 import 'package:ana_ifs_app/app/shell/ana_shell.dart';
 
+import '../../../onboarding/presentation/screens/welcome_screen.dart';
+
 class QuestionnaireResultsScreen extends StatefulWidget {
   const QuestionnaireResultsScreen({super.key});
 
@@ -222,7 +224,12 @@ class _QuestionnaireResultsScreenState
                       : Icons.arrow_back_rounded,
                 ),
                 onPressed: () {
-                  Navigator.of(context).pop();
+                  Navigator.of(context).pushAndRemoveUntil(
+                    MaterialPageRoute(
+                      builder: (_) => const AnaWelcomeScreen(),
+                    ),
+                        (route) => false,
+                  );
                 },
                 color: const Color(0xFF6A5CFF),
               ),
@@ -729,18 +736,16 @@ class _QuestionnaireResultsScreenState
   Map<String, String> _getCameraSettingsForCharacter(String characterName) {
     // Default settings that work for most models
     final defaultSettings = {
-      'orbit': '0deg 75deg 2.5m',
+      'orbit': '0deg 75deg 2.6m',
       'fov': '45deg',
-      'minOrbit': '-Infinity 75deg 2m',
-      'maxOrbit': 'Infinity 75deg 3m',
+      'minOrbit': '-Infinity 30deg 2.5m',
+      'maxOrbit': 'Infinity 60deg 4m',
       'minFov': '35deg',
       'maxFov': '50deg',
       'target': '0m 0m 0m',
     };
 
-    // Custom settings for specific models that need adjustment
     switch (characterName) {
-      // Models that appear too high - adjust target Y downwards
       case 'People Pleaser':
       case 'Lonely Part':
       case 'Jealous Part':
@@ -761,23 +766,19 @@ class _QuestionnaireResultsScreenState
       case 'Controller':
       case 'Controller Part':
         return {
-          'orbit': '0deg 75deg 2m',
+          'orbit': '0deg 75deg 2.5m',
           'fov': '45deg',
           'minOrbit': '-Infinity 75deg 2.5m',
           'maxOrbit': 'Infinity 75deg 3m',
           'minFov': '35deg',
           'maxFov': '50deg',
-          'target': '0m 1m 0m',
+          'target': '0m 0m 0m',
         };
 
-      // Models that appear too low - adjust target Y upwards
-      // (If you have any that appear too low)
-
-      // Models that appear too far - adjust orbit distance
       case 'Inner Critic':
       case 'Ashamed Part':
         return {
-          'orbit': '0deg 75deg 2m', // Closer distance
+          'orbit': '0deg 75deg 2.6m',
           'fov': '45deg',
           'minOrbit': '-Infinity 75deg 1.5m',
           'maxOrbit': 'Infinity 75deg 2.5m',
@@ -887,9 +888,9 @@ class _QuestionnaireResultsScreenState
   // Localization Helper Methods
 
   String _getLocalizedDisplayName(
-    String englishName,
-    String currentDisplayName,
-  ) {
+      String englishName,
+      String currentDisplayName,
+      ) {
     if (_currentLanguage != 'ar') return currentDisplayName;
 
     // Map English character names to Arabic

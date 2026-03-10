@@ -261,6 +261,7 @@ class FirestoreService {
             'predictedAt': character.predictedAt.toIso8601String(),
             'isHealed': false, // Default to unhealed when created
             'healedAt': null,
+            'currentState': character.currentState,
           });
         }
 
@@ -728,22 +729,9 @@ class FirestoreService {
     return _auth.currentUser?.uid;
   }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
   // ============= REFRAME CHARACTER METHODS =============
 
-// Check if character already exists for a user
+  // Check if character already exists for a user
   Future<bool> doesCharacterExistForUser({
     required String userId,
     required String displayName,
@@ -791,7 +779,7 @@ class FirestoreService {
     }
   }
 
-// Save reframe character to user_characters collection
+  // Save reframe character to user_characters collection
   Future<void> saveReframeCharacterToUserCharacters({
     required String userId,
     required String characterName,
@@ -893,6 +881,7 @@ class FirestoreService {
         'predictedAt': DateTime.now().toIso8601String(),
         'isHealed': false,
         'healedAt': null,
+        'currentState': 'active',
         'addedFromReframe': true,
         'reframeSessionAt': DateTime.now().toIso8601String(),
       };
@@ -915,7 +904,7 @@ class FirestoreService {
     }
   }
 
-// Check if user has at least one healed character
+  // Check if user has at least one healed character
   Future<bool> hasAtLeastOneHealedCharacter(String userId) async {
     try {
       final healedCharacters = await getHealedCharacters();
@@ -954,10 +943,4 @@ class FirestoreService {
       return {'total': 0, 'healed': 0, 'unhealed': 0};
     }
   }
-
-
-
-
-
-
 }

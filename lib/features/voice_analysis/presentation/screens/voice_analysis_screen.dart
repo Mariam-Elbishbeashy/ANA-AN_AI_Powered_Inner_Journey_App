@@ -448,7 +448,7 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
   }
 
   String _getTitle(BuildContext context) {
-    final name = widget.character.displayName.trim();
+    final name = widget.character.displayNameEn.trim();
     final normalized =
     name.toLowerCase().startsWith('the ') ? name.substring(4) : name;
     return tr(context, 'Your $normalized', '$normalized الخاص بك');

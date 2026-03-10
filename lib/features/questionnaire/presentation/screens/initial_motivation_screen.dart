@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import 'package:ana_ifs_app/features/questionnaire/presentation/screens/questionnaire_screen.dart';
+import 'package:ana_ifs_app/features/questionnaire/presentation/state/questionnaire_provider.dart';
+import 'package:ana_ifs_app/l10n/app_strings.dart';
 
 class InitialMotivationScreen extends StatefulWidget {
   const InitialMotivationScreen({super.key});
@@ -18,6 +21,7 @@ class _InitialMotivationScreenState extends State<InitialMotivationScreen>
 
   bool _showStartButton = false;
   bool _gifLoaded = false;
+  String _currentLanguage = 'en';
 
   @override
   void initState() {
@@ -42,16 +46,32 @@ class _InitialMotivationScreenState extends State<InitialMotivationScreen>
       ),
     );
 
-    // Simulate GIF loading (you can adjust this delay)
+    // Load user language
+    _loadUserLanguage();
+
+    // Simulate GIF loading
     Future.delayed(const Duration(milliseconds: 800), () {
       setState(() => _gifLoaded = true);
-      // Start animation sequence after GIF is loaded
       Future.delayed(const Duration(milliseconds: 200), () {
         _controller.forward().then((_) {
           setState(() => _showStartButton = true);
         });
       });
     });
+  }
+
+  Future<void> _loadUserLanguage() async {
+    // You can implement this to load from shared preferences or Firestore
+    // For now, we'll check if there's a provider
+    try {
+      final provider = Provider.of<QuestionnaireProvider>(context, listen: false);
+      setState(() {
+        _currentLanguage = provider.language;
+      });
+    } catch (e) {
+      // Default to English if provider not available
+      _currentLanguage = 'en';
+    }
   }
 
   @override
@@ -68,6 +88,8 @@ class _InitialMotivationScreenState extends State<InitialMotivationScreen>
 
   @override
   Widget build(BuildContext context) {
+    final isAr = isArabic(context);
+
     return Scaffold(
       backgroundColor: const Color(0xFFF9F6FF),
       body: LayoutBuilder(
@@ -97,7 +119,6 @@ class _InitialMotivationScreenState extends State<InitialMotivationScreen>
                       crossAxisAlignment: CrossAxisAlignment.center,
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        // Top spacing
                         const SizedBox(height: 40),
 
                         // GIF Animation/Illustration
@@ -108,7 +129,6 @@ class _InitialMotivationScreenState extends State<InitialMotivationScreen>
                           child: Stack(
                             alignment: Alignment.center,
                             children: [
-                              // Placeholder/loading while GIF loads
                               if (!_gifLoaded)
                                 Container(
                                   width: 150,
@@ -125,7 +145,6 @@ class _InitialMotivationScreenState extends State<InitialMotivationScreen>
                                   ),
                                 ),
 
-                              // GIF Animation
                               if (_gifLoaded)
                                 FadeTransition(
                                   opacity: _fadeAnimation,
@@ -155,26 +174,26 @@ class _InitialMotivationScreenState extends State<InitialMotivationScreen>
                                           gaplessPlayback: true,
                                           errorBuilder:
                                               (context, error, stackTrace) {
-                                                return Container(
-                                                  decoration: BoxDecoration(
-                                                    color: const Color(
-                                                      0xFFE5DEFF,
-                                                    ),
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                          20,
-                                                        ),
-                                                  ),
-                                                  child: const Center(
-                                                    child: Icon(
-                                                      Icons
-                                                          .self_improvement_rounded,
-                                                      size: 80,
-                                                      color: Color(0xFF8E7CFF),
-                                                    ),
-                                                  ),
-                                                );
-                                              },
+                                            return Container(
+                                              decoration: BoxDecoration(
+                                                color: const Color(
+                                                  0xFFE5DEFF,
+                                                ),
+                                                borderRadius:
+                                                BorderRadius.circular(
+                                                  20,
+                                                ),
+                                              ),
+                                              child: const Center(
+                                                child: Icon(
+                                                  Icons
+                                                      .self_improvement_rounded,
+                                                  size: 80,
+                                                  color: Color(0xFF8E7CFF),
+                                                ),
+                                              ),
+                                            );
+                                          },
                                         ),
                                       ),
                                     ),
@@ -192,7 +211,9 @@ class _InitialMotivationScreenState extends State<InitialMotivationScreen>
                             child: Column(
                               children: [
                                 Text(
-                                  "Beginning Your Journey",
+                                  isAr
+                                      ? "بداية رحلتك"
+                                      : "Beginning Your Journey",
                                   textAlign: TextAlign.center,
                                   style: TextStyle(
                                     fontSize: 32,
@@ -203,9 +224,13 @@ class _InitialMotivationScreenState extends State<InitialMotivationScreen>
                                 ),
                                 const SizedBox(height: 20),
                                 Text(
-                                  "This is a safe space to explore your inner world.\n"
-                                  "We'll begin with 13 questions to understand\n"
-                                  "your unique inner landscape.",
+                                  isAr
+                                      ? "هذه مساحة آمنة لاستكشاف عالمك الداخلي.\n"
+                                      "سنبدأ بـ 13 سؤالاً لفهم\n"
+                                      "مشهدك الداخلي الفريد."
+                                      : "This is a safe space to explore your inner world.\n"
+                                      "We'll begin with 13 questions to understand\n"
+                                      "your unique inner landscape.",
                                   textAlign: TextAlign.center,
                                   style: TextStyle(
                                     fontSize: 18,
@@ -227,8 +252,11 @@ class _InitialMotivationScreenState extends State<InitialMotivationScreen>
                                     ),
                                   ),
                                   child: Text(
-                                    '"The journey inward is the most important journey of all. '
-                                    'Take your time, be gentle with yourself."',
+                                    isAr
+                                        ? '"الرحلة إلى الداخل هي أهم رحلة على الإطلاق. '
+                                        'خذ وقتك، كن لطيفاً مع نفسك."'
+                                        : '"The journey inward is the most important journey of all. '
+                                        'Take your time, be gentle with yourself."',
                                     textAlign: TextAlign.center,
                                     style: TextStyle(
                                       fontSize: 16,
@@ -243,14 +271,15 @@ class _InitialMotivationScreenState extends State<InitialMotivationScreen>
                           ),
                         ),
 
-                        // Flexible spacer to push content to proper position
                         const SizedBox(height: 40),
 
                         // Progress indicator
                         Column(
                           children: [
                             Text(
-                              "Estimated time: 5-7 minutes",
+                              isAr
+                                  ? "الوقت المتوقع: 5-7 دقائق"
+                                  : "Estimated time: 5-7 minutes",
                               style: TextStyle(
                                 fontSize: 14,
                                 color: const Color(0xFF9C90B3),
@@ -296,15 +325,20 @@ class _InitialMotivationScreenState extends State<InitialMotivationScreen>
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     Text(
-                                      "Begin Questionnaire",
+                                      isAr
+                                          ? "ابدأ الاستبيان"
+                                          : "Begin Questionnaire",
                                       style: TextStyle(
                                         fontSize: 18,
                                         fontWeight: FontWeight.w700,
                                       ),
                                     ),
                                     const SizedBox(width: 10),
-                                    const Icon(
-                                      Icons.arrow_forward_rounded,
+                                    Icon(
+                                      // Direction-aware icon
+                                      isAr
+                                          ? Icons.arrow_back_rounded
+                                          : Icons.arrow_forward_rounded,
                                       size: 22,
                                     ),
                                   ],
