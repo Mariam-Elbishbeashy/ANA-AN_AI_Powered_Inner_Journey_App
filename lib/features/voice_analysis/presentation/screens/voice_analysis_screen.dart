@@ -34,13 +34,13 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
   bool _audioReady = false;
 
   // Silence auto-stop config
-  static const int _sampleRate = 16000;
+  static const int _sampleRate = 44100;
   static const int _channels = 1;
   static const Duration _progressEvery = Duration(milliseconds: 80);
-  static const double _silenceDbThreshold = -35.0;
+  static const double _silenceDbThreshold = -65.0;
 
   static const Duration _minRecord = Duration(milliseconds: 800);
-  static const Duration _silenceStop = Duration(milliseconds: 900);
+  static const Duration _silenceStop = Duration(milliseconds: 2500);
   static const Duration _maxRecord = Duration(seconds: 30);
 
   DateTime? _recordStartAt;
@@ -49,10 +49,30 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
 
   StreamSubscription? _recSub;
   Timer? _maxTimer;
+  Timer? _nextTurnTimer;
+  Future<void> _scheduleNextRecording() async {
+    if (!_voiceLoopActive) return;
 
+    _nextTurnTimer?.cancel();
+
+    _nextTurnTimer = Timer(const Duration(seconds: 5), () async {
+
+      if (!mounted) return;
+      if (!_voiceLoopActive) return;
+      if (_isRecording) return;
+      if (_isBusy) return;
+
+      print("VOICE LOOP → Starting next recording");
+
+      await _startRecordingWithAutoStop();
+
+    });
+  }
   // UI state
   bool _isRecording = false;
   bool _isBusy = false;
+  bool _voiceLoopActive = false;
+
   String _status = "";
   String _lastUserText = "";
   String _lastAiText = "";
@@ -127,46 +147,66 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
   }
 
   Future<void> _startOrStop() async {
-    if (_isBusy) return;
-
     if (!_audioReady) {
       await _initAudio();
       if (!_audioReady) return;
     }
 
-    if (_isRecording) {
-      await _stopRecordingAndSend();
-    } else {
+    // START LOOP
+    if (!_voiceLoopActive) {
+
+      print("VOICE LOOP STARTED");
+
+      _voiceLoopActive = true;
+
       await _startRecordingWithAutoStop();
+      return;
     }
+
+    // STOP LOOP
+    print("VOICE LOOP STOPPED");
+
+    _voiceLoopActive = false;
+    _stopAll();
   }
 
   Future<void> _startRecordingWithAutoStop() async {
+
+    if (!_voiceLoopActive) return;
+
     try {
+
+      print("START RECORDING");
+
+      await _player.stopPlayer();
+
+      // 🔴 FORCE RECORDER RESET (CRITICAL)
+      if (_recorder.isRecording) {
+        await _recorder.stopRecorder();
+      }
+
+      if (!_recorder.isStopped) {
+        await _recorder.closeRecorder();
+        await _recorder.openRecorder();
+      }
+
       setState(() {
-        _error = "";
-        _status = "🎙️ Listening...";
         _isRecording = true;
-        _lastUserText = "";
-        _lastAiText = "";
+        _isBusy = false;
+        _status = "🎙️ Recording";
+        _error = "";
         _gifKey = UniqueKey();
       });
 
-      _stopping = false;
-      _stopQueued = false;
-
       _wavPath = await _makeWavPath();
+
       final f = File(_wavPath!);
       if (await f.exists()) await f.delete();
 
       _recordStartAt = DateTime.now();
-      _heardSpeech = false;
-      _silenceAccum = Duration.zero;
-
-      await _player.stopPlayer();
 
       await _recorder.startRecorder(
-        toFile: _wavPath,
+        toFile: _wavPath!,
         codec: Codec.pcm16WAV,
         sampleRate: _sampleRate,
         numChannels: _channels,
@@ -174,43 +214,28 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
       );
 
       _maxTimer?.cancel();
-      _maxTimer = Timer(_maxRecord, () async {
-        if (_isRecording) {
-          await _stopRecordingAndSend();
-        }
-      });
 
-      _recSub?.cancel();
-      _recSub = _recorder.onProgress?.listen((e) {
+      _maxTimer = Timer(const Duration(seconds: 10), () async {
+
+        if (!_voiceLoopActive) return;
         if (!_isRecording) return;
-        if (_stopping) return;
 
-        final db = e.decibels ?? -120.0;
+        print("AUTO STOP RECORDING");
 
-        if (db > _silenceDbThreshold) {
-          _heardSpeech = true;
-          _silenceAccum = Duration.zero;
-        } else {
-          if (_heardSpeech) {
-            _silenceAccum += _progressEvery;
-            if (_silenceAccum >= _silenceStop && !_stopQueued) {
-              _stopQueued = true;
-              Future.microtask(() async {
-                if (!mounted) return;
-                if (_isRecording && !_stopping) {
-                  await _stopRecordingAndSend();
-                }
-              });
-            }
-          }
-        }
+        await _stopRecordingAndSend();
+
       });
+
     } catch (e) {
+
+      print("RECORDER ERROR: $e");
+
       setState(() {
         _isRecording = false;
         _status = "❌ Record start failed";
         _error = "$e";
       });
+
     }
   }
 
@@ -229,7 +254,9 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
       await http.MultipartFile.fromPath("audio", wavPath, filename: "user.wav"),
     );
 
-    final streamed = await req.send();
+    final streamed = await req.send().timeout(
+      const Duration(seconds: 60),
+    );
     final body = await streamed.stream.bytesToString();
 
     if (streamed.statusCode < 200 || streamed.statusCode >= 300) {
@@ -237,6 +264,7 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
     }
 
     final decoded = jsonDecode(body) as Map<String, dynamic>;
+    print("VOICE RESPONSE: $decoded");
     if (decoded["success"] != true) {
       throw Exception(decoded["error"] ?? "Voice chat failed");
     }
@@ -267,128 +295,132 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
     await _player.startPlayer(
       fromURI: outPath,
       codec: Codec.pcm16WAV,
-      whenFinished: () {
+      whenFinished: () async {
         if (!mounted) return;
+
         setState(() => _status = "Ready");
+
+        await _scheduleNextRecording();
       },
     );
   }
 
   Future<void> _stopRecordingAndSend() async {
-    if (_isBusy) return;
+
     if (_stopping) return;
     _stopping = true;
 
-    setState(() {
-      _isBusy = true;
-      _status = "⏹ Processing...";
-    });
-
     try {
+
+      setState(() {
+        _isBusy = true;
+        _status = "⏹ Processing...";
+      });
+
       _maxTimer?.cancel();
-      await _recSub?.cancel();
-      _recSub = null;
 
       if (_isRecording) {
+
         await _safeStopRecorder();
-        await Future.delayed(const Duration(milliseconds: 250));
-      }
 
-      final startedAt = _recordStartAt;
-      final elapsed = (startedAt == null)
-          ? Duration.zero
-          : DateTime.now().difference(startedAt);
-
-      setState(() => _isRecording = false);
-
-      if (elapsed < _minRecord) {
         setState(() {
-          _status = "⚠️ Too short. Try again.";
-          _isBusy = false;
+          _isRecording = false;
         });
-        _stopping = false;
-        return;
+
+        await Future.delayed(const Duration(milliseconds: 300));
       }
 
       final path = _wavPath;
-      if (path == null) throw Exception("No audio path");
 
-      final f = File(path);
-      if (!await f.exists()) throw Exception("Audio file missing");
+      if (path == null || !(await File(path).exists())) {
+        throw Exception("Audio file missing");
+      }
 
-      final len = await f.length();
-      if (len < 5000) throw Exception("Empty/very small file. Try again.");
+      final len = await File(path).length();
+
+      if (len < 5000) {
+        throw Exception("Audio too small");
+      }
 
       final user = FirebaseAuth.instance.currentUser;
-      if (user == null) throw Exception("Not signed in");
 
-      setState(() => _status = "Crafting a reply with care..");
+      if (user == null) throw Exception("User not logged");
+
+      setState(() => _status = "🚀 Sending voice...");
+
       final result = await _sendVoiceTurn(
         uid: user.uid,
         characterId: widget.character.id,
         wavPath: path,
       );
 
-      final transcript = (result["transcript"] ?? "").toString().trim();
-      final assistantText = (result["assistantText"] ?? "").toString().trim();
-      final audioUrl = (result["audioUrl"] ?? "").toString().trim();
-      final audioB64 = (result["audioBase64"] ?? "").toString().trim();
+      final transcript = (result["transcript"] ?? "").toString();
+      final assistantText = (result["assistantText"] ?? "").toString();
+      final audioB64 = (result["audioBase64"] ?? "").toString();
+      final audioUrl = (result["audioUrl"] ?? "").toString();
 
       setState(() {
         _lastUserText = transcript;
         _lastAiText = assistantText;
+        _status = "🔊 Speaking...";
       });
 
-      // 3) Play AI voice
-      setState(() => _status = " Speaking...");
       await _player.stopPlayer();
 
-      // First try URL (best)
+      _isBusy = false;
+
+      // PLAY AI VOICE
       if (audioUrl.isNotEmpty) {
-        try {
-          await _player.startPlayer(
-            fromURI: audioUrl,
-            codec: Codec.pcm16WAV,
-            whenFinished: () {
-              if (!mounted) return;
-              setState(() => _status = "Ready");
-            },
-          );
-        } catch (_) {
-          // If URL playback fails, fallback to base64
-          if (audioB64.isEmpty) rethrow;
-          await _playFromBase64(audioB64);
-        }
-      } else {
-        // No URL -> base64 fallback
-        if (audioB64.isEmpty) {
-          throw Exception("No audioUrl and no audioBase64 returned from server");
-        }
+
+        await _player.startPlayer(
+          fromURI: audioUrl,
+          whenFinished: () async {
+
+            print("AI FINISHED SPEAKING");
+
+            if (!_voiceLoopActive) return;
+
+            setState(() => _status = "Waiting...");
+
+            await _scheduleNextRecording();
+
+          },
+        );
+
+      } else if (audioB64.isNotEmpty) {
+
         await _playFromBase64(audioB64);
+
+      } else {
+
+        throw Exception("No AI audio returned");
+
       }
 
-      setState(() => _isBusy = false);
-      _stopping = false;
     } catch (e) {
+
       setState(() {
         _status = "❌ Failed";
         _error = "$e";
         _isBusy = false;
-        _isRecording = false;
       });
-      _stopping = false;
+
     }
+
+    _stopping = false;
   }
 
   void _stopAll() async {
     try {
+      _voiceLoopActive = false;
+
+      _nextTurnTimer?.cancel();   // ADD THIS
+
       _maxTimer?.cancel();
       await _recSub?.cancel();
       _recSub = null;
 
-      if (_isRecording) {
-        await _safeStopRecorder();
-      }
+      if (_isRecording) await _safeStopRecorder();
       await _player.stopPlayer();
 
       setState(() {
@@ -415,18 +447,10 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
     super.dispose();
   }
 
-  // In _getTitle method:
   String _getTitle(BuildContext context) {
-    final isArabic = Localizations.localeOf(context).languageCode == 'ar';
-
-    if (isArabic && widget.character.displayNameAr.isNotEmpty) {
-      return '${widget.character.displayNameAr} الخاص بك';
-    }
-
-    final name = widget.character.getDisplayName(isArabic ? 'ar' : 'en').trim();
-    final normalized = name.toLowerCase().startsWith('the ')
-        ? name.substring(4)
-        : name;
+    final name = widget.character.displayName.trim();
+    final normalized =
+    name.toLowerCase().startsWith('the ') ? name.substring(4) : name;
     return tr(context, 'Your $normalized', '$normalized الخاص بك');
   }
 
@@ -504,8 +528,6 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
                     ),
                   ),
                 ),
-
-              // ✅ Sphere ABOVE + big AI text (photo-like)
               const SizedBox(height: 18),
               Expanded(
                 child: Center(
@@ -546,7 +568,6 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
                   ),
                 ),
               ),
-
               Padding(
                 padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
                 child: Row(

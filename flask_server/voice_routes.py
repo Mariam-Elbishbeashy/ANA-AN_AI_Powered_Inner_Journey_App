@@ -17,7 +17,7 @@ voice_bp = Blueprint("voice_bp", __name__, url_prefix="/voice")
 # =============================
 # Config
 # =============================
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
 OPENAI_TRANSCRIBE_MODEL = os.getenv("OPENAI_TRANSCRIBE_MODEL", "whisper-1")
 OPENAI_TTS_MODEL = os.getenv("OPENAI_TTS_MODEL", "tts-1")
 VOICE_NAME = os.getenv("OPENAI_VOICE", "nova")
@@ -38,7 +38,6 @@ try:
     import firebase_admin
     from firebase_admin import credentials, firestore
 
-    # Put firebase-key.json next to app.py or set FIREBASE_KEY_PATH env var
     key_path = os.getenv("FIREBASE_KEY_PATH", os.path.join(BASE_DIR, "firebase-key.json"))
     if os.path.exists(key_path):
         try:
@@ -100,6 +99,22 @@ Private plan guidance (do not reveal):
 Use the plan silently to shape your tone and questions.
 """.strip()
 
+SYSTEM_PROMPT_INNER_CRITIC = f"""
+You are a warm, human-like voice companion speaking as Inner Critic.
+
+{INNER_CRITIC_RULES}
+{PLAN_GUIDANCE}
+""".strip()
+
+SYSTEM_PROMPT_FREE_CHAT = """
+You are a friendly, human-like voice companion.
+- Answer any user question naturally, in full sentences.
+- Speak in Arabic if the user speaks Arabic, English if English.
+- Provide factual answers when possible.
+- Do NOT ask questions unless necessary.
+- Be dynamic and respond appropriately to anything the user asks.
+""".strip()
+
 # =============================
 # In-memory conversations
 # =============================
@@ -137,65 +152,47 @@ def update_memory_summary_if_needed(uid_key: str, conversation_history: List[Dic
     except Exception:
         pass
 
-def build_system_prompt_with_memory(uid_key: str) -> str:
-    memory = MEMORY_SUMMARIES.get(uid_key, "")
-    mem_block = f"\n\n[PRIVATE MEMORY SUMMARY]\n{memory}\n[/PRIVATE MEMORY SUMMARY]\n" if memory else ""
-    system_prompt = f"""
-You are a warm, human-like voice companion, but you must speak AS the Inner Critic part.
-
-Top priority: sound natural and human.
-- If user says "hello", reply normally (in-character as Inner Critic).
-- Do NOT use clinical language.
-- Do NOT give medical advice.
-
-{INNER_CRITIC_RULES}
-
-{PLAN_GUIDANCE}
-""".strip()
-    return system_prompt + mem_block
-
 # =============================
 # Helpers - OpenAI
 # =============================
 def transcribe_audio(wav_path: str) -> str:
-    def _try(language: Optional[str]) -> str:
-        with open(wav_path, "rb") as f:
-            kwargs = {"model": OPENAI_TRANSCRIBE_MODEL, "file": f}
-            if language:
-                kwargs["language"] = language
-            t = client.audio.transcriptions.create(**kwargs)
-            return (getattr(t, "text", "") or "").strip()
-
-    txt = _try(None)
-    if txt:
-        return txt
-    txt = _try("ar")
-    if txt:
-        return txt
-    return _try("en")
+    with open(wav_path, "rb") as f:
+        t = client.audio.transcriptions.create(
+            model=OPENAI_TRANSCRIBE_MODEL,
+            file=f,
+        )
+        return (getattr(t, "text", "") or "").strip()
 
 def chat_reply(uid_key: str, user_text: str) -> Dict[str, str]:
     lang = detect_lang(user_text)
     plan = choose_plan(user_text)
+    free_chat = plan == "A"
 
+    # Initialize conversation
     if uid_key not in CONVERSATIONS:
-        CONVERSATIONS[uid_key] = [{"role": "system", "content": build_system_prompt_with_memory(uid_key)}]
+        prompt = SYSTEM_PROMPT_FREE_CHAT if free_chat else SYSTEM_PROMPT_INNER_CRITIC
+        CONVERSATIONS[uid_key] = [{"role": "system", "content": prompt}]
 
     convo = CONVERSATIONS[uid_key]
-    update_memory_summary_if_needed(uid_key, convo, every_n_user_turns=3)
-    convo[0]["content"] = build_system_prompt_with_memory(uid_key)
 
-    convo.append({"role": "user", "content": f"[lang={lang}][plan={plan}] {user_text}"})
+    # Only update memory for Inner Critic
+    if not free_chat:
+        update_memory_summary_if_needed(uid_key, convo, every_n_user_turns=3)
 
+    # Append user message
+    convo.append({"role": "user", "content": user_text})
+
+    # Get AI response
     resp = client.chat.completions.create(
         model=OPENAI_MODEL,
         messages=convo,
-        temperature=0.7,
+        temperature=0.6 if free_chat else 0.4,
+        max_tokens=500,
     )
-    ai = (resp.choices[0].message.content or "").strip()
-    convo.append({"role": "assistant", "content": ai})
+    ai_text = (resp.choices[0].message.content or "").strip()
+    convo.append({"role": "assistant", "content": ai_text})
 
-    return {"assistant": ai, "lang": lang, "plan": plan}
+    return {"assistant": ai_text, "lang": lang, "plan": plan, "free_chat": free_chat}
 
 def tts_to_file(text: str, out_path: str, voice: str = VOICE_NAME):
     audio = client.audio.speech.create(
@@ -214,27 +211,104 @@ def tts_to_base64(text: str, voice: str = VOICE_NAME) -> str:
         input=text,
         response_format="wav",
     )
-    audio_bytes = audio.read()
-    return base64.b64encode(audio_bytes).decode("utf-8")
+    return base64.b64encode(audio.read()).decode("utf-8")
 
 def make_public_audio_url(req, filename: str) -> str:
-    host = req.host_url.rstrip("/")
-    return f"{host}/voice/audio/{filename}"
+    host = req.host.split(":")[0]
+
+    # Android emulator fix
+    if host in ["127.0.0.1", "localhost"]:
+        host = "10.0.2.2"
+
+    return f"http://{host}:5003/voice/audio/{filename}"
 
 def _save_chat_to_firestore(uid: str, character_id: str, user_text: str, ai_text: str, uid_key: str):
-    if not db:
-        return
-    try:
-        db.collection("users").document(uid).collection("chats").add({
-            "characterId": character_id,
-            "uidKey": uid_key,
-            "userMessage": user_text,
-            "aiResponse": ai_text,
-            "timestamp": datetime.utcnow().isoformat(),
-        })
-    except Exception as e:
-        print(f"Firebase save error: {e}")
+    """
+    Save voice messages exactly like the Flutter text chat:
+    users/{uid}/chat_threads/{threadId}/messages
+    """
 
+    if not db:
+        print("⚠️ Firestore not initialized")
+        return
+
+    try:
+        user_ref = db.collection("users").document(uid)
+        threads_ref = user_ref.collection("chat_threads")
+
+        # 1️⃣ find active thread for this character
+        query = (
+            threads_ref
+            .where("characterId", "==", character_id)
+            .where("status", "==", "active")
+            .limit(1)
+            .stream()
+        )
+
+        thread_doc = None
+        for doc in query:
+            thread_doc = doc
+            break
+
+        # 2️⃣ create thread if none exists
+        if thread_doc is None:
+            new_thread_ref = threads_ref.document()
+
+            new_thread_ref.set({
+                "characterId": character_id,
+                "characterType": "inner_character",
+                "title": character_id,
+                "status": "active",
+                "createdAt": datetime.utcnow(),
+                "updatedAt": datetime.utcnow(),
+                "lastMessageAt": datetime.utcnow()
+            })
+
+            thread_id = new_thread_ref.id
+        else:
+            thread_id = thread_doc.id
+
+        # 3️⃣ messages path
+        messages_ref = (
+            user_ref
+            .collection("chat_threads")
+            .document(thread_id)
+            .collection("messages")
+        )
+
+        # 4️⃣ save user message
+        messages_ref.add({
+            "role": "user",
+            "content": user_text,
+            "createdAt": datetime.utcnow(),
+            "metadata": {
+                "source": "voice",
+                "characterId": character_id
+            }
+        })
+
+        # 5️⃣ save assistant message
+        messages_ref.add({
+            "role": "assistant",
+            "content": ai_text,
+            "createdAt": datetime.utcnow(),
+            "metadata": {
+                "source": "voice",
+                "characterId": character_id
+            }
+        })
+
+        # 6️⃣ update thread timestamps
+        threads_ref.document(thread_id).update({
+            "updatedAt": datetime.utcnow(),
+            "lastMessageAt": datetime.utcnow()
+        })
+
+        print(f"✅ Voice messages saved to thread {thread_id}")
+
+    except Exception as e:
+        print("❌ FIRESTORE SAVE ERROR")
+        traceback.print_exc()
 # =============================
 # Routes
 # =============================
@@ -256,9 +330,6 @@ def get_audio(filename: str):
 @voice_bp.post("/tts_test")
 def tts_test():
     try:
-        if not os.getenv("OPENAI_API_KEY"):
-            return jsonify({"success": False, "error": "OPENAI_API_KEY is not set"}), 500
-
         data = request.get_json(silent=True) or {}
         uid = (data.get("uid") or "test_user").strip()
         voice = (data.get("voice") or VOICE_NAME).strip()
@@ -279,11 +350,7 @@ def tts_test():
 
 @voice_bp.post("/transcribe")
 def transcribe_route():
-    """Multipart: file=<audio wav>  -> transcript"""
     try:
-        if not os.getenv("OPENAI_API_KEY"):
-            return jsonify({"success": False, "error": "OPENAI_API_KEY is not set"}), 500
-
         file = request.files.get("file")
         if not file:
             return jsonify({"success": False, "error": "Missing form file 'file'"}), 400
@@ -301,11 +368,7 @@ def transcribe_route():
 
 @voice_bp.post("/tts")
 def tts_route():
-    """JSON: {text, voice?} -> wav_base64"""
     try:
-        if not os.getenv("OPENAI_API_KEY"):
-            return jsonify({"success": False, "error": "OPENAI_API_KEY is not set"}), 500
-
         data = request.get_json(silent=True) or {}
         text = (data.get("text") or "").strip()
         voice = (data.get("voice") or VOICE_NAME).strip()
@@ -321,18 +384,7 @@ def tts_route():
 
 @voice_bp.post("/complete")
 def voice_complete():
-    """
-    Multipart:
-      - uid
-      - characterId
-      - file: audio
-    Returns:
-      transcript, assistantText, wav_base64
-    """
     try:
-        if not os.getenv("OPENAI_API_KEY"):
-            return jsonify({"success": False, "error": "OPENAI_API_KEY is not set"}), 500
-
         file = request.files.get("file")
         if not file:
             return jsonify({"success": False, "error": "Missing form file 'file'"}), 400
@@ -371,20 +423,7 @@ def voice_complete():
 
 @voice_bp.post("/chat")
 def voice_chat():
-    """
-    ✅ This is the endpoint your Flutter screen uses.
-    Multipart form-data:
-      - uid: string (required)
-      - characterId: string (optional)
-      - audio: file (required)
-
-    Returns (Flutter expects):
-      transcript, assistantText, audioUrl   (+ optional audioBase64)
-    """
     try:
-        if not os.getenv("OPENAI_API_KEY"):
-            return jsonify({"success": False, "error": "OPENAI_API_KEY is not set"}), 500
-
         uid = (request.form.get("uid") or "").strip()
         if not uid:
             return jsonify({"success": False, "error": "uid is required"}), 400
@@ -401,8 +440,7 @@ def voice_chat():
         in_path = os.path.join(RECORDINGS_DIR, in_name)
         file.save(in_path)
 
-        size = os.path.getsize(in_path)
-        if size < 4000:
+        if os.path.getsize(in_path) < 4000:
             return jsonify({"success": False, "error": "Audio too short or empty. Try a longer recording."}), 400
 
         transcript = transcribe_audio(in_path)
@@ -415,12 +453,10 @@ def voice_chat():
         out_name = f"{uid}_{character_id}_{ts}_ai.wav"
         out_path = os.path.join(TTS_DIR, out_name)
         tts_to_file(assistant_text, out_path, voice=VOICE_NAME)
-
         audio_url = make_public_audio_url(request, out_name)
 
         _save_chat_to_firestore(uid, character_id, transcript, assistant_text, uid_key)
 
-        # IMPORTANT: keep keys stable for Flutter screen
         return jsonify({
             "success": True,
             "lang": chat_res["lang"],
@@ -428,7 +464,6 @@ def voice_chat():
             "transcript": transcript,
             "assistantText": assistant_text,
             "audioUrl": audio_url,
-            # keep this optional; Flutter fallback uses it if URL fails
             "audioBase64": "",
             "savedUserAudioPath": in_path,
             "savedAiAudioPath": out_path,
