@@ -161,8 +161,8 @@ class CharacterDetailDialog extends StatelessWidget {
           _buildArchetypeBadge(),
           const SizedBox(height: 20),
 
-          // Healing Status - NEW SECTION
-          _buildHealingStatusSection(),
+          // Part State Status
+          _buildPartStateSection(),
           const SizedBox(height: 20),
 
           // System Dynamics Section
@@ -287,42 +287,87 @@ class CharacterDetailDialog extends StatelessWidget {
     );
   }
 
-  Widget _buildHealingStatusSection() {
+  Widget _buildPartStateSection() {
+    Color stateColor;
+    String stateText;
+    String stateDescription;
+    IconData stateIcon;
+
+    switch (character.currentState) {
+      case 'stable':
+        stateColor = const Color(0xFF5CB85C);
+        stateText = isArabic ? 'مستقر' : 'Stable';
+        stateDescription = isArabic
+            ? 'هذا الجزء مستقر ومتكامل. يستمر في لعب دور في نظامك ولكن بطريقة متوازنة.'
+            : 'This part is stable and integrated. It continues to play a role in your system but in a balanced way.';
+        stateIcon = Icons.verified;
+        break;
+      case 'inactive':
+        stateColor = const Color(0xFF9E9E9E);
+        stateText = isArabic ? 'غير نشط' : 'Inactive';
+        stateDescription = isArabic
+            ? 'هذا الجزء غير نشط حالياً بسبب عدم استخدام التطبيق. استمر في استخدام التطبيق بانتظام لتفعيله.'
+            : 'This part is currently inactive due to app inactivity. Continue using the app regularly to activate it.';
+        stateIcon = Icons.block;
+        break;
+      case 'active':
+      default:
+        stateColor = const Color(0xFFAB47BC);
+        stateText = isArabic ? 'نشط' : 'Active';
+        stateDescription = isArabic
+            ? 'هذا الجزء نشط حالياً ويؤثر على نظامك الداخلي. يمكنك العمل على فهمه ودمجه.'
+            : 'This part is currently active and influencing your internal system. You can work on understanding and integrating it.';
+        stateIcon = Icons.circle;
+        break;
+    }
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: character.isHealed
-            ? const Color(0xFFE8F5E9) // Light green for healed
-            : const Color(0xFFF3E5F5), // Light purple for unhealed
+        color: stateColor.withOpacity(0.1),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: character.isHealed
-              ? const Color(0xFFA5D6A7) // Green border for healed
-              : const Color(0xFFCE93D8), // Purple border for unhealed
+          color: stateColor.withOpacity(0.3),
         ),
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            character.isHealed ? Icons.check_circle : Icons.autorenew,
-            size: 16,
-            color: character.isHealed
-                ? const Color(0xFF5CB85C) // Green for healed
-                : const Color(0xFFAB47BC), // Purple for unhealed
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: stateColor.withOpacity(0.2),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              stateIcon,
+              size: 16,
+              color: stateColor,
+            ),
           ),
           const SizedBox(width: 10),
           Expanded(
-            child: Text(
-              character.isHealed
-                  ? (isArabic ? "تم الشفاء - تم دمج هذا الجزء" : "Healed - This part has been integrated")
-                  : (isArabic ? "لم يشفى بعد - هذا الجزء في انتظار الدمج" : "Unhealed - This part is waiting for integration"),
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: character.isHealed
-                    ? const Color(0xFF2E7D32) // Dark green for healed
-                    : const Color(0xFF4A148C), // Dark purple for unhealed
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  stateText,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: stateColor,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  stateDescription,
+                  style: TextStyle(
+                    fontSize: 12,
+                    height: 1.4,
+                    color: stateColor.withOpacity(0.8),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -746,7 +791,7 @@ class CharacterDetailDialog extends StatelessWidget {
           : "This part compares and feels lacking. It monitors what others have and fears being left out. Jealousy signals unmet needs for security or validation.";
     } else if (characterName.contains('lonely')) {
       return isArabic
-          ? "يشعر هذا الجزء بالعزلة والانفصال. يتوق للتواصل الهادف ولكن قد يخاف من الوصول للآخرين. غالبًا ما يحمل الوحدة جروحًا علائقية سابقة."
+          ? "يشعر هذا الجزء بالعزلة والانفصال. يتوق للتواصل الهادف ولكن قد يخاف من الوصول للآخرين. غالبًا ما تحمل الوحدة جروحًا علائقية سابقة."
           : "This part feels isolated and disconnected. It longs for meaningful connection but may fear reaching out. Loneliness often holds past relational wounds.";
     } else if (characterName.contains('neglected')) {
       return isArabic
@@ -774,7 +819,7 @@ class CharacterDetailDialog extends StatelessWidget {
           : "This part avoids tasks or decisions. It may fear failure, success, or judgment. Procrastination provides temporary relief from pressure.";
     } else if (characterName.contains('stoic')) {
       return isArabic
-          ? "يكبت هذا الجزء المشاعر ويحافظ على رباطة الجأش. يقدر العقلانية على الشعور. يحمي الرواقية من الضعف ولكن يمكن أن يخلق مسافة عاطفية."
+          ? "يكبت هذا الجزء المشاعر ويحافظ على رباطة الجأش. يقدر العقلانية على الشعور. تحمي الرواقية من الضعف ولكن يمكن أن تخلق مسافة عاطفية."
           : "This part suppresses emotions and maintains composure. It values rationality over feeling. Stoicism protects against vulnerability but can create emotional distance.";
     } else if (characterName.contains('workaholic')) {
       return isArabic

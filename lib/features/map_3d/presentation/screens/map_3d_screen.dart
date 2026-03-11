@@ -44,10 +44,12 @@ class _Map3DScreenState extends State<Map3DScreen> {
   late List<UserCharacter?> mapSlots;
   late ScrollController _scrollController;
   final FirestoreService _firestoreService = FirestoreService();
-  List<UserCharacter> _healedCharacters = [];
-  List<UserCharacter> _unhealedCharacters = [];
+  List<UserCharacter> _stableCharacters = [];
+  List<UserCharacter> _activeCharacters = [];
+  List<UserCharacter> _inactiveCharacters = [];
   bool _isLoading = true;
   late bool _isArabic; // Store language state locally
+  DateTime? _lastUserActivity;
 
   @override
   void initState() {
@@ -58,83 +60,111 @@ class _Map3DScreenState extends State<Map3DScreen> {
     // Initialize with default value, will be updated in build
     _isArabic = false;
 
-    // Load characters data
-    _loadCharacters();
+    // Load characters data and check inactivity
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkInactivityAndLoadCharacters();
+    });
+  }
+
+  Future<void> _checkInactivityAndLoadCharacters() async {
+    print('🗺️ Map3DScreen: Checking inactivity and loading characters');
+
+    // First check if user has been inactive (this will update characters if needed)
+    await _firestoreService.checkAndUpdateInactiveCharacters();
+
+    // Then update last activity timestamp
+    await _firestoreService.updateUserLastActivity();
+
+    // Load characters with updated states
+    await _loadCharacters();
   }
 
   Future<void> _loadCharacters() async {
     try {
-      // Get both healed and unhealed characters
-      final healed = await _firestoreService.getHealedCharacters();
-      final unhealed = await _firestoreService.getUnhealedCharacters();
+      print('Map3DScreen: Loading characters');
+
+      // Get all characters
+      final allCharacters = await _firestoreService.getUserCharacters();
+      print('Map3DScreen: Total characters: ${allCharacters.length}');
+
+      // Log states for debugging
+      for (var c in allCharacters) {
+        print('   - ${c.displayNameEn}: state=${c.currentState}');
+      }
+
+      // Get user's last activity
+      _lastUserActivity = await _getLastUserActivity();
+
+      // Categorize characters based on currentState
+      final stable = allCharacters.where((c) => c.currentState == 'stable').toList();
+      final active = allCharacters.where((c) => c.currentState == 'active').toList();
+      final inactive = allCharacters.where((c) => c.currentState == 'inactive').toList();
 
       // DEBUG LOGGING
-      print('DEBUG: Loaded ${healed.length} healed characters');
-      print('DEBUG: Loaded ${unhealed.length} unhealed characters');
+      print('🗺️ Map3DScreen: Found ${stable.length} stable characters');
+      print('🗺️ Map3DScreen: Found ${active.length} active characters');
+      print('🗺️ Map3DScreen: Found ${inactive.length} inactive characters');
 
-      if (healed.isNotEmpty) {
-        print('DEBUG: Healed character names: ${healed.map((c) => c.displayNameEn).toList()}');
-        for (var char in healed) {
-          print('DEBUG: ${char.displayNameEn} - isHealed: ${char.isHealed}, predictedAt: ${char.predictedAt}');
+      // Check if widget is still mounted before calling setState
+      if (mounted) {
+        setState(() {
+          _stableCharacters = stable;
+          _activeCharacters = active;
+          _inactiveCharacters = inactive;
+        });
+
+        // Clear mapSlots first
+        for (int i = 0; i < mapSlots.length; i++) {
+          mapSlots[i] = null;
+        }
+
+        // Combine characters - order: stable first, then active, then inactive
+        final allCharactersSorted = [...stable, ...active, ...inactive];
+
+        // Assign characters to slots
+        int assignedCount = 0;
+        for (int i = 0; i < allCharactersSorted.length && i < mapSlots.length; i++) {
+          mapSlots[i] = allCharactersSorted[i];
+          assignedCount++;
+          print('Map3DScreen: Slot $i assigned: ${allCharactersSorted[i].displayNameEn} '
+              '(State: ${allCharactersSorted[i].currentState})');
+        }
+
+        print('Map3DScreen: Total assigned to map: $assignedCount');
+
+        // Auto-scroll to BOTTOM when page loads
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (_scrollController.hasClients && mounted) {
+            _scrollController.animateTo(
+              _scrollController.position.maxScrollExtent,
+              duration: const Duration(milliseconds: 800),
+              curve: Curves.easeOut,
+            );
+          }
+        });
+
+        // Update loading state
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
         }
       }
-
-      setState(() {
-        _healedCharacters = healed;
-        _unhealedCharacters = unhealed;
-      });
-
-      // Clear mapSlots first
-      for (int i = 0; i < mapSlots.length; i++) {
-        mapSlots[i] = null;
-      }
-
-      // DEBUG: Show what we have
-      print('DEBUG: Total characters: ${healed.length + unhealed.length}');
-      print('DEBUG: Available slots: ${mapSlots.length}');
-
-      // Combine characters - PUT HEALED CHARACTERS FIRST for visibility
-      final allCharacters = [...healed, ...unhealed];
-
-      // Assign characters to slots
-      int assignedCount = 0;
-      for (int i = 0; i < allCharacters.length && i < mapSlots.length; i++) {
-        mapSlots[i] = allCharacters[i];
-        assignedCount++;
-        print('DEBUG: Slot $i assigned: ${allCharacters[i].displayNameEn} '
-            '(Healed: ${allCharacters[i].isHealed}, '
-            'Archetype: ${allCharacters[i].archetype})');
-      }
-
-      print('DEBUG: Total assigned to map: $assignedCount');
-
-      // Auto-scroll to BOTTOM when page loads (to show first nodes)
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_scrollController.hasClients) {
-          // Scroll to the maximum extent (bottom) to show bottom nodes first
-          _scrollController.animateTo(
-            _scrollController.position.maxScrollExtent,
-            duration: const Duration(milliseconds: 800),
-            curve: Curves.easeOut,
-          );
-        }
-      });
-
-      setState(() {
-        _isLoading = false;
-      });
 
     } catch (e) {
-      print('Error loading characters: $e');
-      // Even if there's an error, try to use the initial characters passed to widget
-      _useInitialCharacters();
-      setState(() {
-        _isLoading = false;
-      });
+      print('🗺️ Map3DScreen: Error loading characters: $e');
+      if (mounted) {
+        _useInitialCharacters();
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
   void _useInitialCharacters() {
+    if (!mounted) return;
+
     print('DEBUG: Using initial characters from widget');
     print('DEBUG: Initial characters count: ${widget.userCharacters.length}');
 
@@ -143,26 +173,49 @@ class _Map3DScreenState extends State<Map3DScreen> {
       mapSlots[i] = null;
     }
 
-    // Separate healed and unhealed from initial characters
-    final healed = widget.userCharacters.where((c) => c.isHealed).toList();
-    final unhealed = widget.userCharacters.where((c) => !c.isHealed).toList();
+    // Separate by state from initial characters
+    final stable = widget.userCharacters.where((c) => c.currentState == 'stable').toList();
+    final active = widget.userCharacters.where((c) => c.currentState == 'active').toList();
+    final inactive = widget.userCharacters.where((c) => c.currentState == 'inactive').toList();
 
-    setState(() {
-      _healedCharacters = healed;
-      _unhealedCharacters = unhealed;
-    });
+    if (mounted) {
+      setState(() {
+        _stableCharacters = stable;
+        _activeCharacters = active;
+        _inactiveCharacters = inactive;
+      });
+    }
 
-    print('DEBUG: Found ${healed.length} healed in initial data');
-    print('DEBUG: Found ${unhealed.length} unhealed in initial data');
+    print('DEBUG: Found ${stable.length} stable in initial data');
+    print('DEBUG: Found ${active.length} active in initial data');
+    print('DEBUG: Found ${inactive.length} inactive in initial data');
 
     // Combine and assign
-    final allCharacters = [...healed, ...unhealed];
+    final allCharactersSorted = [...stable, ...active, ...inactive];
 
-    for (int i = 0; i < allCharacters.length && i < mapSlots.length; i++) {
-      mapSlots[i] = allCharacters[i];
-      print('DEBUG: Slot $i assigned from initial: ${allCharacters[i].displayNameEn} '
-          '(Healed: ${allCharacters[i].isHealed})');
+    for (int i = 0; i < allCharactersSorted.length && i < mapSlots.length; i++) {
+      mapSlots[i] = allCharactersSorted[i];
+      print('DEBUG: Slot $i assigned from initial: ${allCharactersSorted[i].displayNameEn} '
+          '(State: ${allCharactersSorted[i].currentState})');
     }
+  }
+
+  Future<DateTime?> _getLastUserActivity() async {
+    try {
+      final userDoc = await _firestoreService.usersCollection
+          .doc(_firestoreService.currentUserId)
+          .get();
+
+      if (userDoc.exists) {
+        final data = userDoc.data() as Map<String, dynamic>;
+        if (data['lastActivityAt'] != null) {
+          return DateTime.tryParse(data['lastActivityAt']);
+        }
+      }
+    } catch (e) {
+      print('Error getting last activity: $e');
+    }
+    return DateTime.now();
   }
 
   @override
@@ -172,6 +225,22 @@ class _Map3DScreenState extends State<Map3DScreen> {
   }
 
   void _showCharacterDetail(BuildContext context, UserCharacter character) {
+    // Don't show details for inactive characters
+    if (character.currentState == 'inactive') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _isArabic
+                ? 'هذا الجزء غير نشط حالياً. استمر في استخدام التطبيق لتفعيله.'
+                : 'This part is currently inactive. Continue using the app to activate it.',
+          ),
+          backgroundColor: const Color(0xFF9E9E9E),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
     // Get current language state
     final currentIsArabic = _isArabic;
 
@@ -186,14 +255,14 @@ class _Map3DScreenState extends State<Map3DScreen> {
         character: character,
         ifsRelationships: ifsRelationships,
         archetypeRelationships: archetypeRelationships,
-        allCharacters: [..._unhealedCharacters, ..._healedCharacters],
+        allCharacters: [..._activeCharacters, ..._stableCharacters, ..._inactiveCharacters],
         isArabic: currentIsArabic, // Pass language state to dialog
       ),
     );
   }
 
   List<String> _getIFSRelationships(UserCharacter character, bool isArabic) {
-    final otherCharacters = [..._unhealedCharacters, ..._healedCharacters]
+    final otherCharacters = [..._activeCharacters, ..._stableCharacters, ..._inactiveCharacters]
         .where((c) => c.id != character.id)
         .toList();
 
@@ -333,8 +402,6 @@ class _Map3DScreenState extends State<Map3DScreen> {
             },
           ),
 
-          // REMOVED: Healing Stats Bar - Now showing visually on each character
-
           // 3D Map Visualization
           Expanded(
             child: _isLoading
@@ -439,7 +506,7 @@ class _Map3DScreenState extends State<Map3DScreen> {
                       ),
                     ),
 
-                    // Character Islands - ADD DEBUGGING
+                    // Character Islands
                     ...List.generate(nodePositions.length, (index) {
                       final pos = nodePositions[index];
                       final double leftPos =
@@ -451,11 +518,14 @@ class _Map3DScreenState extends State<Map3DScreen> {
                       if (character == null) {
                         // Empty slot - default to purple
                         theme = IslandTheme.purple;
-                      } else if (character.isHealed) {
-                        // Healed character - GREEN theme
+                      } else if (character.currentState == 'stable') {
+                        // Stable character - GREEN theme
                         theme = IslandTheme.green;
+                      } else if (character.currentState == 'inactive') {
+                        // Inactive character - GREY theme
+                        theme = IslandTheme.grey;
                       } else {
-                        // Unhealed character - PURPLE theme
+                        // Active character - PURPLE theme
                         theme = IslandTheme.purple;
                       }
 

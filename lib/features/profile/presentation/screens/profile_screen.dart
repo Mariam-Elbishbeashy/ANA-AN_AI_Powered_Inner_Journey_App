@@ -35,11 +35,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   void initState() {
     super.initState();
-    _userCharacters = widget.initialUserCharacters;
-    // Refresh characters if needed
-    if (_userCharacters.isEmpty) {
-      _refreshCharacters();
-    }
+    // Filter initial characters to only show active ones
+    _userCharacters = widget.initialUserCharacters.where((c) => c.currentState == 'active').toList();
+
+    // Check inactivity and refresh characters
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkInactivityAndRefresh();
+    });
+  }
+
+  Future<void> _checkInactivityAndRefresh() async {
+    print('👤 ProfileScreen: Checking inactivity and refreshing');
+
+    // First check if user has been inactive
+    await _firestoreService.checkAndUpdateInactiveCharacters();
+
+    // Then update last activity timestamp
+    await _firestoreService.updateUserLastActivity();
+
+    // Refresh characters
+    await _refreshCharacters();
   }
 
   Future<void> _refreshCharacters() async {
@@ -48,14 +63,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
     });
 
     try {
-      // CHANGED: Use getUnhealedCharacters() instead of getUserCharacters()
-      final characters = await _firestoreService.getUnhealedCharacters();
+      // Get all characters and filter for ACTIVE only
+      final allCharacters = await _firestoreService.getUserCharacters();
+      print('👤 ProfileScreen: Total characters: ${allCharacters.length}');
+
+      // Log states for debugging
+      for (var c in allCharacters) {
+        print('   - ${c.displayNameEn}: state=${c.currentState}');
+      }
+
+      final activeCharacters = allCharacters.where((c) => c.currentState == 'active').toList();
+      print('👤 ProfileScreen: Active characters: ${activeCharacters.length}');
+
       setState(() {
-        _userCharacters = characters;
+        _userCharacters = activeCharacters;
         _isLoading = false;
       });
     } catch (e) {
-      print('Error refreshing characters: $e');
+      print('👤 ProfileScreen: Error refreshing characters: $e');
       setState(() {
         _isLoading = false;
       });
@@ -208,7 +233,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         children: [
                           _StatItem(
                             value: _userCharacters.length.toString(),
-                            label: isArabicValue ? 'شخصيات' : 'Characters',
+                            label: isArabicValue ? 'شخصيات نشطة' : 'Active Characters',
                             icon: Icons.psychology_rounded,
                           ),
                           _StatItem(
@@ -232,7 +257,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          isArabicValue ? 'شخصياتي الداخلية' : 'My Inner Characters',
+                          isArabicValue ? 'شخصياتي النشطة' : 'My Active Characters',
                           style: const TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.w800,
@@ -281,8 +306,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             const SizedBox(height: 16),
                             Text(
                               isArabicValue
-                                  ? 'لا توجد شخصيات غير مُعالجة'
-                                  : 'No unhealed characters',
+                                  ? 'لا توجد شخصيات نشطة'
+                                  : 'No active characters',
                               style: const TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w600,
@@ -292,8 +317,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             const SizedBox(height: 8),
                             Text(
                               isArabicValue
-                                  ? 'جميع شخصياتك مُعالجة أو لم يتم تحديد شخصيات بعد'
-                                  : 'All your characters are healed or no characters identified yet',
+                                  ? 'الشخصيات النشطة هي التي تؤثر حالياً على حياتك اليومية'
+                                  : 'Active characters are the ones currently influencing your daily life',
                               textAlign: TextAlign.center,
                               style: const TextStyle(color: Color(0xFF7A6A5A)),
                             ),
@@ -759,41 +784,47 @@ class _CharacterCard extends StatelessWidget {
                     color: Color(0xFF2A1E3B),
                   ),
                 ),
-                // const SizedBox(height: 4),
-                // Text(
-                //   'Confidence: ${(character.confidence * 100).toStringAsFixed(1)}%',
-                //   style: TextStyle(
-                //     fontSize: 14,
-                //     color: const Color(0xFF7A6A5A),
-                //   ),
-                // ),
                 const SizedBox(height: 4),
-                // Text(
-                //   '#${character.rank}',
-                //   style: TextStyle(
-                //     fontSize: 14,
-                //     fontWeight: FontWeight.w700,
-                //     color: color,
-                //   ),
-                // ),
-                const SizedBox(height: 4),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: color.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    _getLocalizedArchetype(context, character.archetype),
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: color,
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: color.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        _getLocalizedArchetype(context, character.archetype),
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: color,
+                        ),
+                      ),
                     ),
-                  ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFAB47BC).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        isArabic(context) ? 'نشط' : 'ACTIVE',
+                        style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFFAB47BC),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),

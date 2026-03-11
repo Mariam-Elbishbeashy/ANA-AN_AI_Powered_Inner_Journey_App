@@ -61,6 +61,11 @@ class UserCharacter {
     }
   }
 
+  String getStateTheme() {
+    if (isHealed) return 'stable'; // For backward compatibility
+    return currentState; // 'active', 'stable', or 'inactive'
+  }
+
   factory UserCharacter.fromMap(Map<String, dynamic> data, String id) {
     return UserCharacter(
       id: id,

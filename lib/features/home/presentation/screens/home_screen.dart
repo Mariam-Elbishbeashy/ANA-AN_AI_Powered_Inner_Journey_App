@@ -40,6 +40,24 @@ class _HomeScreenState extends State<HomeScreen>
     super.initState();
     _gifController = GifController(vsync: this);
     _loadCharacters();
+
+    // Track user activity and check inactivity when home screen opens
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkInactivityAndTrack();
+    });
+  }
+
+  Future<void> _checkInactivityAndTrack() async {
+    print('HomeScreen: Checking inactivity and tracking activity');
+
+    // First check if user has been inactive (this will update characters if needed)
+    await _firestoreService.checkAndUpdateInactiveCharacters();
+
+    // Then update last activity timestamp
+    await _firestoreService.updateUserLastActivity();
+
+    // Reload characters to reflect any changes
+    await _loadCharacters();
   }
 
   @override
@@ -57,16 +75,32 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _loadCharacters() async {
     try {
-      // CHANGED: Use getUnhealedCharacters() instead of getUserCharacters()
-      final characters = await _firestoreService.getUnhealedCharacters();
-      setState(() {
-        _characters = characters;
-        _isLoading = false;
-      });
+      print('HomeScreen: Loading characters');
+      // Get all characters and filter for ACTIVE only
+      final allCharacters = await _firestoreService.getUserCharacters();
+      print('HomeScreen: Total characters: ${allCharacters.length}');
+
+      // Log states for debugging
+      for (var c in allCharacters) {
+        print('   - ${c.displayNameEn}: state=${c.currentState}');
+      }
+
+      final activeCharacters = allCharacters.where((c) => c.currentState == 'active').toList();
+      print('HomeScreen: Active characters: ${activeCharacters.length}');
+
+      if (mounted) {
+        setState(() {
+          _characters = activeCharacters;
+          _isLoading = false;
+        });
+      }
     } catch (e) {
-      setState(() {
-        _isLoading = false;
-      });
+      print('HomeScreen: Error loading characters: $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -1214,7 +1248,8 @@ class _HomeScreenState extends State<HomeScreen>
                     ? (activity.estimatedMinutes == 1
                     ? '${activity.estimatedMinutes} دقيقة'
                     : '${activity.estimatedMinutes} دقائق')
-                    : '${activity.estimatedMinutes} min',                style: TextStyle(
+                    : '${activity.estimatedMinutes} min',
+                style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
                   color: getCategoryColor(),
@@ -1337,9 +1372,9 @@ class _HomeScreenState extends State<HomeScreen>
                                         tr(
                                           context,
                                           '${_characters
-                                              .length} Characters Identified',
-                                          'تم تحديد ${_characters
-                                              .length} شخصية',
+                                              .length} Active Characters',
+                                          '${_characters
+                                              .length} شخصيات نشطة',
                                         ),
                                         style: const TextStyle(
                                           color: Colors.white,
@@ -1420,17 +1455,40 @@ class _HomeScreenState extends State<HomeScreen>
                                   if (_characters.isEmpty)
                                     Padding(
                                       padding: const EdgeInsets.all(20.0),
-                                      child: Text(
-                                        tr(
-                                          context,
-                                          'No unhealed characters found.',
-                                          'لم يتم العثور على شخصيات غير مُعالجة.',
-                                        ),
-                                        style: const TextStyle(
-                                          color: Color(0xFF7A6A5A),
-                                          fontSize: 14,
-                                        ),
-                                        textAlign: TextAlign.center,
+                                      child: Column(
+                                        children: [
+                                          Icon(
+                                            Icons.psychology_outlined,
+                                            size: 48,
+                                            color: const Color(0xFF8E7CFF).withOpacity(0.5),
+                                          ),
+                                          const SizedBox(height: 16),
+                                          Text(
+                                            tr(
+                                              context,
+                                              'No active characters found.',
+                                              'لم يتم العثور على شخصيات نشطة.',
+                                            ),
+                                            style: const TextStyle(
+                                              color: Color(0xFF7A6A5A),
+                                              fontSize: 14,
+                                            ),
+                                            textAlign: TextAlign.center,
+                                          ),
+                                          const SizedBox(height: 8),
+                                          Text(
+                                            tr(
+                                              context,
+                                              'Active characters are the ones currently influencing your daily life.',
+                                              'الشخصيات النشطة هي التي تؤثر حالياً على حياتك اليومية.',
+                                            ),
+                                            style: const TextStyle(
+                                              color: Color(0xFF9E9E9E),
+                                              fontSize: 12,
+                                            ),
+                                            textAlign: TextAlign.center,
+                                          ),
+                                        ],
                                       ),
                                     )
                                   else
@@ -1536,8 +1594,6 @@ class _HomeScreenState extends State<HomeScreen>
                               ],
                             ),
                           ),
-
-
 
                           const SizedBox(height: 30),
 
