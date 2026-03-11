@@ -9,7 +9,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter_sound/flutter_sound.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-
+import 'package:flutter_tts/flutter_tts.dart';
 import 'package:ana_ifs_app/l10n/app_strings.dart';
 import 'package:ana_ifs_app/features/character/domain/entities/user_character.dart';
 
@@ -29,6 +29,7 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
   // ==========================
   // Audio (record + play)
   // ==========================
+  final FlutterTts _tts = FlutterTts();
   final FlutterSoundRecorder _recorder = FlutterSoundRecorder();
   final FlutterSoundPlayer _player = FlutterSoundPlayer();
   bool _audioReady = false;
@@ -50,23 +51,105 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
   StreamSubscription? _recSub;
   Timer? _maxTimer;
   Timer? _nextTurnTimer;
+
+  Future<void> _speakAi(String text) async {
+    try {
+
+      await _tts.setLanguage("en-US");
+      await _tts.setSpeechRate(0.45);
+      await _tts.setPitch(1.0);
+
+      await _tts.speak(text);
+
+      await _tts.awaitSpeakCompletion(true);
+
+    } catch (e) {
+      setState(() {
+        _error = "TTS error: $e";
+      });
+    }
+  }
+
+  Future<void> _testAiVoice() async {
+    try {
+
+      setState(() {
+        _status = "paused";
+        _error = "";
+      });
+
+      await _tts.setLanguage("en-US");
+      await _tts.setSpeechRate(0.45);
+      await _tts.setPitch(1.0);
+
+      await _tts.speak(
+          "Hello. This is a test of the AI voice. Everything is working correctly."
+      );
+
+    } catch (e) {
+
+      setState(() {
+        _status = "Voice test failed";
+        _error = e.toString();
+      });
+
+    }
+  }
+
   Future<void> _scheduleNextRecording() async {
+
+    if (!_voiceLoopActive) return;
+    if (!mounted) return;
+
+    if (_isRecording) {
+      print("SKIP NEXT RECORD: already recording");
+      return;
+    }
+
+    if (_isBusy) {
+      print("SKIP NEXT RECORD: still busy");
+      return;
+    }
+
+    print("VOICE LOOP → NEXT TURN");
+
+    await Future.delayed(const Duration(milliseconds: 300));
+
     if (!_voiceLoopActive) return;
 
-    _nextTurnTimer?.cancel();
+    await _startRecordingWithAutoStop();
+  }
 
-    _nextTurnTimer = Timer(const Duration(seconds: 5), () async {
+  Future<void> _typeAiResponse(String text) async {
 
-      if (!mounted) return;
-      if (!_voiceLoopActive) return;
-      if (_isRecording) return;
-      if (_isBusy) return;
+    _typingTimer?.cancel();
 
-      print("VOICE LOOP → Starting next recording");
-
-      await _startRecordingWithAutoStop();
-
+    setState(() {
+      _visibleAiText = "";
     });
+
+    final words = text.split(" ");
+
+    int index = 0;
+
+    _typingTimer = Timer.periodic(
+      const Duration(milliseconds: 200),
+          (timer) {
+
+        if (index >= words.length) {
+          timer.cancel();
+          return;
+        }
+
+        if (!mounted) return;
+
+        setState(() {
+          _visibleAiText += "${words[index]} ";
+        });
+
+        index++;
+      },
+    );
   }
   // UI state
   bool _isRecording = false;
@@ -76,8 +159,9 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
   String _status = "";
   String _lastUserText = "";
   String _lastAiText = "";
+  String _visibleAiText = "";
   String _error = "";
-
+  Timer? _typingTimer;
   String? _wavPath;
 
   // Prevent stop crash
@@ -174,17 +258,42 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
 
     if (!_voiceLoopActive) return;
 
+    _stopping = false; // ✅ ADD THIS LINE
+
     try {
 
-      print("START RECORDING");
-
-      await _player.stopPlayer();
-
-      // 🔴 FORCE RECORDER RESET (CRITICAL)
       if (_recorder.isRecording) {
         await _recorder.stopRecorder();
       }
 
+      // FULL RECORDER RESET (makes every turn like the first)
+
+      try {
+        if (_recorder.isRecording) {
+          await _recorder.stopRecorder();
+        }
+      } catch (_) {}
+
+      try {
+        await _recorder.closeRecorder();
+      } catch (_) {}
+
+      await Future.delayed(const Duration(milliseconds: 300));
+
+      await _recorder.openRecorder();
+
+      await Future.delayed(const Duration(milliseconds: 400)); // microphone warm-up
+
+      // HARD RESET recorder (REQUIRED)
+      try {
+        if (_recorder.isRecording) {
+          await _recorder.stopRecorder();
+        }
+      } catch (_) {}
+
+      await Future.delayed(const Duration(milliseconds: 250));
+
+      // Ensure recorder ready
       if (!_recorder.isStopped) {
         await _recorder.closeRecorder();
         await _recorder.openRecorder();
@@ -192,7 +301,6 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
 
       setState(() {
         _isRecording = true;
-        _isBusy = false;
         _status = "🎙️ Recording";
         _error = "";
         _gifKey = UniqueKey();
@@ -200,8 +308,10 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
 
       _wavPath = await _makeWavPath();
 
-      final f = File(_wavPath!);
-      if (await f.exists()) await f.delete();
+      final file = File(_wavPath!);
+      if (await file.exists()) {
+        await file.delete();
+      }
 
       _recordStartAt = DateTime.now();
 
@@ -213,14 +323,19 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
         audioSource: AudioSource.microphone,
       );
 
+      // Auto stop after 10 seconds
       _maxTimer?.cancel();
 
       _maxTimer = Timer(const Duration(seconds: 10), () async {
 
         if (!_voiceLoopActive) return;
-        if (!_isRecording) return;
 
-        print("AUTO STOP RECORDING");
+        if (!_isRecording) {
+          print("AUTO STOP skipped because not recording");
+          return;
+        }
+
+        print("VOICE LOOP → AUTO STOP TRIGGERED");
 
         await _stopRecordingAndSend();
 
@@ -228,11 +343,11 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
 
     } catch (e) {
 
-      print("RECORDER ERROR: $e");
+      print("START RECORD ERROR: $e");
 
       setState(() {
         _isRecording = false;
-        _status = "❌ Record start failed";
+        _status = "❌ Recording failed";
         _error = "$e";
       });
 
@@ -298,7 +413,10 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
       whenFinished: () async {
         if (!mounted) return;
 
-        setState(() => _status = "Ready");
+        setState(() {
+          _status = "Listening...";
+          _isBusy = false; // ✅ IMPORTANT
+        });
 
         await _scheduleNextRecording();
       },
@@ -306,8 +424,8 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
   }
 
   Future<void> _stopRecordingAndSend() async {
-
-    if (_stopping) return;
+    print("PROCESSING RECORDING PIPELINE");
+    if (_stopping || !_isRecording) return;
     _stopping = true;
 
     try {
@@ -338,8 +456,21 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
 
       final len = await File(path).length();
 
-      if (len < 5000) {
-        throw Exception("Audio too small");
+      if (len < 30000) {
+
+        print("AUDIO TOO SMALL — restarting recording");
+
+        if (mounted) {
+          setState(() {
+            _isBusy = false;
+          });
+        }
+
+        if (_voiceLoopActive) {
+          await _scheduleNextRecording();
+        }
+
+        return;
       }
 
       final user = FirebaseAuth.instance.currentUser;
@@ -362,40 +493,29 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
       setState(() {
         _lastUserText = transcript;
         _lastAiText = assistantText;
+        _visibleAiText = "";
         _status = "🔊 Speaking...";
       });
+      await _typeAiResponse(assistantText);
+      await _speakAi(assistantText);
+
+      print("AI FINISHED SPEAKING");
 
       await _player.stopPlayer();
 
-      _isBusy = false;
+      if (mounted) {
+        setState(() {
+          _isBusy = false;
+          _status = "Listening...";
+        });
+      }
+
+      if (_voiceLoopActive) {
+        await _scheduleNextRecording();
+      }
 
       // PLAY AI VOICE
-      if (audioUrl.isNotEmpty) {
 
-        await _player.startPlayer(
-          fromURI: audioUrl,
-          whenFinished: () async {
-
-            print("AI FINISHED SPEAKING");
-
-            if (!_voiceLoopActive) return;
-
-            setState(() => _status = "Waiting...");
-
-            await _scheduleNextRecording();
-
-          },
-        );
-
-      } else if (audioB64.isNotEmpty) {
-
-        await _playFromBase64(audioB64);
-
-      } else {
-
-        throw Exception("No AI audio returned");
-
-      }
 
     } catch (e) {
 
@@ -411,29 +531,35 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
   }
 
   void _stopAll() async {
+    print("VOICE LOOP FORCE STOP");
+
+    _voiceLoopActive = false;
+
     try {
-      _voiceLoopActive = false;
-
-      _nextTurnTimer?.cancel();   // ADD THIS
-
+      _nextTurnTimer?.cancel();
       _maxTimer?.cancel();
+
       await _recSub?.cancel();
       _recSub = null;
 
-      if (_isRecording) await _safeStopRecorder();
+      if (_recorder.isRecording) {
+        await _recorder.stopRecorder();
+      }
+
       await _player.stopPlayer();
 
-      setState(() {
-        _isRecording = false;
-        _isBusy = false;
-        _status = "Stopped";
-      });
-
-      _stopping = false;
-      _stopQueued = false;
     } catch (_) {}
-  }
 
+    if (!mounted) return;
+
+    setState(() {
+      _isRecording = false;
+      _isBusy = false;
+      _status = "Paused";
+    });
+
+    _stopping = false;
+  }
   @override
   void dispose() {
     _maxTimer?.cancel();
@@ -552,14 +678,14 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
                         ),
                       ),
                       const SizedBox(height: 22),
-                      if (_lastAiText.isNotEmpty)
+                      if (_visibleAiText.isNotEmpty)
                         Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 22),
                           child: RichText(
                             textAlign: TextAlign.center,
                             text: TextSpan(
                               children: [
-                                TextSpan(text: _lastAiText, style: _aiTextStyle),
+                                TextSpan(text: _visibleAiText, style: _aiTextStyle),
                               ],
                             ),
                           ),
