@@ -12,14 +12,16 @@ class MapIsland extends StatelessWidget {
   final IslandTheme colorTheme;
   final VoidCallback? onTap;
   final bool isArabic;
+  final Key? refreshKey;
 
   const MapIsland({
-    super.key,
+    Key? key,
     this.userCharacter,
     required this.colorTheme,
     this.onTap,
     required this.isArabic,
-  });
+    this.refreshKey,
+  }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -187,6 +189,8 @@ class MapIsland extends StatelessWidget {
                               glbPath: "assets/models/${userCharacter!.glbFileName}",
                               autoPlay: true,
                               cameraControls: false,
+                              key: refreshKey,
+                              cacheKey: userCharacter!.id,
                             )
                                 : Container(
                               decoration: BoxDecoration(

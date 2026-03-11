@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:gif/gif.dart';
 
@@ -34,16 +36,45 @@ class _HomeScreenState extends State<HomeScreen>
   List<UserCharacter> _characters = [];
   bool _isLoading = true;
   GifController? _gifController;
+  late StreamSubscription _charactersSubscription;
 
   @override
   void initState() {
     super.initState();
     _gifController = GifController(vsync: this);
     _loadCharacters();
+    _setupCharactersListener();
 
     // Track user activity and check inactivity when home screen opens
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkInactivityAndTrack();
+    });
+  }
+
+  void _setupCharactersListener() {
+    final userId = _firestoreService.currentUserId;
+    if (userId == null) return;
+
+    _charactersSubscription = _firestoreService.userCharactersCollection
+        .where('userId', isEqualTo: userId)
+        .snapshots()
+        .listen((snapshot) {
+      if (!mounted) return;
+
+      // Process the updated characters
+      final characters = snapshot.docs
+          .map((doc) => UserCharacter.fromMap(
+        doc.data() as Map<String, dynamic>,
+        doc.id,
+      ))
+          .where((c) => c.currentState == 'active')
+          .toList();
+
+      setState(() {
+        _characters = characters;
+      });
+
+      print('📡 Real-time update: ${characters.length} active characters');
     });
   }
 

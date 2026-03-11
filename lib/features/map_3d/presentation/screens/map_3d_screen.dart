@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:ana_ifs_app/features/character/domain/entities/user_character.dart';
 import 'package:ana_ifs_app/l10n/app_strings.dart';
@@ -50,6 +53,8 @@ class _Map3DScreenState extends State<Map3DScreen> {
   bool _isLoading = true;
   late bool _isArabic; // Store language state locally
   DateTime? _lastUserActivity;
+  int _modelRefreshKey = 0;
+  late StreamSubscription<QuerySnapshot> _charactersSubscription;
 
   @override
   void initState() {
@@ -59,6 +64,7 @@ class _Map3DScreenState extends State<Map3DScreen> {
 
     // Initialize with default value, will be updated in build
     _isArabic = false;
+    _setupRealtimeListener();
 
     // Load characters data and check inactivity
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -66,101 +72,119 @@ class _Map3DScreenState extends State<Map3DScreen> {
     });
   }
 
+  @override
+  void dispose() {
+    _charactersSubscription.cancel();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _setupRealtimeListener() {
+    final userId = _firestoreService.currentUserId;
+    if (userId == null) return;
+
+    print('🔴 Setting up real-time listener for user: $userId');
+
+    _charactersSubscription = _firestoreService.userCharactersCollection
+        .where('userId', isEqualTo: userId)
+        .snapshots()
+        .listen((snapshot) {
+      if (!mounted) return;
+
+      print('📡 Real-time update received! ${snapshot.docs.length} characters');
+
+      // Process the updated characters
+      final allCharacters = snapshot.docs
+          .map((doc) => UserCharacter.fromMap(
+        doc.data() as Map<String, dynamic>,
+        doc.id,
+      ))
+          .toList();
+
+      // Categorize characters
+      final stable = allCharacters.where((c) => c.currentState == 'stable').toList();
+      final active = allCharacters.where((c) => c.currentState == 'active').toList();
+      final inactive = allCharacters.where((c) => c.currentState == 'inactive').toList();
+
+      print('   Stable: ${stable.length}, Active: ${active.length}, Inactive: ${inactive.length}');
+
+      // Update the UI
+      setState(() {
+        _stableCharacters = stable;
+        _activeCharacters = active;
+        _inactiveCharacters = inactive;
+
+        // Clear and reassign map slots
+        for (int i = 0; i < mapSlots.length; i++) {
+          mapSlots[i] = null;
+        }
+
+        final allCharactersSorted = [...stable, ...active, ...inactive];
+        for (int i = 0; i < allCharactersSorted.length && i < mapSlots.length; i++) {
+          mapSlots[i] = allCharactersSorted[i];
+        }
+
+        // Increment refresh key to force 3D models to reload
+        _modelRefreshKey++;
+        _isLoading = false;
+      });
+
+      print('✅ Real-time update applied, refresh key: $_modelRefreshKey');
+    }, onError: (error) {
+      print('❌ Error in real-time listener: $error');
+    });
+  }
+
   Future<void> _checkInactivityAndLoadCharacters() async {
-    print('🗺️ Map3DScreen: Checking inactivity and loading characters');
+    print('🗺️ Map3DScreen: Checking inactivity');
 
-    // First check if user has been inactive (this will update characters if needed)
     await _firestoreService.checkAndUpdateInactiveCharacters();
-
-    // Then update last activity timestamp
     await _firestoreService.updateUserLastActivity();
 
-    // Load characters with updated states
+    // Just do initial load
     await _loadCharacters();
   }
 
   Future<void> _loadCharacters() async {
     try {
-      print('Map3DScreen: Loading characters');
+      print('Map3DScreen: Initial loading characters');
 
       // Get all characters
       final allCharacters = await _firestoreService.getUserCharacters();
-      print('Map3DScreen: Total characters: ${allCharacters.length}');
 
-      // Log states for debugging
-      for (var c in allCharacters) {
-        print('   - ${c.displayNameEn}: state=${c.currentState}');
-      }
-
-      // Get user's last activity
-      _lastUserActivity = await _getLastUserActivity();
-
-      // Categorize characters based on currentState
+      // Categorize characters
       final stable = allCharacters.where((c) => c.currentState == 'stable').toList();
       final active = allCharacters.where((c) => c.currentState == 'active').toList();
       final inactive = allCharacters.where((c) => c.currentState == 'inactive').toList();
 
-      // DEBUG LOGGING
-      print('🗺️ Map3DScreen: Found ${stable.length} stable characters');
-      print('🗺️ Map3DScreen: Found ${active.length} active characters');
-      print('🗺️ Map3DScreen: Found ${inactive.length} inactive characters');
-
-      // Check if widget is still mounted before calling setState
       if (mounted) {
         setState(() {
           _stableCharacters = stable;
           _activeCharacters = active;
           _inactiveCharacters = inactive;
-        });
 
-        // Clear mapSlots first
-        for (int i = 0; i < mapSlots.length; i++) {
-          mapSlots[i] = null;
-        }
-
-        // Combine characters - order: stable first, then active, then inactive
-        final allCharactersSorted = [...stable, ...active, ...inactive];
-
-        // Assign characters to slots
-        int assignedCount = 0;
-        for (int i = 0; i < allCharactersSorted.length && i < mapSlots.length; i++) {
-          mapSlots[i] = allCharactersSorted[i];
-          assignedCount++;
-          print('Map3DScreen: Slot $i assigned: ${allCharactersSorted[i].displayNameEn} '
-              '(State: ${allCharactersSorted[i].currentState})');
-        }
-
-        print('Map3DScreen: Total assigned to map: $assignedCount');
-
-        // Auto-scroll to BOTTOM when page loads
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (_scrollController.hasClients && mounted) {
-            _scrollController.animateTo(
-              _scrollController.position.maxScrollExtent,
-              duration: const Duration(milliseconds: 800),
-              curve: Curves.easeOut,
-            );
+          // Clear and reassign map slots
+          for (int i = 0; i < mapSlots.length; i++) {
+            mapSlots[i] = null;
           }
+
+          final allCharactersSorted = [...stable, ...active, ...inactive];
+          for (int i = 0; i < allCharactersSorted.length && i < mapSlots.length; i++) {
+            mapSlots[i] = allCharactersSorted[i];
+          }
+
+          _modelRefreshKey++;
+          _isLoading = false;
         });
-
-        // Update loading state
-        if (mounted) {
-          setState(() {
-            _isLoading = false;
-          });
-        }
       }
-
     } catch (e) {
       print('🗺️ Map3DScreen: Error loading characters: $e');
       if (mounted) {
         _useInitialCharacters();
-        setState(() {
-          _isLoading = false;
-        });
       }
     }
   }
+
 
   void _useInitialCharacters() {
     if (!mounted) return;
@@ -183,6 +207,7 @@ class _Map3DScreenState extends State<Map3DScreen> {
         _stableCharacters = stable;
         _activeCharacters = active;
         _inactiveCharacters = inactive;
+        _modelRefreshKey++;
       });
     }
 
@@ -218,11 +243,6 @@ class _Map3DScreenState extends State<Map3DScreen> {
     return DateTime.now();
   }
 
-  @override
-  void dispose() {
-    _scrollController.dispose();
-    super.dispose();
-  }
 
   void _showCharacterDetail(BuildContext context, UserCharacter character) {
     // Don't show details for inactive characters
@@ -541,7 +561,8 @@ class _Map3DScreenState extends State<Map3DScreen> {
                             character,
                           )
                               : null,
-                          isArabic: _isArabic, // Pass the language state
+                          isArabic: _isArabic,
+                          refreshKey: ValueKey(_modelRefreshKey),
                         ),
                       );
                     }),
