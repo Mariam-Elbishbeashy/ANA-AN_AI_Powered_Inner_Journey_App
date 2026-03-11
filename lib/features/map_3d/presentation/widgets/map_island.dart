@@ -5,254 +5,301 @@ import 'package:ana_ifs_app/features/character/domain/entities/user_character.da
 import 'package:ana_ifs_app/cached_o3d_widget.dart';
 import 'package:ana_ifs_app/l10n/app_strings.dart';
 
-enum IslandTheme { green, purple }
+enum IslandTheme { green, purple, grey }
 
 class MapIsland extends StatelessWidget {
   final UserCharacter? userCharacter;
   final IslandTheme colorTheme;
   final VoidCallback? onTap;
   final bool isArabic;
+  final Key? refreshKey;
 
   const MapIsland({
-    super.key,
+    Key? key,
     this.userCharacter,
     required this.colorTheme,
     this.onTap,
     required this.isArabic,
-  });
+    this.refreshKey,
+  }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
     // DEBUG LOGGING
     print('DEBUG MapIsland: Building for ${userCharacter?.displayNameEn ?? "empty"}, '
-        'colorTheme: ${colorTheme.name}, isHealed: ${userCharacter?.isHealed ?? false}');
+        'colorTheme: ${colorTheme.name}, currentState: ${userCharacter?.currentState ?? "none"}');
 
     Color mainColor;
     Color sideColor;
     Color glowColor;
+    Color textColor;
+    bool isInteractive = true;
 
     if (colorTheme == IslandTheme.green) {
-      // Healed character - Green theme
+      // Stable character - Green theme
       mainColor = const Color(0xFFA5D6A7);
       sideColor = const Color(0xFF66BB6A);
       glowColor = const Color(0xFF5CB85C).withOpacity(0.3);
-      print('DEBUG MapIsland: Using GREEN theme for ${userCharacter?.displayNameEn ?? "empty"}');
+      textColor = const Color(0xFF2E7D32);
+      print('DEBUG MapIsland: Using GREEN theme (stable) for ${userCharacter?.displayNameEn ?? "empty"}');
+    } else if (colorTheme == IslandTheme.grey) {
+      // Inactive character - Grey theme
+      mainColor = const Color(0xFFE0E0E0);
+      sideColor = const Color(0xFFBDBDBD);
+      glowColor = Colors.transparent;
+      textColor = const Color(0xFF616161);
+      isInteractive = false; // Make inactive characters non-tappable
+      print('DEBUG MapIsland: Using GREY theme (inactive) for ${userCharacter?.displayNameEn ?? "empty"}');
     } else {
-      // Unhealed character - Purple theme
+      // Active character - Purple theme
       mainColor = const Color(0xFFCE93D8);
       sideColor = const Color(0xFFAB47BC);
       glowColor = const Color(0xFFAB47BC).withOpacity(0.3);
-      print('DEBUG MapIsland: Using PURPLE theme for ${userCharacter?.displayNameEn ?? "empty"}');
+      textColor = const Color(0xFF4A148C);
+      print('DEBUG MapIsland: Using PURPLE theme (active) for ${userCharacter?.displayNameEn ?? "empty"}');
     }
 
     return GestureDetector(
-      onTap: onTap,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Island Platform
-          SizedBox(
-            height: 150,
-            width: 120,
-            child: Stack(
-              alignment: Alignment.bottomCenter,
-              children: [
-                // Glow effect for healed characters
-                if (colorTheme == IslandTheme.green)
-                  Container(
-                    height: 70,
-                    width: 110,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: glowColor,
-                          blurRadius: 20,
-                          spreadRadius: 5,
-                        ),
-                      ],
-                    ),
-                  ),
-
-                // Base
-                Container(
-                  height: 60,
-                  width: 100,
-                  decoration: BoxDecoration(
-                    color: sideColor,
-                    borderRadius: BorderRadius.circular(25),
-                    boxShadow: [
-                      BoxShadow(
-                        color: sideColor.withOpacity(0.4),
-                        blurRadius: 10,
-                        offset: const Offset(0, 5),
-                      ),
-                      if (colorTheme == IslandTheme.green)
-                        BoxShadow(
-                          color: glowColor,
-                          blurRadius: 15,
-                          spreadRadius: 2,
-                        ),
-                    ],
-                  ),
-                  child: Container(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    decoration: BoxDecoration(
-                      color: mainColor,
-                      borderRadius: BorderRadius.circular(25),
-                      border: Border.all(
-                        color: Colors.white.withOpacity(0.4),
-                        width: 2,
-                      ),
-                    ),
-                    child: Center(
-                      child: userCharacter == null
-                          ? Icon(
-                        Icons.spa,
-                        color: Colors.white.withOpacity(0.6),
-                        size: 24,
-                      )
-                          : null,
-                    ),
-                  ),
-                ),
-                // 3D Model
-                if (userCharacter != null)
-                  Positioned(
-                    bottom: 20,
-                    child: SizedBox(
-                      height: 130,
+      onTap: isInteractive ? onTap : null, // Disable taps for inactive
+      child: Opacity(
+        opacity: colorTheme == IslandTheme.grey ? 0.6 : 1.0, // Fade inactive characters
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Island Platform
+            SizedBox(
+              height: 150,
+              width: 120,
+              child: Stack(
+                alignment: Alignment.bottomCenter,
+                children: [
+                  // Glow effect for stable characters
+                  if (colorTheme == IslandTheme.green)
+                    Container(
+                      height: 70,
                       width: 110,
-                      child: Stack(
-                        children: [
-                          if (userCharacter!.isHealed)
-                            Positioned(
-                              top: 0,
-                              right: 0,
-                              child: Container(
-                                child: const Icon(
-                                  Icons.check,
-                                  size: 12,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ),
-                          userCharacter!.glbFileName.isNotEmpty
-                              ? CachedO3D(
-                            glbPath: "assets/models/${userCharacter!.glbFileName}",
-                            autoPlay: true,
-                            cameraControls: false,
-                          )
-                              : Container(
-                            decoration: BoxDecoration(
-                              color: _getArchetypeColor(
-                                userCharacter!.archetype,
-                              ).withOpacity(0.1),
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(
-                              _getArchetypeIcon(userCharacter!.archetype),
-                              size: 50,
-                              color: _getArchetypeColor(
-                                userCharacter!.archetype,
-                              ),
-                            ),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: glowColor,
+                            blurRadius: 20,
+                            spreadRadius: 5,
                           ),
                         ],
                       ),
                     ),
-                  ),
-              ],
-            ),
-          ),
 
-          // Glass Effect Label
-          if (userCharacter != null) ...[
-            const SizedBox(height: 5),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(15),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 5.0, sigmaY: 5.0),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.3),
-                    borderRadius: BorderRadius.circular(15),
-                    border: Border.all(
-                      color: Colors.white.withOpacity(0.6),
-                      width: 1.5,
-                    ),
-                    boxShadow: [
-                      if (colorTheme == IslandTheme.green)
-                        BoxShadow(
-                          color: const Color(0xFF5CB85C).withOpacity(0.3),
-                          blurRadius: 10,
-                          spreadRadius: 2,
-                        ),
-                    ],
-                  ),
-                  child: Column(
-                    children: [
-                      Text(
-                        isArabic && userCharacter!.displayNameAr.isNotEmpty
-                            ? userCharacter!.displayNameAr
-                            : userCharacter!.displayNameEn,
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: colorTheme == IslandTheme.green
-                              ? const Color(0xFF2E7D32)
-                              : const Color(0xFF4A148C),
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 2),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            _getTranslatedArchetype(context, userCharacter!.archetype),
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w600,
-                              color: _getArchetypeColor(userCharacter!.archetype),
+                  // Lock icon for inactive characters (only lock, no cancel sign)
+                  if (colorTheme == IslandTheme.grey && userCharacter != null)
+                    Positioned(
+                      top: 30,
+                      right: 10,
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.9),
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.1),
+                              blurRadius: 4,
                             ),
+                          ],
+                        ),
+                        child: const Icon(
+                          Icons.lock_outline,
+                          size: 14,
+                          color: Color(0xFF757575),
+                        ),
+                      ),
+                    ),
+
+                  // Base
+                  Container(
+                    height: 60,
+                    width: 100,
+                    decoration: BoxDecoration(
+                      color: sideColor,
+                      borderRadius: BorderRadius.circular(25),
+                      boxShadow: [
+                        BoxShadow(
+                          color: sideColor.withOpacity(0.4),
+                          blurRadius: 10,
+                          offset: const Offset(0, 5),
+                        ),
+                        if (colorTheme == IslandTheme.green)
+                          BoxShadow(
+                            color: glowColor,
+                            blurRadius: 15,
+                            spreadRadius: 2,
                           ),
-                          if (userCharacter!.isHealed)
-                            Row(
-                              children: [
-                                const SizedBox(width: 4),
-                                Container(
-                                  width: 4,
-                                  height: 4,
+                      ],
+                    ),
+                    child: Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      decoration: BoxDecoration(
+                        color: mainColor,
+                        borderRadius: BorderRadius.circular(25),
+                        border: Border.all(
+                          color: Colors.white.withOpacity(0.4),
+                          width: 2,
+                        ),
+                      ),
+                      child: Center(
+                        child: userCharacter == null
+                            ? Icon(
+                          Icons.spa,
+                          color: Colors.white.withOpacity(0.6),
+                          size: 24,
+                        )
+                            : null,
+                      ),
+                    ),
+                  ),
+                  // 3D Model
+                  if (userCharacter != null)
+                    Positioned(
+                      bottom: 20,
+                      child: SizedBox(
+                        height: 130,
+                        width: 110,
+                        child: Stack(
+                          children: [
+                            // State indicator badge (only check for stable, no badge for inactive)
+                            if (userCharacter!.currentState == 'stable')
+                              Positioned(
+                                top: 0,
+                                right: 0,
+                                child: Container(
+                                  padding: const EdgeInsets.all(2),
                                   decoration: const BoxDecoration(
                                     color: Color(0xFF5CB85C),
                                     shape: BoxShape.circle,
                                   ),
-                                ),
-                                const SizedBox(width: 4),
-                                Text(
-                                  isArabic ? 'تم الشفاء' : 'HEALED',
-                                  style: TextStyle(
-                                    fontSize: 8,
-                                    fontWeight: FontWeight.w800,
-                                    color: const Color(0xFF5CB85C),
+                                  child: const Icon(
+                                    Icons.check,
+                                    size: 10,
+                                    color: Colors.white,
                                   ),
                                 ),
-                              ],
+                              ),
+                            userCharacter!.glbFileName.isNotEmpty
+                                ? CachedO3D(
+                              glbPath: "assets/models/${userCharacter!.glbFileName}",
+                              autoPlay: true,
+                              cameraControls: false,
+                              key: refreshKey,
+                              cacheKey: userCharacter!.id,
+                            )
+                                : Container(
+                              decoration: BoxDecoration(
+                                color: _getArchetypeColor(
+                                  userCharacter!.archetype,
+                                ).withOpacity(0.1),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                _getArchetypeIcon(userCharacter!.archetype),
+                                size: 50,
+                                color: _getArchetypeColor(
+                                  userCharacter!.archetype,
+                                ).withOpacity(
+                                  colorTheme == IslandTheme.grey ? 0.5 : 1.0,
+                                ),
+                              ),
                             ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ],
+                    ),
+                ],
+              ),
+            ),
+
+            // Glass Effect Label
+            if (userCharacter != null) ...[
+              const SizedBox(height: 5),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(15),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 5.0, sigmaY: 5.0),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.3),
+                      borderRadius: BorderRadius.circular(15),
+                      border: Border.all(
+                        color: Colors.white.withOpacity(0.6),
+                        width: 1.5,
+                      ),
+                      boxShadow: [
+                        if (colorTheme == IslandTheme.green)
+                          BoxShadow(
+                            color: const Color(0xFF5CB85C).withOpacity(0.3),
+                            blurRadius: 10,
+                            spreadRadius: 2,
+                          ),
+                      ],
+                    ),
+                    child: Column(
+                      children: [
+                        Text(
+                          isArabic && userCharacter!.displayNameAr.isNotEmpty
+                              ? userCharacter!.displayNameAr
+                              : userCharacter!.displayNameEn,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: textColor,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 2),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              _getTranslatedArchetype(context, userCharacter!.archetype),
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                                color: _getArchetypeColor(userCharacter!.archetype).withOpacity(
+                                  colorTheme == IslandTheme.grey ? 0.5 : 1.0,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            Container(
+                              width: 4,
+                              height: 4,
+                              decoration: BoxDecoration(
+                                color: _getStateDotColor(userCharacter!.currentState),
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              _getStateLabel(userCharacter!.currentState, isArabic),
+                              style: TextStyle(
+                                fontSize: 8,
+                                fontWeight: FontWeight.w800,
+                                color: _getStateLabelColor(userCharacter!.currentState),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
@@ -293,6 +340,42 @@ class MapIsland extends StatelessWidget {
         return tr(context, 'EXILE', 'منفي');
       default:
         return archetype.toUpperCase();
+    }
+  }
+
+  Color _getStateDotColor(String state) {
+    switch (state) {
+      case 'stable':
+        return const Color(0xFF5CB85C);
+      case 'inactive':
+        return const Color(0xFF9E9E9E);
+      case 'active':
+      default:
+        return const Color(0xFFAB47BC);
+    }
+  }
+
+  Color _getStateLabelColor(String state) {
+    switch (state) {
+      case 'stable':
+        return const Color(0xFF5CB85C);
+      case 'inactive':
+        return const Color(0xFF757575);
+      case 'active':
+      default:
+        return const Color(0xFFAB47BC);
+    }
+  }
+
+  String _getStateLabel(String state, bool isArabic) {
+    switch (state) {
+      case 'stable':
+        return isArabic ? 'مستقر' : 'STABLE';
+      case 'inactive':
+        return isArabic ? 'غير نشط' : 'INACTIVE';
+      case 'active':
+      default:
+        return isArabic ? 'نشط' : 'ACTIVE';
     }
   }
 }

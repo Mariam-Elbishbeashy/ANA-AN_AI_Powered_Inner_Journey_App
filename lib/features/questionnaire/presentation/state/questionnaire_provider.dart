@@ -15,7 +15,7 @@ class QuestionnaireProvider extends ChangeNotifier {
   List<QuestionAnswer> _answers = [];
   int _currentQuestionIndex = 0;
   final AIService _aiService = AIService();
-  bool _isLoading = false;
+  bool _isLoading = true; // Start with loading true
   bool _hasLoaded = false;
   bool _isLanguageSwitching = false;
   String _language = 'en';
@@ -38,10 +38,22 @@ class QuestionnaireProvider extends ChangeNotifier {
 
   Future<void> _initialize() async {
     try {
-      _language = await _firestoreService.getUserLanguage();
+      // Load user's saved language FIRST
+      final savedLanguage = await _firestoreService.getUserLanguage();
+      print('📱 User language loaded from Firestore: $savedLanguage');
+
+      // Update language BEFORE loading questions
+      _language = savedLanguage;
       _safeNotifyListeners();
+
+      // Then load questions in that language
+      await loadQuestions();
     } catch (e) {
-      print('Error initializing language: $e');
+      print('Error initializing: $e');
+      // If error, still try to load questions in default language
+      _isLoading = false;
+      _safeNotifyListeners();
+      await loadQuestions();
     }
   }
 
@@ -63,8 +75,6 @@ class QuestionnaireProvider extends ChangeNotifier {
 
       if (loadedQuestions.isEmpty) {
         print('⚠️ No questions loaded for language $language');
-
-        // Show a more specific error
         throw Exception('No questions available in $language. Please check the database.');
       }
 
@@ -97,7 +107,7 @@ class QuestionnaireProvider extends ChangeNotifier {
   }
 
   Future<void> loadQuestions() async {
-    if (_isLoading || _hasLoaded) return;
+    if (_hasLoaded) return;
 
     _isLoading = true;
     _safeNotifyListeners();
@@ -131,23 +141,19 @@ class QuestionnaireProvider extends ChangeNotifier {
     _safeNotifyListeners();
 
     try {
-      // 1. FIRST update the language in Firestore
+      // 1. Update the language in Firestore
       await _firestoreService.setUserLanguage(newLanguage);
 
       // 2. Update the language variable
       _language = newLanguage;
 
-      // 3. Clear existing questions but keep reference to old ones
-      final oldQuestions = List<Question>.from(_questions);
-      final oldAnswers = List<QuestionAnswer>.from(_answers);
-
-      // 4. Reset state but don't clear arrays yet (to prevent UI flicker)
+      // 3. Reset state
       _hasLoaded = false;
 
-      // 5. Load new questions for the new language
+      // 4. Load new questions for the new language
       await _loadQuestionsForLanguage(newLanguage);
 
-      // 6. RESTORE POSITION: Find the same question number in new language
+      // 5. RESTORE POSITION: Find the same question number in new language
       if (questionNumberToRestore != null && _questions.isNotEmpty) {
         _restoreQuestionPositionByNumber(questionNumberToRestore);
       } else {
@@ -424,8 +430,15 @@ class QuestionnaireProvider extends ChangeNotifier {
         predictedAt: DateTime.now(),
         isHealed: false,
         healedAt: null,
+        currentState: 'active', // Make sure this is included
       );
     }).toList();
+
+    // Log the data being saved to verify currentState is included
+    print('💾 Saving user characters with currentState:');
+    for (var character in userCharacters) {
+      print('  - ${character.characterName}: ${character.currentState}');
+    }
 
     await _firestoreService.saveUserCharacters(userCharacters);
   }

@@ -283,46 +283,11 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
               color: Color(0xFF6A5CFF),
             ),
             onPressed: () {
-              showDialog(
-                context: context,
-                builder: (context) => Consumer<QuestionnaireProvider>(
-                  builder: (context, provider, child) => AlertDialog(
-                    title: Text(
-                      provider.language == 'ar'
-                          ? 'العودة إلى الشاشة الرئيسية؟'
-                          : 'Return to Welcome?',
-                    ),
-                    content: Text(
-                      provider.language == 'ar'
-                          ? 'سيتم حفظ تقدمك. يمكنك متابعة الاستبيان من حيث توقفت.'
-                          : 'Your progress will be saved. You can continue the questionnaire from where you left off.',
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: Text(
-                          provider.language == 'ar' ? 'إلغاء' : 'Cancel',
-                        ),
-                      ),
-                      TextButton(
-                        onPressed: () {
-                          Navigator.pop(context);
-                          Navigator.of(context).pushAndRemoveUntil(
-                            MaterialPageRoute(
-                              builder: (_) => const AnaWelcomeScreen(),
-                            ),
-                                (route) => false,
-                          );
-                        },
-                        child: Text(
-                          provider.language == 'ar'
-                              ? 'العودة'
-                              : 'Return to Welcome',
-                        ),
-                      ),
-                    ],
-                  ),
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(
+                  builder: (_) => const AnaWelcomeScreen(),
                 ),
+                    (route) => false,
               );
             },
           ),

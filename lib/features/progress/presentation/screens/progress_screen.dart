@@ -1,12 +1,14 @@
+// lib/features/progress/presentation/screens/progress_screen.dart
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'package:ana_ifs_app/l10n/app_strings.dart';
 import 'package:ana_ifs_app/core/widgets/shared_widgets.dart';
 import 'package:ana_ifs_app/features/progress/presentation/providers/milestone_provider.dart';
-import 'package:ana_ifs_app/features/progress/domain/entities/daily_activity.dart';
-
+import 'package:ana_ifs_app/features/progress/presentation/widgets/progress_charts.dart';
 import '../../domain/entities/milestone.dart';
+import '../widgets/progress_background.dart';
 
 class ProgressScreen extends StatefulWidget {
   final String name;
@@ -63,6 +65,9 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
   bool _showAchievementHistory = false;
   bool _showAllCharacterDiscovery = false;
   bool _showAllHealingProgress = false;
+
+  // New toggle state
+  bool _showChartsView = true; // true = charts, false = achievements
 
   @override
   void initState() {
@@ -131,37 +136,40 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
   }
 
   Widget _buildLoadingState() {
-    return Column(
-      children: [
-        TopHelloBar(
-          name: widget.name,
-          onLogout: widget.onLogout,
-          onSettings: () {
-            showModalBottomSheet(
-              context: context,
-              builder: (context) => SettingsBottomSheet(
-                onRetakeQuestionnaire: widget.onRetakeQuestionnaire,
-                onSwitchLanguage: widget.onSwitchLanguage,
-              ),
-            );
-          },
-        ),
-        Expanded(
-          child: Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                CircularProgressIndicator(color: Color(0xFF8E7CFF)),
-                SizedBox(height: 20),
-                Text(
-                  'Loading your progress...',
-                  style: TextStyle(color: Color(0xFF4B3A66)),
+    return ProgressBackground(  // Wrap with background
+      isLoading: true,
+      child: Column(
+        children: [
+          TopHelloBar(
+            name: widget.name,
+            onLogout: widget.onLogout,
+            onSettings: () {
+              showModalBottomSheet(
+                context: context,
+                builder: (context) => SettingsBottomSheet(
+                  onRetakeQuestionnaire: widget.onRetakeQuestionnaire,
+                  onSwitchLanguage: widget.onSwitchLanguage,
                 ),
-              ],
+              );
+            },
+          ),
+          Expanded(
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(color: Color(0xFF8E7CFF)),
+                  SizedBox(height: 20),
+                  Text(
+                    'Loading your progress...',
+                    style: TextStyle(color: Color(0xFF4B3A66)),
+                  ),
+                ],
+              ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -177,6 +185,31 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
       List<Milestone> streakAchievements,
       MilestoneProvider milestoneProvider,
       ) {
+    // Weekly mood tracking data structure - this would come from database later
+    final weekDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final today = DateTime.now().weekday; // Monday = 1, Sunday = 7
+    final todayIndex = today - 1; // Convert to 0-based index
+
+    final moodOptions = {
+      'Happy': Icons.sentiment_satisfied_rounded,
+      'Sad': Icons.sentiment_dissatisfied_rounded,
+      'Tired': Icons.battery_alert_rounded,
+      'Energetic': Icons.bolt_rounded,
+      'Calm': Icons.spa_rounded,
+      'Anxious': Icons.psychology_rounded,
+    };
+
+    // Sample mood data - in real app, this would come from database
+    final List<Map<String, dynamic>> weeklyMoods = [
+      {'day': 'Mon', 'mood': 'Happy', 'note': 'Feeling good'},
+      {'day': 'Tue', 'mood': 'Tired', 'note': 'Didn\'t sleep well'},
+      {'day': 'Wed', 'mood': 'Calm', 'note': 'Peaceful day'},
+      {'day': 'Thu', 'mood': 'Anxious', 'note': 'Busy day'},
+      {'day': 'Fri', 'mood': 'Sad', 'note': 'Missing someone'},
+      {'day': 'Sat', 'mood': 'Energetic', 'note': 'Workout day'},
+      {'day': 'Sun', 'mood': 'Happy', 'note': 'Relaxing'},
+    ];
+
     return Column(
       children: [
         TopHelloBar(
@@ -193,82 +226,460 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
           },
         ),
         Expanded(
-          child: SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(
-              20,
-              20,
-              20,
-              20 + MediaQuery.of(context).padding.bottom + 80, // Extra padding for bottom navbar
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 20),
+          child: ProgressBackground(
+            isLoading: milestoneProvider.isLoading && milestoneProvider.milestones.isEmpty,
+            child: SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(
+                20,
+                20,
+                20,
+                20 + MediaQuery.of(context).padding.bottom + 80,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 20),
 
-                // Progress overview with streak
-                _buildProgressOverview(stats, context),
-                const SizedBox(height: 30),
+                  // Progress overview with streak
+                  _buildProgressOverview(stats, context),
+                  const SizedBox(height: 30),
 
-                // Daily streak section
-                if (dailyMilestones.isNotEmpty)
-                  _buildDailyStreakSection(dailyMilestones.first, context),
+                  // Weekly Mood Tracking Section
+                  _buildWeeklyMoodSection(weekDays, todayIndex, weeklyMoods, moodOptions, context),
 
-                const SizedBox(height: 30),
+                  const SizedBox(height: 30),
 
-                // Today's Wellness Activities
-                _buildTodaysActivities(context, milestoneProvider),
+                  // View Toggle (Charts / Achievements)
+                  _buildViewToggle(context),
 
-                const SizedBox(height: 30),
+                  const SizedBox(height: 30),
 
-                // Character Discovery Achievements
-                if (allCharacterDiscoveryMilestones.isNotEmpty)
-                  _buildCharacterDiscoverySection(
-                    characterDiscoveryMilestones,
-                    allCharacterDiscoveryMilestones,
-                    context,
-                  ),
+                  // Conditional content based on toggle
+                  if (_showChartsView)
+                    _buildChartsView()
+                  else
+                    _buildAchievementsView(
+                      allCharacterDiscoveryMilestones,
+                      characterDiscoveryMilestones,
+                      streakAchievements,
+                      milestoneProvider,
+                      allHealingMilestones,
+                      healingMilestones,
+                      activeAchievements,
+                      completedAchievements,
+                      context,
+                    ),
 
-                const SizedBox(height: 30),
-
-                // Streak Achievements
-                if (streakAchievements.isNotEmpty)
-                  _buildStreakAchievementsSection(streakAchievements, milestoneProvider),
-
-                const SizedBox(height: 30),
-
-                // Healing Progress
-                if (allHealingMilestones.isNotEmpty)
-                  _buildHealingSection(
-                    healingMilestones,
-                    allHealingMilestones,
-                    context,
-                  ),
-
-                const SizedBox(height: 10),
-
-                // Active Achievements
-                if (activeAchievements.isNotEmpty)
-                  _buildActiveAchievementsSection(activeAchievements, context),
-
-                // Separation line before Achievement History
-                Container(
-                  height: 1,
-                  color: Color(0xFFE5DEFF),
-                  margin: EdgeInsets.symmetric(vertical: 10),
-                ),
-
-                const SizedBox(height: 10),
-
-                // Achievement History (Completed Achievements)
-                if (completedAchievements.isNotEmpty)
-                  _buildAchievementHistorySection(completedAchievements, context),
-
-                const SizedBox(height: 40), // Extra spacing at the bottom
-              ],
+                  const SizedBox(height: 40),
+                ],
+              ),
             ),
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildViewToggle(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(30),
+        border: Border.all(color: const Color(0xFFE5DEFF)),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF8E7CFF).withOpacity(0.1),
+            blurRadius: 8,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: GestureDetector(
+              onTap: () {
+                setState(() {
+                  _showChartsView = true;
+                });
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                decoration: BoxDecoration(
+                  color: _showChartsView ? const Color(0xFF8E7CFF) : Colors.transparent,
+                  borderRadius: BorderRadius.circular(25),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.bar_chart_rounded,
+                      size: 18,
+                      color: _showChartsView ? Colors.white : const Color(0xFF7A6A5A),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      tr(context, 'Charts', 'الرسوم البيانية'),
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: _showChartsView ? Colors.white : const Color(0xFF7A6A5A),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: GestureDetector(
+              onTap: () {
+                setState(() {
+                  _showChartsView = false;
+                });
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                decoration: BoxDecoration(
+                  color: !_showChartsView ? const Color(0xFF8E7CFF) : Colors.transparent,
+                  borderRadius: BorderRadius.circular(25),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.emoji_events_rounded,
+                      size: 18,
+                      color: !_showChartsView ? Colors.white : const Color(0xFF7A6A5A),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      tr(context, 'Achievements', 'الإنجازات'),
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: !_showChartsView ? Colors.white : const Color(0xFF7A6A5A),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildChartsView() {
+    return const ProgressCharts();
+  }
+
+  Widget _buildAchievementsView(
+      List<Milestone> allCharacterDiscoveryMilestones,
+      List<Milestone> characterDiscoveryMilestones,
+      List<Milestone> streakAchievements,
+      MilestoneProvider milestoneProvider,
+      List<Milestone> allHealingMilestones,
+      List<Milestone> healingMilestones,
+      List<Milestone> activeAchievements,
+      List<Milestone> completedAchievements,
+      BuildContext context,
+      ) {
+    return Column(
+      children: [
+        // Character Discovery Achievements
+        if (allCharacterDiscoveryMilestones.isNotEmpty)
+          _buildCharacterDiscoverySection(
+            characterDiscoveryMilestones,
+            allCharacterDiscoveryMilestones,
+            context,
+          ),
+
+        const SizedBox(height: 30),
+
+        // Streak Achievements
+        if (streakAchievements.isNotEmpty)
+          _buildStreakAchievementsSection(streakAchievements, milestoneProvider),
+
+        const SizedBox(height: 30),
+
+        // Healing Progress
+        if (allHealingMilestones.isNotEmpty)
+          _buildHealingSection(
+            healingMilestones,
+            allHealingMilestones,
+            context,
+          ),
+
+        const SizedBox(height: 10),
+
+        // Active Achievements
+        if (activeAchievements.isNotEmpty)
+          _buildActiveAchievementsSection(activeAchievements, context),
+
+        // Separation line before Achievement History
+        Container(
+          height: 1,
+          color: Color(0xFFE5DEFF),
+          margin: EdgeInsets.symmetric(vertical: 10),
+        ),
+
+        const SizedBox(height: 10),
+
+        // Achievement History (Completed Achievements)
+        if (completedAchievements.isNotEmpty)
+          _buildAchievementHistorySection(completedAchievements, context),
+      ],
+    );
+  }
+
+  Widget _buildWeeklyMoodSection(
+      List<String> weekDays,
+      int todayIndex,
+      List<Map<String, dynamic>> weeklyMoods,
+      Map<String, IconData> moodOptions,
+      BuildContext context,
+      ) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFE5DEFF)),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF8E7CFF).withOpacity(0.1),
+            blurRadius: 12,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header with emotion theme
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF8E7CFF).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  Icons.emoji_emotions_rounded,
+                  color: const Color(0xFF8E7CFF),
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      tr(context, 'Mood Predictions', 'توقعات المزاج'),
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF2A1E3B),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      tr(context, 'Next 1w', 'الأسبوع القادم'),
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: const Color(0xFF7A6A5A).withOpacity(0.8),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 20),
+
+          // Weekly mood grid
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: List.generate(7, (index) {
+              final day = weekDays[index];
+              final dayData = weeklyMoods.firstWhere(
+                    (m) => m['day'] == day,
+                orElse: () => {'day': day, 'mood': null},
+              );
+              final isToday = index == todayIndex;
+              final mood = dayData['mood'];
+              final hasMood = mood != null;
+
+              return Expanded(
+                child: Container(
+                  margin: EdgeInsets.only(right: index < 6 ? 4 : 0),
+                  child: Column(
+                    children: [
+                      // Day label
+                      Text(
+                        day,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: isToday ? FontWeight.w700 : FontWeight.w500,
+                          color: isToday
+                              ? const Color(0xFF8E7CFF)
+                              : const Color(0xFF7A6A5A),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+
+                      // Mood indicator - only tappable for today
+                      GestureDetector(
+                        onTap: isToday
+                            ? () {
+                          _showMoodSelectionDialog(context, day, moodOptions);
+                        }
+                            : null, // No tap for other days
+                        child: Container(
+                          width: double.infinity,
+                          height: 60,
+                          decoration: BoxDecoration(
+                            color: hasMood
+                                ? const Color(0xFF8E7CFF).withOpacity(0.15)
+                                : const Color(0xFFF5F5F5),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: isToday
+                                  ? const Color(0xFF8E7CFF)
+                                  : (hasMood
+                                  ? const Color(0xFF8E7CFF).withOpacity(0.3)
+                                  : const Color(0xFFE5DEFF)),
+                              width: isToday ? 2 : 1,
+                            ),
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              if (hasMood)
+                                Icon(
+                                  moodOptions[mood] ?? Icons.help_outline_rounded,
+                                  color: isToday
+                                      ? const Color(0xFF8E7CFF)
+                                      : const Color(0xFF9C90B3),
+                                  size: 24,
+                                )
+                              else
+                                Icon(
+                                  // Show different icon based on whether it's today or not
+                                  isToday
+                                      ? Icons.add_circle_outline_rounded
+                                      : Icons.remove_circle_outline_rounded,
+                                  color: isToday
+                                      ? const Color(0xFF8E7CFF).withOpacity(0.5)
+                                      : const Color(0xFF9C90B3).withOpacity(0.3),
+                                  size: 20,
+                                ),
+                              if (hasMood) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  mood,
+                                  style: TextStyle(
+                                    fontSize: 8,
+                                    fontWeight: FontWeight.w600,
+                                    color: isToday
+                                        ? const Color(0xFF8E7CFF)
+                                        : const Color(0xFF9C90B3),
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+
+                      // Today indicator
+                      if (isToday)
+                        Container(
+                          margin: const EdgeInsets.only(top: 6),
+                          width: 6,
+                          height: 6,
+                          decoration: const BoxDecoration(
+                            color: Color(0xFF8E7CFF),
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            }),
+          ),
+
+          const SizedBox(height: 20),
+
+          // Note about tapping to log mood - updated to only mention today
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.info_outline_rounded,
+                size: 14,
+                color: const Color(0xFF7A6A5A).withOpacity(0.6),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  tr(context, 'Tap today\'s mood to update it', 'اضغط على مزاج اليوم لتحديثه'),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: const Color(0xFF7A6A5A).withOpacity(0.8),
+                    fontStyle: FontStyle.italic,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showMoodSelectionDialog(BuildContext context, String day, Map<String, IconData> moodOptions) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(tr(context, 'Update Today\'s Mood', 'تحديث مزاج اليوم')),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: moodOptions.entries.map((entry) {
+            return ListTile(
+              leading: Icon(entry.value, color: Color(0xFF8E7CFF)),
+              title: Text(entry.key),
+              onTap: () {
+                // This would save to database for today only
+                Navigator.pop(context);
+                // Show confirmation
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('${entry.key} ${tr(context, 'logged for today', 'تم تسجيله لليوم')}'),
+                    backgroundColor: Color(0xFF8E7CFF),
+                  ),
+                );
+              },
+            );
+          }).toList(),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(tr(context, 'Cancel', 'إلغاء')),
+          ),
+        ],
+      ),
     );
   }
 
@@ -304,7 +715,6 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
                 ),
               ],
             ),
-            // Show "See More" button only if there are more than 2 milestones
             if (allMilestones.length > 2)
               TextButton(
                 onPressed: () {
@@ -365,7 +775,6 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
                 ),
               ],
             ),
-            // Show "See More" button only if there are more than 2 milestones
             if (allMilestones.length > 2)
               TextButton(
                 onPressed: () {
@@ -448,414 +857,6 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
     );
   }
 
-  Widget _buildDailyStreakSection(Milestone milestone, BuildContext context) {
-    final progress = milestone.currentCount / milestone.targetCount;
-
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFE5DEFF)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(
-                Icons.local_fire_department_rounded,
-                color: Color(0xFFFF6B6B),
-                size: 24,
-              ),
-              const SizedBox(width: 10),
-              Text(
-                tr(context, 'Daily Streak', 'السلسلة اليومية'),
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF2A1E3B),
-                ),
-              ),
-              const Spacer(),
-              Text(
-                '${milestone.streakDays} ${tr(context, 'days', 'يوم')}',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFFFF6B6B),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-
-          // Progress bar for 7-day milestone
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    milestone.title,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF2A1E3B),
-                    ),
-                  ),
-                  Text(
-                    '${milestone.currentCount}/${milestone.targetCount}',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF4B3A66),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              LinearProgressIndicator(
-                value: progress,
-                backgroundColor: const Color(0xFFE5DEFF),
-                valueColor: AlwaysStoppedAnimation<Color>(
-                  progress >= 1 ? Color(0xFF4CAF50) : Color(0xFF8E7CFF),
-                ),
-                minHeight: 10,
-                borderRadius: BorderRadius.circular(5),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                milestone.description,
-                style: TextStyle(
-                  fontSize: 14,
-                  color: const Color(0xFF7A6A5A).withOpacity(0.8),
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 20),
-
-          // Daily check-in prompt
-          if (!milestone.isAchieved && milestone.currentCount < milestone.targetCount)
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFF8E7CFF).withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFF8E7CFF).withOpacity(0.3)),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.check_circle_rounded,
-                    color: Color(0xFF8E7CFF),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          tr(context, 'Check in today!', 'سجل دخولك اليوم!'),
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF2A1E3B),
-                          ),
-                        ),
-                        Text(
-                          tr(
-                            context,
-                            'Open the app tomorrow to continue your streak',
-                            'افتح التطبيق غدًا لمواصلة سلسلتك',
-                          ),
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: const Color(0xFF7A6A5A),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTodaysActivities(BuildContext context, MilestoneProvider milestoneProvider) {
-    final activitiesData = milestoneProvider.getTodaysActivities();
-    final activities = activitiesData['activities'] as List<DailyActivity>;
-    final completed = activitiesData['completed'] as Map<String, bool>;
-    final hasActivities = activitiesData['hasActivities'] as bool;
-    final isToday = activitiesData['isToday'] as bool;
-
-    if (!hasActivities || !isToday) {
-      return Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: const Color(0xFFE5DEFF)),
-        ),
-        child: Column(
-          children: [
-            Icon(
-              Icons.psychology_rounded,
-              color: Color(0xFF8E7CFF),
-              size: 40,
-            ),
-            const SizedBox(height: 10),
-            Text(
-              tr(context, 'Loading today\'s activities...', 'جارٍ تحميل أنشطة اليوم...'),
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Color(0xFF4B3A66),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    // Group by category
-    final morningActivities = activities.where((a) => a.category == 'morning').toList();
-    final afternoonActivities = activities.where((a) => a.category == 'afternoon').toList();
-    final eveningActivities = activities.where((a) => a.category == 'evening').toList();
-
-    final completedCount = completed.values.where((c) => c).length;
-    final totalCount = activities.length;
-
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFE5DEFF)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                children: [
-                  Icon(
-                    Icons.psychology_rounded,
-                    color: Color(0xFF8E7CFF),
-                    size: 24,
-                  ),
-                  const SizedBox(width: 10),
-                  Text(
-                    tr(context, 'Today\'s Wellness Activities', 'أنشطة العافية اليومية'),
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF2A1E3B),
-                    ),
-                  ),
-                ],
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                decoration: BoxDecoration(
-                  color: completedCount == totalCount
-                      ? Color(0xFF4CAF50).withOpacity(0.1)
-                      : Color(0xFF8E7CFF).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  '$completedCount/$totalCount',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: completedCount == totalCount
-                        ? Color(0xFF4CAF50)
-                        : Color(0xFF8E7CFF),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Text(
-            tr(context,
-                'Small steps for a calmer day. Try to complete all three!',
-                'خطوات صغيرة ليوم أكثر هدوءًا. حاول إكمال جميع الأنشطة الثلاثة!'
-            ),
-            style: TextStyle(
-              fontSize: 14,
-              color: const Color(0xFF7A6A5A).withOpacity(0.8),
-            ),
-          ),
-          const SizedBox(height: 20),
-
-          // Morning Activities
-          if (morningActivities.isNotEmpty)
-            _buildActivityCategorySection(
-              context: context,
-              title: tr(context, 'Morning Calm', 'هدوء الصباح'),
-              icon: Icons.wb_sunny_rounded,
-              iconColor: Color(0xFFFFB74D),
-              activities: morningActivities,
-              completed: completed,
-              milestoneProvider: milestoneProvider,
-            ),
-
-          const SizedBox(height: 20),
-
-          // Afternoon Activities
-          if (afternoonActivities.isNotEmpty)
-            _buildActivityCategorySection(
-              context: context,
-              title: tr(context, 'Midday Reset', 'استراحة الظهيرة'),
-              icon: Icons.light_mode_rounded,
-              iconColor: Color(0xFF4CAF50),
-              activities: afternoonActivities,
-              completed: completed,
-              milestoneProvider: milestoneProvider,
-            ),
-
-          const SizedBox(height: 20),
-
-          // Evening Activities
-          if (eveningActivities.isNotEmpty)
-            _buildActivityCategorySection(
-              context: context,
-              title: tr(context, 'Evening Wind Down', 'استرخاء المساء'),
-              icon: Icons.nightlight_rounded,
-              iconColor: Color(0xFF7B1FA2),
-              activities: eveningActivities,
-              completed: completed,
-              milestoneProvider: milestoneProvider,
-            ),
-
-          const SizedBox(height: 10),
-
-          // Completion encouragement
-          if (completedCount < totalCount)
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFF8E7CFF).withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFF8E7CFF).withOpacity(0.3)),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.emoji_objects_rounded,
-                    color: Color(0xFF8E7CFF),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      tr(context,
-                          'Complete all activities to boost your wellbeing!',
-                          'أكمل جميع الأنشطة لتعزيز عافيتك!'
-                      ),
-                      style: TextStyle(
-                        color: Color(0xFF2A1E3B),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            )
-          else
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFF4CAF50).withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFF4CAF50).withOpacity(0.3)),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.celebration_rounded,
-                    color: Color(0xFF4CAF50),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      tr(context,
-                          'Amazing! You completed all wellness activities today!',
-                          'مذهل! لقد أكملت جميع أنشطة العافية اليوم!'
-                      ),
-                      style: TextStyle(
-                        color: Color(0xFF2A1E3B),
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildActivityCategorySection({
-    required BuildContext context,
-    required String title,
-    required IconData icon,
-    required Color iconColor,
-    required List<DailyActivity> activities,
-    required Map<String, bool> completed,
-    required MilestoneProvider milestoneProvider,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: iconColor.withOpacity(0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, color: iconColor, size: 20),
-            ),
-            const SizedBox(width: 10),
-            Text(
-              title,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFF2A1E3B),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        ...activities.map((activity) => _DailyActivityItem(
-          activity: activity,
-          completed: completed[activity.id] ?? false,
-          onTap: () async {
-            try {
-              final isCurrentlyCompleted = completed[activity.id] ?? false;
-              await milestoneProvider.completeDailyActivity(
-                activity.id,
-                completed: !isCurrentlyCompleted,
-              );
-            } catch (e) {
-              print('Error toggling activity: $e');
-            }
-          },
-          context: context,
-        )).toList(),
-      ],
-    );
-  }
-
   Widget _buildStreakAchievementsSection(List<Milestone> streakAchievements, MilestoneProvider milestoneProvider) {
     if (streakAchievements.isEmpty) return const SizedBox();
 
@@ -888,7 +889,6 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
                 ),
               ],
             ),
-            // Show "See More" button only if there are more achievements to show
             if (milestoneProvider.getAllStreakAchievements().length > 2)
               TextButton(
                 onPressed: () {
@@ -1029,7 +1029,6 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
         if (_showAchievementHistory) ...[
           const SizedBox(height: 15),
 
-          // Completed achievements grid
           GridView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
@@ -1053,7 +1052,6 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
 
           const SizedBox(height: 10),
 
-          // View all button
           Center(
             child: TextButton(
               onPressed: () {
@@ -1689,361 +1687,5 @@ class _AchievementCard extends StatelessWidget {
       default:
         return Color(0xFF8E7CFF);
     }
-  }
-}
-
-class _DailyActivityItem extends StatelessWidget {
-  final DailyActivity activity;
-  final bool completed;
-  final VoidCallback onTap;
-  final BuildContext context;
-
-  const _DailyActivityItem({
-    required this.activity,
-    required this.completed,
-    required this.onTap,
-    required this.context,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isArabic = Localizations.localeOf(context).languageCode == 'ar';
-    final title = isArabic ? activity.titleAr : activity.titleEn;
-    final description = isArabic ? activity.descriptionAr : activity.descriptionEn;
-
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: completed
-                ? Color(0xFF4CAF50).withOpacity(0.3)
-                : const Color(0xFFE5DEFF),
-            width: completed ? 2 : 1,
-          ),
-          boxShadow: completed ? [
-            BoxShadow(
-              color: Color(0xFF4CAF50).withOpacity(0.1),
-              blurRadius: 8,
-              offset: Offset(0, 2),
-            )
-          ] : null,
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Checkbox container
-            GestureDetector(
-              onTap: onTap,
-              child: AnimatedContainer(
-                duration: Duration(milliseconds: 200),
-                width: 24,
-                height: 24,
-                margin: const EdgeInsets.only(top: 2),
-                decoration: BoxDecoration(
-                  color: completed ? Color(0xFF4CAF50) : Colors.transparent,
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(
-                    color: completed ? Color(0xFF4CAF50) : Color(0xFF9C90B3),
-                    width: 2,
-                  ),
-                ),
-                child: completed
-                    ? Icon(
-                  Icons.check_rounded,
-                  color: Colors.white,
-                  size: 16,
-                )
-                    : null,
-              ),
-            ),
-
-            const SizedBox(width: 15),
-
-            // Content
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          title,
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: completed
-                                ? Color(0xFF2A1E3B)
-                                : Color(0xFF2A1E3B),
-                            decoration: completed
-                                ? TextDecoration.lineThrough
-                                : TextDecoration.none,
-                          ),
-                        ),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: _getCategoryColor(activity.category)
-                              .withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Text(
-                          '${activity.estimatedMinutes} min',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: _getCategoryColor(activity.category),
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 6),
-
-                  Text(
-                    description,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: completed
-                          ? const Color(0xFF7A6A5A).withOpacity(0.7)
-                          : const Color(0xFF7A6A5A),
-                      height: 1.4,
-                    ),
-                  ),
-
-                  const SizedBox(height: 8),
-
-                  // Tags
-                  if (activity.tags.isNotEmpty)
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 4,
-                      children: activity.tags.map((tag) {
-                        return Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: completed
-                                ? const Color(0xFFE8F5E9)
-                                : const Color(0xFFF5F3FF),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Text(
-                            _getTagLabel(tag, context),
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: completed
-                                  ? const Color(0xFF4CAF50)
-                                  : const Color(0xFF7A6A5A),
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Color _getCategoryColor(String category) {
-    switch (category) {
-      case 'morning':
-        return Color(0xFFFFB74D);
-      case 'afternoon':
-        return Color(0xFF4CAF50);
-      case 'evening':
-        return Color(0xFF7B1FA2);
-      default:
-        return Color(0xFF8E7CFF);
-    }
-  }
-
-  String _getTagLabel(String tag, BuildContext context) {
-    final isArabic = Localizations.localeOf(context).languageCode == 'ar';
-
-    final Map<String, Map<String, String>> tagTranslations = {
-      'mindfulness': {
-        'en': 'Mindfulness',
-        'ar': 'وعي',
-      },
-      'gratitude': {
-        'en': 'Gratitude',
-        'ar': 'امتنان',
-      },
-      'breathing': {
-        'en': 'Breathing',
-        'ar': 'تنفس',
-      },
-      'stress_relief': {
-        'en': 'Stress Relief',
-        'ar': 'تخفيف التوتر',
-      },
-      'physical_health': {
-        'en': 'Physical Health',
-        'ar': 'صحة بدنية',
-      },
-      'digital_detox': {
-        'en': 'Digital Detox',
-        'ar': 'صيام رقمي',
-      },
-      'nature': {
-        'en': 'Nature',
-        'ar': 'طبيعة',
-      },
-      'journaling': {
-        'en': 'Journaling',
-        'ar': 'يوميات',
-      },
-      'positive_thinking': {
-        'en': 'Positive Thinking',
-        'ar': 'تفكير إيجابي',
-      },
-      'self_care': {
-        'en': 'Self-Care',
-        'ar': 'عناية ذاتية',
-      },
-      'sensory_awareness': {
-        'en': 'Sensory Awareness',
-        'ar': 'وعي حسي',
-      },
-      'energy': {
-        'en': 'Energy',
-        'ar': 'طاقة',
-      },
-      'flexibility': {
-        'en': 'Flexibility',
-        'ar': 'مرونة',
-      },
-      'self_esteem': {
-        'en': 'Self-Esteem',
-        'ar': 'ثقة بالنفس',
-      },
-      'reflection': {
-        'en': 'Reflection',
-        'ar': 'تأمل',
-      },
-      'nutrition': {
-        'en': 'Nutrition',
-        'ar': 'تغذية',
-      },
-      'body_awareness': {
-        'en': 'Body Awareness',
-        'ar': 'وعي جسدي',
-      },
-      'aromatherapy': {
-        'en': 'Aromatherapy',
-        'ar': 'علاج عطري',
-      },
-      'hydration': {
-        'en': 'Hydration',
-        'ar': 'ترطيب',
-      },
-      'exercise': {
-        'en': 'Exercise',
-        'ar': 'تمرين',
-      },
-      'ergonomics': {
-        'en': 'Ergonomics',
-        'ar': 'بيئة عمل',
-      },
-      'eye_rest': {
-        'en': 'Eye Rest',
-        'ar': 'راحة عينين',
-      },
-      'mindful_eating': {
-        'en': 'Mindful Eating',
-        'ar': 'أكل واعٍ',
-      },
-      'posture': {
-        'en': 'Posture',
-        'ar': 'وضعية جسم',
-      },
-      'kindness': {
-        'en': 'Kindness',
-        'ar': 'لطافة',
-      },
-      'compassion': {
-        'en': 'Compassion',
-        'ar': 'تعاطف',
-      },
-      'music': {
-        'en': 'Music',
-        'ar': 'موسيقى',
-      },
-      'relaxation': {
-        'en': 'Relaxation',
-        'ar': 'استرخاء',
-      },
-      'social': {
-        'en': 'Social',
-        'ar': 'اجتماعي',
-      },
-      'communication': {
-        'en': 'Communication',
-        'ar': 'تواصل',
-      },
-      'productivity': {
-        'en': 'Productivity',
-        'ar': 'إنتاجية',
-      },
-      'organization': {
-        'en': 'Organization',
-        'ar': 'تنظيم',
-      },
-      'eye_health': {
-        'en': 'Eye Health',
-        'ar': 'صحة عيون',
-      },
-      'energy_boost': {
-        'en': 'Energy Boost',
-        'ar': 'نشاط',
-      },
-      'meditation': {
-        'en': 'Meditation',
-        'ar': 'تأمل',
-      },
-      'sleep_hygiene': {
-        'en': 'Sleep Hygiene',
-        'ar': 'نظافة نوم',
-      },
-      'learning': {
-        'en': 'Learning',
-        'ar': 'تعلم',
-      },
-      'environment': {
-        'en': 'Environment',
-        'ar': 'بيئة',
-      },
-      'hygiene': {
-        'en': 'Hygiene',
-        'ar': 'نظافة',
-      },
-      'emotional_release': {
-        'en': 'Emotional Release',
-        'ar': 'تحرير عاطفي',
-      },
-      'self_compassion': {
-        'en': 'Self-Compassion',
-        'ar': 'تعاطف ذاتي',
-      },
-    };
-
-    return tagTranslations[tag]?[isArabic ? 'ar' : 'en'] ?? tag;
   }
 }

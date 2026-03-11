@@ -261,6 +261,7 @@ class FirestoreService {
             'predictedAt': character.predictedAt.toIso8601String(),
             'isHealed': false, // Default to unhealed when created
             'healedAt': null,
+            'currentState': character.currentState,
           });
         }
 
@@ -384,6 +385,126 @@ class FirestoreService {
       throw e;
     }
   }
+
+  Future<void> checkAndUpdateInactiveCharacters() async {
+    try {
+      print('🔍 Checking for inactive users...');
+      final userId = currentUserId;
+      if (userId == null) {
+        print(' No user logged in');
+        return;
+      }
+
+      // Get current user's data
+      final userDoc = await usersCollection.doc(userId).get();
+      if (!userDoc.exists) {
+        print('User document not found');
+        return;
+      }
+
+      final userData = userDoc.data() as Map<String, dynamic>;
+      final now = DateTime.now();
+      final oneMonthAgo = now.subtract(const Duration(days: 30));
+
+      // Get user's last activity
+      DateTime? lastActivity;
+
+      if (userData['lastActivityAt'] != null) {
+        lastActivity = DateTime.tryParse(userData['lastActivityAt']);
+        print('Last activity: $lastActivity');
+      }
+
+      // If no activity recorded, check creation time or updatedAt
+      if (lastActivity == null) {
+        if (userData['updatedAt'] != null) {
+          lastActivity = DateTime.tryParse(userData['updatedAt']);
+        } else if (userData['createdAt'] != null) {
+          lastActivity = DateTime.tryParse(userData['createdAt']);
+        }
+      }
+
+      // If we still don't have last activity, use current time minus 31 days to force check
+      if (lastActivity == null) {
+        print('No activity timestamp found, using default');
+        lastActivity = now.subtract(const Duration(days: 31));
+      }
+
+      print('Last activity: ${lastActivity.toIso8601String()}');
+      print('One month ago: ${oneMonthAgo.toIso8601String()}');
+      print('Is inactive: ${lastActivity.isBefore(oneMonthAgo)}');
+
+      // Check if user has been inactive for more than 30 days
+      if (lastActivity.isBefore(oneMonthAgo)) {
+        print('User has been inactive since ${lastActivity.toIso8601String()}');
+
+        // Get all ACTIVE characters for this user (only active ones, not stable)
+        final charactersQuery = await userCharactersCollection
+            .where('userId', isEqualTo: userId)
+            .where('currentState', isEqualTo: 'active') // Only get active characters
+            .get();
+
+        print('Found ${charactersQuery.docs.length} active characters');
+
+        if (charactersQuery.docs.isNotEmpty) {
+          final batch = _firestore.batch();
+          int updatedCount = 0;
+
+          for (final doc in charactersQuery.docs) {
+            final characterData = doc.data() as Map<String, dynamic>;
+            final currentState = characterData['currentState'];
+
+            print('   - Character ${doc.id}: currentState=$currentState');
+
+            // Only mark as inactive if currently active
+            if (currentState == 'active') {
+              batch.update(doc.reference, {
+                'currentState': 'inactive',
+                'inactivatedAt': now.toIso8601String(),
+                'inactivatedReason': 'app_inactivity',
+                'previousState': 'active',
+                'updatedAt': FieldValue.serverTimestamp(),
+              });
+              updatedCount++;
+              print('Marked character ${characterData['displayNameEn']} as inactive');
+            }
+          }
+
+          if (updatedCount > 0) {
+            await batch.commit();
+            print('Updated $updatedCount characters to inactive for user $userId');
+          } else {
+            print('No active characters needed updating');
+          }
+        } else {
+          print('No active characters found to mark as inactive');
+        }
+      } else {
+        print('User is active (last activity within 30 days)');
+      }
+
+      print('Inactivity check complete');
+    } catch (e, stackTrace) {
+      print('Error checking inactive users: $e');
+      print('Stack trace: $stackTrace');
+    }
+  }
+
+  Future<void> updateUserLastActivity() async {
+    final userId = currentUserId;
+    if (userId == null) return;
+
+    try {
+      await usersCollection.doc(userId).set({
+        'lastActivityAt': DateTime.now().toIso8601String(),
+        'updatedAt': DateTime.now().toIso8601String(),
+      }, SetOptions(merge: true));
+
+      print('Updated last activity for user $userId');
+    } catch (e) {
+      print('Error updating last activity: $e');
+    }
+  }
+
 
   // Check if user has characters data
   Future<bool> hasUserCharacters() async {
@@ -728,22 +849,9 @@ class FirestoreService {
     return _auth.currentUser?.uid;
   }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
   // ============= REFRAME CHARACTER METHODS =============
 
-// Check if character already exists for a user
+  // Check if character already exists for a user
   Future<bool> doesCharacterExistForUser({
     required String userId,
     required String displayName,
@@ -791,7 +899,7 @@ class FirestoreService {
     }
   }
 
-// Save reframe character to user_characters collection
+  // Save reframe character to user_characters collection
   Future<void> saveReframeCharacterToUserCharacters({
     required String userId,
     required String characterName,
@@ -893,6 +1001,7 @@ class FirestoreService {
         'predictedAt': DateTime.now().toIso8601String(),
         'isHealed': false,
         'healedAt': null,
+        'currentState': 'active',
         'addedFromReframe': true,
         'reframeSessionAt': DateTime.now().toIso8601String(),
       };
@@ -915,7 +1024,7 @@ class FirestoreService {
     }
   }
 
-// Check if user has at least one healed character
+  // Check if user has at least one healed character
   Future<bool> hasAtLeastOneHealedCharacter(String userId) async {
     try {
       final healedCharacters = await getHealedCharacters();
@@ -954,10 +1063,4 @@ class FirestoreService {
       return {'total': 0, 'healed': 0, 'unhealed': 0};
     }
   }
-
-
-
-
-
-
 }

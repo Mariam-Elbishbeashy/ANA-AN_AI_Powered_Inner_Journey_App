@@ -8,7 +8,7 @@ import 'package:ana_ifs_app/l10n/app_strings.dart';
 import 'package:ana_ifs_app/features/character/domain/entities/user_character.dart';
 import 'package:ana_ifs_app/features/character/presentation/screens/character_chat_screen.dart';
 import 'package:ana_ifs_app/features/voice_analysis/presentation/screens/voice_analysis_screen.dart';
-
+import 'package:ana_ifs_app/features/video_chat/presentation/screens/video_call_screen.dart';
 class CharacterProfileScreen extends StatefulWidget {
   final UserCharacter character;
   final bool hideCommunicationHub;
@@ -332,17 +332,13 @@ class _CharacterProfileScreenState extends State<CharacterProfileScreen> {
                             );
                           },
                           onVideo: () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  tr(
-                                    context,
-                                    'Video sessions are coming soon.',
-                                    'جلسات الفيديو قادمة قريبًا.',
+                            Navigator.of(context).push(
+                             MaterialPageRoute(
+                              builder: (_) => VideoCallScreen(
+                             character: widget.character,
+                                       ),
                                   ),
-                                ),
-                              ),
-                            );
+                               );
                           },
                         ),
                       ),

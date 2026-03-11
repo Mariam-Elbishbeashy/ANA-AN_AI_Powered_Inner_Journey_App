@@ -15,6 +15,7 @@ class UserCharacter {
   final DateTime predictedAt;
   final bool isHealed;
   final DateTime? healedAt;
+  final String currentState; // 'stable', 'active', 'inactive' - default 'active'
 
   UserCharacter({
     required this.id,
@@ -32,6 +33,7 @@ class UserCharacter {
     required this.predictedAt,
     this.isHealed = false,
     this.healedAt,
+    this.currentState = 'active', // Default to active
   });
 
   // Helper getters for current language
@@ -41,6 +43,27 @@ class UserCharacter {
 
   String getDescription(String currentLanguage) {
     return currentLanguage == 'ar' ? descriptionAr : descriptionEn;
+  }
+
+  String getStateLabel(String language) {
+    if (isHealed) {
+      return language == 'ar' ? 'متشافي' : 'Healed';
+    }
+
+    switch (currentState) {
+      case 'stable':
+        return language == 'ar' ? 'مستقر' : 'Stable';
+      case 'inactive':
+        return language == 'ar' ? 'غير نشط' : 'Inactive';
+      case 'active':
+      default:
+        return language == 'ar' ? 'نشط' : 'Active';
+    }
+  }
+
+  String getStateTheme() {
+    if (isHealed) return 'stable'; // For backward compatibility
+    return currentState; // 'active', 'stable', or 'inactive'
   }
 
   factory UserCharacter.fromMap(Map<String, dynamic> data, String id) {
@@ -62,6 +85,7 @@ class UserCharacter {
       healedAt: data['healedAt'] != null
           ? DateTime.parse(data['healedAt'])
           : null,
+      currentState: data['currentState'] ?? 'active',
     );
   }
 
@@ -81,6 +105,7 @@ class UserCharacter {
       'predictedAt': predictedAt.toIso8601String(),
       'isHealed': isHealed,
       'healedAt': healedAt?.toIso8601String(),
+      'currentState': currentState,
     };
   }
 
@@ -91,19 +116,20 @@ class UserCharacter {
       userId: data['userId'],
       characterName: data['characterName'],
       displayNameEn: data['displayName'],
-      displayNameAr: data['displayName'], // Will be updated when Arabic data is available
+      displayNameAr: data['displayName'],
       archetype: data['archetype'],
       confidence: data['confidence']?.toDouble() ?? 0.0,
       rank: data['rank'],
       language: data['language'] ?? 'en',
       glbFileName: data['glbFileName'],
       descriptionEn: data['description'],
-      descriptionAr: data['description'], // Will be updated when Arabic data is available
+      descriptionAr: data['description'],
       predictedAt: DateTime.parse(data['predictedAt']),
       isHealed: data['isHealed'] ?? false,
       healedAt: data['healedAt'] != null
           ? DateTime.parse(data['healedAt'])
           : null,
+      currentState: data['currentState'] ?? 'active',
     );
   }
 }

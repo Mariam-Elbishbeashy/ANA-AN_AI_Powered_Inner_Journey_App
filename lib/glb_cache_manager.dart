@@ -14,14 +14,19 @@ class GLBCacheManager {
   // Keep track of which models are currently displayed
   final Map<String, bool> _displayedModels = {};
 
+  // Add version tracking for each cached item
+  final Map<String, int> _cacheVersions = {};
+
   O3DController? getController(String glbPath) {
     return _controllerCache[glbPath];
   }
 
   void cacheController(String glbPath, O3DController controller) {
     _controllerCache[glbPath] = controller;
+    _cacheVersions[glbPath] = (_cacheVersions[glbPath] ?? 0) + 1;
+
     if (kDebugMode) {
-      print('✅ Cached controller for: $glbPath');
+      print('✅ Cached controller for: $glbPath (v${_cacheVersions[glbPath]})');
     }
   }
 
@@ -36,7 +41,8 @@ class GLBCacheManager {
   void removeFromCache(String glbPath) {
     final controller = _controllerCache.remove(glbPath);
     _displayedModels.remove(glbPath);
-    // Note: O3DController doesn't have dispose(), it handles its own cleanup
+    _cacheVersions.remove(glbPath);
+
     if (kDebugMode) {
       print('🗑️ Removed from cache: $glbPath');
     }
@@ -45,8 +51,14 @@ class GLBCacheManager {
   void clearCache() {
     _controllerCache.clear();
     _displayedModels.clear();
+    _cacheVersions.clear();
+
     if (kDebugMode) {
       print('🧹 Cleared all GLB cache');
     }
+  }
+
+  int getVersion(String glbPath) {
+    return _cacheVersions[glbPath] ?? 0;
   }
 }

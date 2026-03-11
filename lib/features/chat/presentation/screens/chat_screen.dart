@@ -5,15 +5,16 @@ import 'package:flutter/material.dart';
 import 'package:ana_ifs_app/l10n/app_strings.dart';
 import 'package:ana_ifs_app/core/widgets/shared_widgets.dart';
 import 'package:ana_ifs_app/features/chat/presentation/screens/guider_chat_screen.dart';
+import 'package:ana_ifs_app/features/video_chat/presentation/screens/guider_video_call_screen.dart'; // Add this import
 import 'package:ana_ifs_app/features/voice_analysis/presentation/screens/voice_analysis_screen.dart';
-import 'package:ana_ifs_app/features/character/domain/entities/user_character.dart'; // Add this import
+import 'package:ana_ifs_app/features/character/domain/entities/user_character.dart';
 
 class ChatScreen extends StatelessWidget {
   final String name;
   final VoidCallback onLogout;
   final VoidCallback onRetakeQuestionnaire;
   final VoidCallback? onSwitchLanguage;
-  final UserCharacter character; // Add this parameter
+  final UserCharacter character;
 
   const ChatScreen({
     super.key,
@@ -21,7 +22,7 @@ class ChatScreen extends StatelessWidget {
     required this.onLogout,
     required this.onRetakeQuestionnaire,
     this.onSwitchLanguage,
-    required this.character, // Add this parameter
+    required this.character,
   });
 
   @override
@@ -175,6 +176,7 @@ class ChatScreen extends StatelessWidget {
                 const SizedBox(height: 24),
                 // Talk to Me Hub
                 _GuiderCommunicationHub(
+                  userName: name, // Add this parameter
                   onChat: () {
                     Navigator.of(context).push(
                       MaterialPageRoute(
@@ -186,20 +188,16 @@ class ChatScreen extends StatelessWidget {
                     Navigator.of(context).push(
                       MaterialPageRoute(
                         builder: (_) => VoiceAnalysisScreen(
-                          character: character, // Pass the character here
+                          character: character,
                         ),
                       ),
                     );
                   },
                   onVideo: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          tr(
-                            context,
-                            'Video sessions are coming soon.',
-                            'جلسات الفيديو قادمة قريبًا.',
-                          ),
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => GuiderVideoCallScreen(
+                          userName: name,
                         ),
                       ),
                     );
@@ -304,7 +302,7 @@ class _GlassCard extends StatelessWidget {
             boxShadow: [
               BoxShadow(
                 color:
-                    (accentColor ?? const Color(0xFF6A5CFF)).withOpacity(0.08),
+                (accentColor ?? const Color(0xFF6A5CFF)).withOpacity(0.08),
                 blurRadius: 20,
                 offset: const Offset(0, 8),
                 spreadRadius: -2,
@@ -325,11 +323,13 @@ class _GlassCard extends StatelessWidget {
 
 // Guider Communication Hub - "Talk to Me" section
 class _GuiderCommunicationHub extends StatelessWidget {
+  final String userName; // Add this parameter
   final VoidCallback onChat;
   final VoidCallback onVoice;
   final VoidCallback onVideo;
 
   const _GuiderCommunicationHub({
+    required this.userName, // Add this parameter
     required this.onChat,
     required this.onVoice,
     required this.onVideo,
@@ -422,8 +422,8 @@ class _GuiderCommunicationHub extends StatelessWidget {
                   title: tr(context, 'Video', 'فيديو'),
                   subtitle: tr(
                     context,
-                    'Coming soon',
-                    'قريبًا',
+                    'Healing session',
+                    'جلسة تأمل',
                   ),
                   gradientColors: const [Color(0xFF6A5CFF), Color(0xFF4A3F8F)],
                   onTap: onVideo,

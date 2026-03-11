@@ -40,7 +40,28 @@ class _CachedO3DState extends State<CachedO3D> {
   @override
   void initState() {
     super.initState();
+    _initializeController();
+  }
 
+  @override
+  void didUpdateWidget(CachedO3D oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    // Check if key changed - this forces controller refresh
+    if (widget.key != oldWidget.key) {
+      if (kDebugMode) {
+        print('🔄 Widget key changed, reinitializing controller for: ${widget.glbPath}');
+      }
+
+      // Remove old controller from cache
+      _cacheManager.removeFromCache(_effectiveCacheKey);
+
+      // Reinitialize
+      _initializeController();
+    }
+  }
+
+  void _initializeController() {
     // Check if we have a cached controller
     final cachedController = _cacheManager.getController(_effectiveCacheKey);
 
@@ -68,7 +89,6 @@ class _CachedO3DState extends State<CachedO3D> {
   @override
   void dispose() {
     // We DON'T dispose the controller here because it's cached globally
-    // The cache manager will handle cleanup when appropriate
     super.dispose();
   }
 
@@ -87,6 +107,8 @@ class _CachedO3DState extends State<CachedO3D> {
         backgroundColor: widget.backgroundColor,
         autoRotate: false,
         loading: Loading.eager,
+        // Use the widget key as part of the O3D key
+        key: ValueKey('${widget.glbPath}_${widget.key}'),
       )
           : const Center(
         child: CircularProgressIndicator(
