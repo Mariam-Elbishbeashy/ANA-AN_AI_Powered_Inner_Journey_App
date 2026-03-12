@@ -11,6 +11,7 @@ import 'package:ana_ifs_app/features/character/presentation/screens/character_pr
 import 'package:provider/provider.dart';
 import 'package:ana_ifs_app/features/progress/presentation/providers/daily_activity_provider.dart';
 import 'package:ana_ifs_app/features/progress/domain/entities/daily_activity.dart';
+import '../../../progress/domain/entities/insight_item.dart';
 
 class HomeScreen extends StatefulWidget {
   final String name;
@@ -37,11 +38,16 @@ class _HomeScreenState extends State<HomeScreen>
   bool _isLoading = true;
   GifController? _gifController;
   late StreamSubscription _charactersSubscription;
+  List<InsightItem> _recentInsights = [];
+  Timer? _insightsCarouselTimer;
+  int _currentInsightIndex = 0;
+  late PageController _insightsPageController;
 
   @override
   void initState() {
     super.initState();
     _gifController = GifController(vsync: this);
+    _insightsPageController = PageController();
     _loadCharacters();
     _setupCharactersListener();
 
@@ -49,6 +55,23 @@ class _HomeScreenState extends State<HomeScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkInactivityAndTrack();
     });
+  }
+
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Hot reload can skip initState for existing State objects.
+    _gifController ??= GifController(vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _charactersSubscription.cancel();
+    _gifController?.dispose();
+    _insightsCarouselTimer?.cancel();
+    _insightsPageController.dispose();
+    super.dispose();
   }
 
   void _setupCharactersListener() {
@@ -61,20 +84,22 @@ class _HomeScreenState extends State<HomeScreen>
         .listen((snapshot) {
       if (!mounted) return;
 
-      // Process the updated characters
       final characters = snapshot.docs
           .map((doc) => UserCharacter.fromMap(
         doc.data() as Map<String, dynamic>,
         doc.id,
       ))
-          .where((c) => c.currentState == 'active')
           .toList();
 
+      final activeCharacters = characters.where((c) => c.currentState == 'active').toList();
+
       setState(() {
-        _characters = characters;
+        _characters = activeCharacters;
       });
 
-      print('📡 Real-time update: ${characters.length} active characters');
+      _generateInsights(characters);
+
+      print('📡 Real-time update: ${activeCharacters.length} active characters, ${characters.length} total');
     });
   }
 
@@ -91,27 +116,13 @@ class _HomeScreenState extends State<HomeScreen>
     await _loadCharacters();
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // Hot reload can skip initState for existing State objects.
-    _gifController ??= GifController(vsync: this);
-  }
-
-  @override
-  void dispose() {
-    _gifController?.dispose();
-    super.dispose();
-  }
 
   Future<void> _loadCharacters() async {
     try {
       print('HomeScreen: Loading characters');
-      // Get all characters and filter for ACTIVE only
       final allCharacters = await _firestoreService.getUserCharacters();
       print('HomeScreen: Total characters: ${allCharacters.length}');
 
-      // Log states for debugging
       for (var c in allCharacters) {
         print('   - ${c.displayNameEn}: state=${c.currentState}');
       }
@@ -124,6 +135,7 @@ class _HomeScreenState extends State<HomeScreen>
           _characters = activeCharacters;
           _isLoading = false;
         });
+        _generateInsights(allCharacters);
       }
     } catch (e) {
       print('HomeScreen: Error loading characters: $e');
@@ -135,6 +147,180 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
+  void _generateInsights(List<UserCharacter> characters) {
+    final now = DateTime.now();
+    final insights = <InsightItem>[];
+
+    // Sort characters by predictedAt (newest first)
+    final sortedCharacters = List<UserCharacter>.from(characters)
+      ..sort((a, b) => b.predictedAt.compareTo(a.predictedAt));
+
+    // Track which characters we've already added insights for
+    final addedCharacterIds = <String>{};
+
+    // 1. Newly discovered characters (active and created within last 7 days)
+    final newCharacters = sortedCharacters.where((c) {
+      final daysSincePredicted = now.difference(c.predictedAt).inDays;
+      return c.currentState == 'active' && daysSincePredicted <= 7;
+    }).take(3).toList();
+
+    for (final character in newCharacters) {
+      if (!addedCharacterIds.contains(character.id)) {
+        insights.add(InsightItem(
+          id: character.id,
+          characterName: character.characterName,
+          displayNameEn: character.displayNameEn,
+          displayNameAr: character.displayNameAr,
+          archetype: character.archetype,
+          type: InsightType.newlyDiscovered,
+          date: character.predictedAt,
+          messageEn: _getInsightMessageEn(character, InsightType.newlyDiscovered),
+          messageAr: _getInsightMessageAr(character, InsightType.newlyDiscovered),
+        ));
+        addedCharacterIds.add(character.id);
+      }
+    }
+
+    // 2. Characters that became stable
+    final stableCharacters = characters.where((c) =>
+    c.currentState == 'stable' &&
+        !addedCharacterIds.contains(c.id)
+    ).take(2).toList();
+
+    for (final character in stableCharacters) {
+      insights.add(InsightItem(
+        id: character.id,
+        characterName: character.characterName,
+        displayNameEn: character.displayNameEn,
+        displayNameAr: character.displayNameAr,
+        archetype: character.archetype,
+        type: InsightType.stable,
+        date: now, // You might want to store when it became stable
+        messageEn: _getInsightMessageEn(character, InsightType.stable),
+        messageAr: _getInsightMessageAr(character, InsightType.stable),
+      ));
+      addedCharacterIds.add(character.id);
+    }
+
+    // 3. Characters that became inactive
+    final inactiveCharacters = characters.where((c) =>
+    c.currentState == 'inactive' &&
+        !addedCharacterIds.contains(c.id)
+    ).take(2).toList();
+
+    for (final character in inactiveCharacters) {
+      insights.add(InsightItem(
+        id: character.id,
+        characterName: character.characterName,
+        displayNameEn: character.displayNameEn,
+        displayNameAr: character.displayNameAr,
+        archetype: character.archetype,
+        type: InsightType.inactive,
+        date: now,
+        messageEn: _getInsightMessageEn(character, InsightType.inactive),
+        messageAr: _getInsightMessageAr(character, InsightType.inactive),
+      ));
+      addedCharacterIds.add(character.id);
+    }
+
+    // 4. Gentle insights about active characters if we have space
+    if (insights.length < 5) {
+      final activeCharacters = characters.where((c) =>
+      c.currentState == 'active' &&
+          !addedCharacterIds.contains(c.id)
+      ).take(5 - insights.length).toList();
+
+      for (final character in activeCharacters) {
+        insights.add(InsightItem(
+          id: character.id,
+          characterName: character.characterName,
+          displayNameEn: character.displayNameEn,
+          displayNameAr: character.displayNameAr,
+          archetype: character.archetype,
+          type: InsightType.active,
+          date: character.predictedAt,
+          messageEn: _getInsightMessageEn(character, InsightType.active),
+          messageAr: _getInsightMessageAr(character, InsightType.active),
+        ));
+        addedCharacterIds.add(character.id);
+      }
+    }
+
+    setState(() {
+      _recentInsights = insights.take(5).toList();
+      _currentInsightIndex = 0;
+    });
+
+    _startInsightsCarousel();
+  }
+
+  String _getInsightMessageEn(UserCharacter character, InsightType type) {
+    final name = character.displayNameEn;
+
+    switch (type) {
+      case InsightType.newlyDiscovered:
+        return 'You\'ve discovered a new inner part: $name. It\'s here to help you understand yourself better.';
+
+      case InsightType.stable:
+        return '$name feels more peaceful and balanced lately. This shows your growing self-awareness.';
+
+      case InsightType.inactive:
+        return '$name has been quieter recently. Sometimes parts rest when they feel safe.';
+
+      case InsightType.active:
+        return '$name has been present in your thoughts lately. What might it be trying to tell you?';
+
+      default:
+        return 'A gentle reminder that $name is part of your inner world.';
+    }
+  }
+
+  String _getInsightMessageAr(UserCharacter character, InsightType type) {
+    final name = character.displayNameAr;
+
+    switch (type) {
+      case InsightType.newlyDiscovered:
+        return ' اكتشفت جزءاً داخلياً جديداً: $name. إنه هنا ليساعدك على فهم نفسك بشكل أفضل.';
+
+      case InsightType.stable:
+        return '$name يشعر بمزيد من السلام والتوازن مؤخراً. هذا يدل على نمو وعيك الذاتي.';
+
+      case InsightType.inactive:
+        return '$name كان أكثر هدوءاً مؤخراً. أحياناً تستريح الأجزاء عندما تشعر بالأمان.';
+
+      case InsightType.active:
+        return '$name كان حاضراً في أفكارك مؤخراً. ماذا قد يحاول أن يخبرك به؟';
+
+      default:
+        return ' تذكير لطيف بأن $name جزء من عالمك الداخلي.';
+    }
+  }
+
+  void _startInsightsCarousel() {
+    _insightsCarouselTimer?.cancel();
+
+    if (_recentInsights.length <= 1) return;
+
+    _insightsCarouselTimer = Timer.periodic(const Duration(seconds: 6), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+
+      final nextIndex = (_currentInsightIndex + 1) % _recentInsights.length;
+
+      _insightsPageController.animateToPage(
+        nextIndex,
+        duration: const Duration(milliseconds: 500),
+        curve: Curves.easeInOut,
+      );
+
+      setState(() {
+        _currentInsightIndex = nextIndex;
+      });
+    });
+  }
+
   String _getImagePathForCharacter(String characterName) {
     final imageMap = {
       'Inner Critic': 'inner_critic.png',
@@ -143,7 +329,7 @@ class _HomeScreenState extends State<HomeScreen>
       'Jealous Part': 'jealous.png',
       'Ashamed Part': 'ashamed.png',
       'Workaholic': 'workaholic.png',
-      'Perfectionist': 'perfictionist.png',
+      'Perfectionist': 'perfectionist.png',
       'Procrastinator': 'procrastinator.png',
       'Excessive Gamer': 'excessive_gamer.png',
       'Confused Part': 'confused.png',
@@ -1292,6 +1478,397 @@ class _HomeScreenState extends State<HomeScreen>
       ),
     );
   }
+  Widget _buildRecentInsightsSection() {
+    if (_recentInsights.isEmpty) {
+      // Gentle placeholder when no insights yet
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 4, bottom: 8),
+            child: Text(
+              tr(context, 'Gentle Insights', 'رؤى لطيفة'),
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF2A1E3B),
+              ),
+            ),
+          ),
+          Container(
+            height: 160,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: const Color(0xFFE5DEFF)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF8E7CFF).withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.spa_rounded,
+                    color: Color(0xFF8E7CFF),
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        tr(
+                          context,
+                          'Your inner world is quiet right now',
+                          'عالمك الداخلي هادئ الآن',
+                        ),
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF2A1E3B),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        tr(
+                          context,
+                          'Insights will appear here as you connect with your parts.',
+                          'ستظهر الرؤى هنا عندما تتواصل مع أجزائك.',
+                        ),
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: 8),
+          child: Text(
+            tr(context, 'Gentle Insights', 'رؤى لطيفة'),
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF2A1E3B),
+            ),
+          ),
+        ),
+        Container(
+          height: 180,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.white,
+                const Color(0xFFF9F6FF),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: const Color(0xFFE5DEFF)),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF8E7CFF).withOpacity(0.08),
+                blurRadius: 20,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(20),
+            child: _recentInsights.length > 1
+                ? _buildCarouselInsights()
+                : _buildSingleInsight(_recentInsights.first),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCarouselInsights() {
+    return Stack(
+      children: [
+        PageView.builder(
+          controller: _insightsPageController,
+          onPageChanged: (index) {
+            setState(() {
+              _currentInsightIndex = index;
+            });
+          },
+          itemCount: _recentInsights.length,
+          itemBuilder: (context, index) {
+            return _buildInsightCard(_recentInsights[index]);
+          },
+        ),
+
+        // Page indicators at bottom
+        Positioned(
+          bottom: 12, // Slightly higher due to increased height
+          left: 0,
+          right: 0,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: List.generate(
+              _recentInsights.length,
+                  (index) => AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                width: index == _currentInsightIndex ? 20 : 6,
+                height: 6,
+                margin: const EdgeInsets.symmetric(horizontal: 3),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(3),
+                  color: index == _currentInsightIndex
+                      ? const Color(0xFF8E7CFF)
+                      : const Color(0xFF8E7CFF).withOpacity(0.2),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSingleInsight(InsightItem insight) {
+    return _buildInsightCard(insight);
+  }
+
+  Widget _buildInsightCard(InsightItem insight) {
+    final color = _getInsightTypeColor(insight.type);
+    final icon = _getInsightTypeIcon(insight.type);
+    final isAr = isArabic(context);
+
+    return Container(
+      width: double.infinity,
+      height: double.infinity,
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header with icon, type, and name
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      color.withOpacity(0.2),
+                      color.withOpacity(0.05),
+                    ],
+                  ),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, color: color, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _getInsightTypeTitle(insight.type, context),
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: color,
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      insight.getDisplayName(context), // This now uses context
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF2A1E3B),
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 12),
+
+          // Message - now with proper height and scrolling if needed
+          Expanded(
+            child: SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              child: Text(
+                insight.getMessage(context), // This now uses context
+                style: const TextStyle(
+                  fontSize: 14,
+                  color: Color(0xFF4B3A66),
+                  height: 1.5,
+                  fontWeight: FontWeight.w400,
+                ),
+                textAlign: isAr ? TextAlign.right : TextAlign.left,
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 8),
+
+          // Footer with archetype and date
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF0ECF7),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Text(
+                  _getLocalizedArchetype(context, insight.archetype),
+                  style: const TextStyle(
+                    fontSize: 10,
+                    color: Color(0xFF6A5CFF),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              const Spacer(),
+              Row(
+                children: [
+                  Icon(
+                    Icons.access_time_rounded,
+                    size: 12,
+                    color: Colors.grey.shade400,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    _formatDate(insight.date, context),
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.grey.shade500,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Color _getInsightTypeColor(InsightType type) {
+    switch (type) {
+      case InsightType.newlyDiscovered:
+        return const Color(0xFF9F7AEA); // Soft purple
+      case InsightType.stable:
+        return const Color(0xFF63B3ED); // Soft blue
+      case InsightType.inactive:
+        return const Color(0xFFF6AD55); // Soft orange
+      case InsightType.active:
+        return const Color(0xFFB794F4); // Light purple
+      default:
+        return const Color(0xFF8E7CFF);
+    }
+  }
+
+  IconData _getInsightTypeIcon(InsightType type) {
+    switch (type) {
+      case InsightType.newlyDiscovered:
+        return Icons.auto_awesome_rounded;
+      case InsightType.stable:
+        return Icons.self_improvement_rounded;
+      case InsightType.inactive:
+        return Icons.nights_stay_rounded;
+      case InsightType.active:
+        return Icons.wb_sunny_rounded;
+      default:
+        return Icons.spa_rounded;
+    }
+  }
+
+
+  String _formatDate(DateTime date, BuildContext context) {
+    final now = DateTime.now();
+    final difference = now.difference(date).inDays;
+    final isAr = isArabic(context);
+
+    if (difference == 0) {
+      return isAr ? 'اليوم' : 'Today';
+    } else if (difference == 1) {
+      return isAr ? 'أمس' : 'Yesterday';
+    } else if (difference < 7) {
+      return isAr ? 'منذ $difference أيام' : '$difference days ago';
+    } else {
+      final weeks = (difference / 7).floor();
+      if (weeks == 1) {
+        return isAr ? 'منذ أسبوع' : '1 week ago';
+      } else {
+        return isAr ? 'منذ $weeks أسابيع' : '$weeks weeks ago';
+      }
+    }
+  }
+
+  String _getLocalizedArchetype(BuildContext context, String archetype) {
+    switch (archetype.toLowerCase()) {
+      case 'manager':
+        return tr(context, 'Manager', 'مدير');
+      case 'firefighter':
+        return tr(context, 'Firefighter', 'إطفائي');
+      case 'exile':
+        return tr(context, 'Exile', 'منفى');
+      default:
+        return archetype;
+    }
+  }
+
+  String _getInsightTypeTitle(InsightType type, BuildContext context) {
+    final isAr = isArabic(context);
+
+    switch (type) {
+      case InsightType.newlyDiscovered:
+        return isAr ? 'اكتشاف جديد' : 'New Discovery';
+      case InsightType.stable:
+        return isAr ? 'استقرار' : 'Stability';
+      case InsightType.inactive:
+        return isAr ? 'نشاط منخفض' : 'Reduced Activity';
+      case InsightType.active:
+        return isAr ? 'نشط' : 'Active';
+      default:
+        return isAr ? 'رؤية' : 'Insight';
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1628,115 +2205,13 @@ class _HomeScreenState extends State<HomeScreen>
 
                           const SizedBox(height: 30),
 
-                          Text(
-                            tr(context, 'Recent Insights', 'أحدث الرؤى'),
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w800,
-                              color: Color(0xFF2A1E3B),
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          Container(
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                  color: const Color(0xFFE5DEFF)),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Container(
-                                      width: 40,
-                                      height: 40,
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFF8E7CFF)
-                                            .withOpacity(0.1),
-                                        shape: BoxShape.circle,
-                                      ),
-                                      child: const Icon(
-                                        Icons.insights_rounded,
-                                        color: Color(0xFF8E7CFF),
-                                        size: 20,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 15),
-                                    Expanded(
-                                      child: Text(
-                                        tr(
-                                          context,
-                                          'Your Inner Critic has been active this week',
-                                          'كان ناقدك الداخلي نشطًا هذا الأسبوع',
-                                        ),
-                                        style: const TextStyle(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.w600,
-                                          color: Color(0xFF2A1E3B),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 15),
-                                Text(
-                                  tr(
-                                    context,
-                                    'This might be a sign that you\'re facing new challenges or stepping out of your comfort zone. Remember, your inner critic is trying to protect you.',
-                                    'قد يكون هذا علامة على أنك تواجه تحديات جديدة أو تخرج من منطقة الراحة. تذكر أن ناقدك الداخلي يحاول حمايتك.',
-                                  ),
-                                  style: const TextStyle(
-                                    fontSize: 14,
-                                    color: Color(0xFF7A6A5A),
-                                    height: 1.5,
-                                  ),
-                                ),
-                                const SizedBox(height: 15),
-                                Row(
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 12,
-                                        vertical: 6,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFFF0ECF7),
-                                        borderRadius: BorderRadius.circular(20),
-                                      ),
-                                      child: Text(
-                                        tr(context, 'Weekly Pattern',
-                                            'نمط أسبوعي'),
-                                        style: const TextStyle(
-                                          fontSize: 12,
-                                          color: Color(0xFF6A5CFF),
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                    ),
-                                    const Spacer(),
-                                    Text(
-                                      tr(context, '2 days ago', 'قبل يومين'),
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color:
-                                        const Color(0xFF7A6A5A).withOpacity(
-                                            0.7),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
+                          _buildRecentInsightsSection(),
+
                           const SizedBox(height: 30),
 
                           _buildDailyTasksSection(context, activityProvider),
-                          const SizedBox(height: 30),
 
-                          // Quick actions (your existing code - unchanged)
+                          const SizedBox(height: 30),
                           Text(
                             tr(context, 'Quick Actions', 'إجراءات سريعة'),
                             style: const TextStyle(
