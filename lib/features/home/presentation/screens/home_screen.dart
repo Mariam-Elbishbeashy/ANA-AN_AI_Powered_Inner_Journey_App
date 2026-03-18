@@ -49,6 +49,7 @@ class _HomeScreenState extends State<HomeScreen>
     _gifController = GifController(vsync: this);
     _insightsPageController = PageController();
     _loadCharacters();
+    _firestoreService.startStableCharactersRealtimeSync();
     _setupCharactersListener();
 
     // Track user activity and check inactivity when home screen opens
@@ -90,6 +91,8 @@ class _HomeScreenState extends State<HomeScreen>
         doc.id,
       ))
           .toList();
+
+      _firestoreService.syncStableCharactersToHistory();
 
       final activeCharacters = characters.where((c) => c.currentState == 'active').toList();
 
