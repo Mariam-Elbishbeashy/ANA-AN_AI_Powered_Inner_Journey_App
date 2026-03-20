@@ -10,6 +10,14 @@ import 'package:ana_ifs_app/l10n/app_strings.dart';
 import '../../domain/entities/milestone.dart';
 import '../../domain/entities/stable_character_history.dart';
 
+String _milestoneTitle(BuildContext context, Milestone milestone) {
+  return isArabic(context) ? milestone.titleAr : milestone.titleEn;
+}
+
+String _milestoneDescription(BuildContext context, Milestone milestone) {
+  return isArabic(context) ? milestone.descriptionAr : milestone.descriptionEn;
+}
+
 class ProgressHistory extends StatefulWidget {
   const ProgressHistory({super.key});
 
@@ -195,7 +203,6 @@ class _ProgressHistoryState extends State<ProgressHistory> {
       context: context,
       barrierColor: Colors.black.withOpacity(0.18),
       builder: (dialogContext) {
-        // Use reactive isArabic(dialogContext) inside the builder
         final isAr = isArabic(dialogContext);
         final characterName = isAr
             ? (item.displayNameAr ?? item.characterName)
@@ -315,7 +322,7 @@ class _ProgressHistoryState extends State<ProgressHistory> {
               ),
               const SizedBox(height: 16),
               Text(
-                milestone.title,
+                _milestoneTitle(dialogContext, milestone),
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   fontSize: 22,
@@ -325,7 +332,7 @@ class _ProgressHistoryState extends State<ProgressHistory> {
               ),
               const SizedBox(height: 8),
               Text(
-                milestone.description,
+                _milestoneDescription(dialogContext, milestone),
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   fontSize: 14,
@@ -403,12 +410,12 @@ class _ProgressHistoryState extends State<ProgressHistory> {
 
   String _localizedCategory(BuildContext context, String category) {
     switch (category.toLowerCase()) {
-      case 'healing':
-        return tr(context, 'Healing', 'الشفاء');
       case 'streak':
         return tr(context, 'Streak', 'السلسلة');
       case 'character_discovery':
-        return tr(context, 'Discovery', 'الاكتشاف');
+        return tr(context, 'Character Discovery', 'اكتشاف الشخصيات');
+      case 'stable':
+        return tr(context, 'Stability', 'الاستقرار');
       case 'daily':
         return tr(context, 'Daily', 'يومي');
       default:
@@ -581,7 +588,6 @@ class _StableCharacterHistoryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Use reactive isArabic helper
     final isAr = isArabic(context);
 
     final displayName = isAr
@@ -817,7 +823,7 @@ class _AchievementBadgeCard extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             Text(
-              milestone.title,
+              _milestoneTitle(context, milestone),
               textAlign: TextAlign.center,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
@@ -863,16 +869,16 @@ class _AchievementBadgeStyle {
 
   static Color _getCategoryColor(String category) {
     switch (category.toLowerCase()) {
-      case 'healing':
-        return const Color(0xFF9D8BFF);
       case 'streak':
-        return const Color(0xFFF7A56C);
+        return const Color(0xFFFF8A3D);
       case 'character_discovery':
-        return const Color(0xFF77B7FF);
+        return const Color(0xFF8E7CFF);
+      case 'stable':
+        return const Color(0xFF59A874);
       case 'daily':
         return const Color(0xFFB39DFF);
       default:
-        return const Color(0xFF9D8BFF);
+        return const Color(0xFF8E7CFF);
     }
   }
 

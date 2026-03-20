@@ -1,5 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:ana_ifs_app/l10n/app_strings.dart';
 import 'package:ana_ifs_app/core/widgets/shared_widgets.dart';
@@ -7,6 +10,7 @@ import 'package:ana_ifs_app/features/progress/presentation/providers/milestone_p
 import 'package:ana_ifs_app/features/progress/presentation/widgets/progress_charts.dart';
 import 'package:ana_ifs_app/features/progress/presentation/widgets/progress_achievements.dart';
 import 'package:ana_ifs_app/features/progress/presentation/widgets/progress_history.dart';
+import '../widgets/mood_visuals.dart';
 import '../widgets/progress_background.dart';
 
 class ProgressScreen extends StatefulWidget {
@@ -60,11 +64,17 @@ class _ProgressScreenContent extends StatefulWidget {
 }
 
 class __ProgressScreenContentState extends State<_ProgressScreenContent> {
+  static const String _moodsStorageKey = 'progress_saved_moods_by_date';
+
   int _selectedTabIndex = 0; // 0 = mood, 1 = achievements, 2 = history
+  bool _isMoodLoading = true;
+
+  Map<String, String> _savedMoodsByDate = {};
 
   @override
   void initState() {
     super.initState();
+
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       try {
         final provider = Provider.of<MilestoneProvider>(context, listen: false);
@@ -74,14 +84,104 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
       } catch (e) {
         debugPrint('Error initializing provider: $e');
       }
+
+      await _loadSavedMoods();
     });
+  }
+
+  Future<void> _loadSavedMoods() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_moodsStorageKey);
+
+      if (raw != null && raw.isNotEmpty) {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) {
+          _savedMoodsByDate = decoded.map(
+                (key, value) => MapEntry(key.toString(), value.toString()),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading saved moods: $e');
+    }
+
+    if (mounted) {
+      setState(() {
+        _isMoodLoading = false;
+      });
+    }
+  }
+
+  Future<void> _saveMoodForDate({
+    required DateTime date,
+    required String moodKey,
+  }) async {
+    final dateKey = _dateKey(date);
+
+    setState(() {
+      _savedMoodsByDate[dateKey] = moodKey;
+    });
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _moodsStorageKey,
+        jsonEncode(_savedMoodsByDate),
+      );
+    } catch (e) {
+      debugPrint('Error saving mood: $e');
+    }
+  }
+
+  String _dateKey(DateTime date) {
+    final normalized = DateTime(date.year, date.month, date.day);
+    return '${normalized.year.toString().padLeft(4, '0')}-'
+        '${normalized.month.toString().padLeft(2, '0')}-'
+        '${normalized.day.toString().padLeft(2, '0')}';
+  }
+
+  bool _isSameDate(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
+  String _weekdayLabel(BuildContext context, DateTime date) {
+    final isAr = isArabic(context);
+
+    const english = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const arabic = ['الإث', 'الثل', 'الأر', 'الخم', 'الجم', 'السب', 'الأح'];
+
+    final index = date.weekday - 1;
+    return isAr ? arabic[index] : english[index];
+  }
+
+  String _moodLabel(BuildContext context, String moodKey) {
+    final mood = moodVisuals[moodKey];
+    if (mood == null) return moodKey;
+    return isArabic(context) ? mood.labelAr : mood.labelEn;
+  }
+
+  _MoodPalette _paletteForMood({required bool isToday}) {
+    return _MoodPalette(
+      background: isToday
+          ? const Color(0xFFEDE7FF)
+          : const Color(0xFFF6F1FF),
+      border: isToday
+          ? const Color(0xFF7A5AF8)
+          : const Color(0xFFD8CBFF),
+      icon: isToday
+          ? const Color(0xFF7A5AF8)
+          : const Color(0xFFC0AFE8),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Consumer<MilestoneProvider>(
       builder: (context, milestoneProvider, child) {
-        if (milestoneProvider.isLoading && milestoneProvider.milestones.isEmpty) {
+        if ((milestoneProvider.isLoading &&
+            milestoneProvider.milestones.isEmpty) ||
+            _isMoodLoading) {
           return _buildLoadingState();
         }
 
@@ -109,16 +209,16 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
               );
             },
           ),
-          const Expanded(
+          Expanded(
             child: Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  CircularProgressIndicator(color: Color(0xFF8E7CFF)),
-                  SizedBox(height: 20),
+                  const CircularProgressIndicator(color: Color(0xFF8E7CFF)),
+                  const SizedBox(height: 20),
                   Text(
-                    'Loading your progress...',
-                    style: TextStyle(color: Color(0xFF4B3A66)),
+                    tr(context, 'Loading your progress...', 'جاري تحميل تقدمك...'),
+                    style: const TextStyle(color: Color(0xFF4B3A66)),
                   ),
                 ],
               ),
@@ -133,27 +233,6 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
       Map<String, dynamic> stats,
       MilestoneProvider milestoneProvider,
       ) {
-    final weekDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-
-    final moodOptions = {
-      'Happy': Icons.sentiment_satisfied_rounded,
-      'Sad': Icons.sentiment_dissatisfied_rounded,
-      'Tired': Icons.battery_alert_rounded,
-      'Energetic': Icons.bolt_rounded,
-      'Calm': Icons.spa_rounded,
-      'Anxious': Icons.psychology_rounded,
-    };
-
-    final List<Map<String, dynamic>> weeklyMoods = [
-      {'day': 'Mon', 'mood': 'Happy', 'note': 'Feeling good'},
-      {'day': 'Tue', 'mood': 'Tired', 'note': 'Didn\'t sleep well'},
-      {'day': 'Wed', 'mood': 'Calm', 'note': 'Peaceful day'},
-      {'day': 'Thu', 'mood': 'Anxious', 'note': 'Busy day'},
-      {'day': 'Fri', 'mood': 'Sad', 'note': 'Missing someone'},
-      {'day': 'Sat', 'mood': 'Energetic', 'note': 'Workout day'},
-      {'day': 'Sun', 'mood': 'Happy', 'note': 'Relaxing'},
-    ];
-
     return Column(
       children: [
         TopHelloBar(
@@ -171,7 +250,9 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
         ),
         Expanded(
           child: ProgressBackground(
-            isLoading: milestoneProvider.isLoading && milestoneProvider.milestones.isEmpty,
+            isLoading:
+            milestoneProvider.isLoading &&
+                milestoneProvider.milestones.isEmpty,
             child: SingleChildScrollView(
               padding: EdgeInsets.fromLTRB(
                 20,
@@ -182,12 +263,7 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildWeeklyMoodSection(
-                    weekDays,
-                    weeklyMoods,
-                    moodOptions,
-                    context,
-                  ),
+                  _buildWeeklyMoodSection(context),
                   const SizedBox(height: 18),
                   _buildProgressOverview(stats, context),
                   const SizedBox(height: 22),
@@ -277,24 +353,20 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
     );
   }
 
-  Widget _buildWeeklyMoodSection(
-      List<String> weekDays,
-      List<Map<String, dynamic>> weeklyMoods,
-      Map<String, IconData> moodOptions,
-      BuildContext context,
-      ) {
+  Widget _buildWeeklyMoodSection(BuildContext context) {
     final now = DateTime.now();
-    final startOfWeek = now.subtract(Duration(days: now.weekday - 1));
+    final today = DateTime(now.year, now.month, now.day);
+    final startOfWeek = today.subtract(Duration(days: today.weekday - 1));
 
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 18, 16, 14),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.74),
+        color: Colors.white.withOpacity(0.78),
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: const Color(0xFFE6E3FF)),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF8E7CFF).withOpacity(0.07),
+            color: const Color(0xFF8E7CFF).withOpacity(0.10),
             blurRadius: 22,
             offset: const Offset(0, 10),
           ),
@@ -303,14 +375,14 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Padding(
-            padding: EdgeInsets.only(left: 4, bottom: 10),
+          Padding(
+            padding: const EdgeInsets.only(left: 4, bottom: 10),
             child: Text(
-              'Your Mood This Week',
-              style: TextStyle(
+              tr(context, 'Your Mood This Week', 'مزاجك هذا الأسبوع'),
+              style: const TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w700,
-                color: Color(0xFF3E3563),
+                color: Color(0xFF4A3572),
                 letterSpacing: 0.2,
               ),
             ),
@@ -318,74 +390,86 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
           Row(
             children: List.generate(7, (index) {
               final date = startOfWeek.add(Duration(days: index));
-              final day = weekDays[index];
-              final dayData = weeklyMoods.firstWhere(
-                    (m) => m['day'] == day,
-                orElse: () => {'day': day, 'mood': null},
-              );
-              final isToday =
-                  date.year == now.year && date.month == now.month && date.day == now.day;
-              final hasMood = dayData['mood'] != null;
+              final isToday = _isSameDate(date, today);
+              final moodKey = _savedMoodsByDate[_dateKey(date)];
+              final hasMood = moodKey != null;
+              final palette = _paletteForMood(isToday: isToday);
 
               return Expanded(
                 child: GestureDetector(
                   onTap: isToday
-                      ? () => _showMoodSelectionDialog(context, day, moodOptions)
+                      ? () => _showMoodSelectionDialog(context, date)
                       : null,
                   child: Padding(
                     padding: EdgeInsets.only(right: index == 6 ? 0 : 6),
                     child: Column(
                       children: [
                         Text(
-                          day,
+                          _weekdayLabel(context, date),
                           style: TextStyle(
                             fontSize: 12,
-                            fontWeight: isToday ? FontWeight.w700 : FontWeight.w500,
+                            fontWeight:
+                            isToday ? FontWeight.w700 : FontWeight.w500,
                             color: isToday
-                                ? const Color(0xFF6F67E8)
-                                : const Color(0xFF9A95B5),
+                                ? const Color(0xFF7A5AF8)
+                                : const Color(0xFFA694D6),
                           ),
                         ),
                         const SizedBox(height: 10),
                         AnimatedContainer(
                           duration: const Duration(milliseconds: 220),
-                          width: 42,
-                          height: 42,
+                          width: 46,
+                          height: 46,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            color: isToday
-                                ? const Color(0xFFE8E6FF)
-                                : (hasMood ? const Color(0xFFF7F6FF) : Colors.white),
+                            color: palette.background,
                             border: Border.all(
-                              color: isToday
-                                  ? const Color(0xFF7E76F1)
-                                  : (hasMood
-                                  ? const Color(0xFF8A83F3)
-                                  : const Color(0xFFE1DEFA)),
-                              width: isToday ? 2.2 : (hasMood ? 2.0 : 1.4),
+                              color: palette.border,
+                              width: isToday ? 2.2 : (hasMood ? 1.8 : 1.4),
                             ),
                             boxShadow: isToday
                                 ? [
                               BoxShadow(
-                                color: const Color(0xFF8E7CFF).withOpacity(0.14),
+                                color: palette.border.withOpacity(0.20),
                                 blurRadius: 12,
                                 offset: const Offset(0, 4),
+                              ),
+                            ]
+                                : hasMood
+                                ? [
+                              BoxShadow(
+                                color: palette.border.withOpacity(0.10),
+                                blurRadius: 8,
+                                offset: const Offset(0, 3),
                               ),
                             ]
                                 : null,
                           ),
                           alignment: Alignment.center,
-                          child: Text(
-                            '${date.day}',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w700,
-                              color: isToday
-                                  ? const Color(0xFF6F67E8)
-                                  : (hasMood
-                                  ? const Color(0xFF6F67E8)
-                                  : const Color(0xFF7C7895)),
+                          child: hasMood
+                              ? ClipOval(
+                            child: SizedBox.expand(
+                              child: buildMoodSvg(moodKey),
                             ),
+                          )
+                              : Icon(
+                            isToday
+                                ? Icons.add_reaction_rounded
+                                : Icons.sentiment_neutral_rounded,
+                            size: 22,
+                            color: palette.icon,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          '${date.day}',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight:
+                            isToday ? FontWeight.w700 : FontWeight.w600,
+                            color: isToday
+                                ? const Color(0xFF6E49F6)
+                                : const Color(0xFF9A87CC),
                           ),
                         ),
                       ],
@@ -402,14 +486,18 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
               const Icon(
                 Icons.touch_app_rounded,
                 size: 14,
-                color: Color(0xFF9A95B5),
+                color: Color(0xFF9A87CC),
               ),
               const SizedBox(width: 6),
               Text(
-                tr(context, 'Tap today to update mood', 'اضغط على اليوم لتحديث المزاج'),
+                tr(
+                  context,
+                  'Only today can be updated',
+                  'يمكن تحديث يوم اليوم فقط',
+                ),
                 style: const TextStyle(
                   fontSize: 12,
-                  color: Color(0xFF9A95B5),
+                  color: Color(0xFF9A87CC),
                   fontWeight: FontWeight.w500,
                 ),
               ),
@@ -420,51 +508,97 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
     );
   }
 
-  void _showMoodSelectionDialog(
-      BuildContext context,
-      String day,
-      Map<String, IconData> moodOptions,
-      ) {
+  void _showMoodSelectionDialog(BuildContext context, DateTime selectedDate) {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(tr(context, 'Update Today\'s Mood', 'تحديث مزاج اليوم')),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: moodOptions.entries.map((entry) {
-            return ListTile(
-              leading: Icon(entry.value, color: const Color(0xFF8E7CFF)),
-              title: Text(entry.key),
-              onTap: () {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      '${entry.key} ${tr(context, 'logged for today', 'تم تسجيله لليوم')}',
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(22),
+        ),
+        title: Text(
+          tr(context, 'Update Today\'s Mood', 'تحديث مزاج اليوم'),
+          style: const TextStyle(
+            color: Color(0xFF4A3572),
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: moodVisuals.entries.map((entry) {
+                final mood = entry.value;
+
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF6F1FF),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xFFE1D6FF)),
+                  ),
+                  child: ListTile(
+                    leading: CircleAvatar(
+                      radius: 20,
+                      backgroundColor: Colors.white,
+                      child: buildMoodSvg(mood.key, size: 30),
                     ),
-                    backgroundColor: const Color(0xFF8E7CFF),
+                    title: Text(
+                      isArabic(context) ? mood.labelAr : mood.labelEn,
+                      style: const TextStyle(
+                        color: Color(0xFF4A3572),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    onTap: () async {
+                      Navigator.pop(dialogContext);
+
+                      await _saveMoodForDate(
+                        date: selectedDate,
+                        moodKey: mood.key,
+                      );
+
+                      if (!mounted) return;
+
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            '${_moodLabel(context, mood.key)} ${tr(context, 'saved for today', 'تم حفظه لليوم')}',
+                          ),
+                          backgroundColor: const Color(0xFF7A5AF8),
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                    },
                   ),
                 );
-              },
-            );
-          }).toList(),
+              }).toList(),
+            ),
+          ),
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(tr(context, 'Cancel', 'إلغاء')),
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(
+              tr(context, 'Cancel', 'إلغاء'),
+              style: const TextStyle(color: Color(0xFF7A5AF8)),
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildProgressOverview(Map<String, dynamic> stats, BuildContext context) {
+  Widget _buildProgressOverview(
+      Map<String, dynamic> stats,
+      BuildContext context,
+      ) {
     final currentStreak = stats['currentStreak'] as int? ?? 0;
     final totalAchieved = stats['totalAchieved'] as int? ?? 0;
     final totalMilestones = stats['totalMilestones'] as int? ?? 0;
-    final percent =
-    totalMilestones == 0 ? 0.0 : (totalAchieved / totalMilestones).clamp(0.0, 1.0);
+    final percent = totalMilestones == 0
+        ? 0.0
+        : (totalAchieved / totalMilestones).clamp(0.0, 1.0);
 
     return Container(
       width: double.infinity,
@@ -589,11 +723,26 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
   }
 }
 
+class _MoodPalette {
+  final Color background;
+  final Color border;
+  final Color icon;
+
+  const _MoodPalette({
+    required this.background,
+    required this.border,
+    required this.icon,
+  });
+}
+
 class _OverviewMetric extends StatelessWidget {
   final String value;
   final String label;
 
-  const _OverviewMetric({required this.value, required this.label});
+  const _OverviewMetric({
+    required this.value,
+    required this.label,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -657,7 +806,9 @@ class _ProgressRing extends StatelessWidget {
               strokeWidth: 10,
               strokeCap: StrokeCap.round,
               backgroundColor: Colors.transparent,
-              valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFE9F8FF)),
+              valueColor: const AlwaysStoppedAnimation<Color>(
+                Color(0xFFE9F8FF),
+              ),
             ),
           ),
           Container(

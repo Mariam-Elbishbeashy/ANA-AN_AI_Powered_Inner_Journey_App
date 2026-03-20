@@ -7,6 +7,18 @@ import 'package:ana_ifs_app/l10n/app_strings.dart';
 import 'package:ana_ifs_app/features/progress/presentation/providers/milestone_provider.dart';
 import '../../domain/entities/milestone.dart';
 
+
+String _milestoneTitle(BuildContext context, Milestone milestone) {
+  final isAr = Localizations.localeOf(context).languageCode.toLowerCase().startsWith('ar');
+  return isAr ? milestone.titleAr : milestone.titleEn;
+}
+
+String _milestoneDescription(BuildContext context, Milestone milestone) {
+  final isAr = Localizations.localeOf(context).languageCode.toLowerCase().startsWith('ar');
+  return isAr ? milestone.descriptionAr : milestone.descriptionEn;
+}
+
+
 class ProgressCharts extends StatelessWidget {
   const ProgressCharts({super.key});
 
@@ -406,38 +418,25 @@ class ProgressCharts extends StatelessWidget {
     );
   }
 
-  // Character Interaction Chart - based on character discovery and healing
+  // Character Interaction Chart - derived from achievement progress without legacy title/description fields
   Widget _buildCharacterInteractionChart(BuildContext context, MilestoneProvider provider) {
     final discoveryMilestones = provider.getCharacterDiscoveryMilestones();
     final healingMilestones = provider.getHealingMilestones();
+    final stableMilestones = provider.getStableMilestones();
 
-    // Calculate character frequencies based on milestone progress
-    double innerCritic = 0;
-    double protector = 0;
-    double overwhelmed = 0;
-    double calmSelf = 0;
-
-    for (var m in discoveryMilestones) {
-      if (m.title.contains('Critic') || m.description.contains('critic')) innerCritic += 10;
-      if (m.title.contains('Protector')) protector += 10;
-      if (m.title.contains('Overwhelm')) overwhelmed += 10;
-      if (m.title.contains('Calm') || m.title.contains('Self')) calmSelf += 10;
-    }
-
-    for (var m in healingMilestones) {
-      if (m.isAchieved) {
-        innerCritic += 5;
-        protector += 5;
-        overwhelmed += 5;
-        calmSelf += 15; // Calm Self increases more with healing
-      }
-    }
-
-    // Use current streak as a multiplier
+    final discovered = discoveryMilestones.isEmpty
+        ? 0
+        : discoveryMilestones
+        .map((m) => m.currentCount)
+        .fold<int>(0, (maxValue, value) => value > maxValue ? value : maxValue);
+    final healed = healingMilestones.where((m) => m.isAchieved).length;
+    final stable = stableMilestones.where((m) => m.isAchieved).length;
     final streak = provider.getCurrentStreak();
-    innerCritic = (innerCritic + streak * 2).clamp(0, 100);
-    protector = (protector + streak).clamp(0, 100);
-    overwhelmed = (overwhelmed + streak * 1.5).clamp(0, 100);
+
+    double innerCritic = (discovered * 3 + healed * 2).clamp(0, 100).toDouble();
+    double protector = (discovered * 2 + stable * 4 + streak).clamp(0, 100).toDouble();
+    double overwhelmed = (discovered * 2 + healed).clamp(0, 100).toDouble();
+    double calmSelf = (healed * 8 + stable * 10 + streak * 2).clamp(0, 100).toDouble();
     calmSelf = (calmSelf + streak * 3).clamp(0, 100);
 
     // If still zero, use sample data

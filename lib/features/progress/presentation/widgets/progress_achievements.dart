@@ -1,10 +1,17 @@
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'package:ana_ifs_app/l10n/app_strings.dart';
 import 'package:ana_ifs_app/features/progress/presentation/providers/milestone_provider.dart';
 import '../../domain/entities/milestone.dart';
+
+String _milestoneTitle(BuildContext context, Milestone milestone) {
+  return isArabic(context) ? milestone.titleAr : milestone.titleEn;
+}
+
+String _milestoneDescription(BuildContext context, Milestone milestone) {
+  return isArabic(context) ? milestone.descriptionAr : milestone.descriptionEn;
+}
 
 class ProgressAchievements extends StatefulWidget {
   const ProgressAchievements({super.key});
@@ -16,32 +23,59 @@ class ProgressAchievements extends StatefulWidget {
 class _ProgressAchievementsState extends State<ProgressAchievements> {
   bool _showAllStreakAchievements = false;
   bool _showAllCharacterDiscovery = false;
-  bool _showAllHealingProgress = false;
+  bool _showAllStableAchievements = false;
+
+  List<Milestone> _orderedAchievements(List<Milestone> milestones) {
+    final pending = milestones.where((m) => !m.isAchieved).toList()
+      ..sort((a, b) => a.targetCount.compareTo(b.targetCount));
+
+    final completed = milestones.where((m) => m.isAchieved).toList()
+      ..sort((a, b) {
+        final aDate = a.achievedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final bDate = b.achievedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        return bDate.compareTo(aDate);
+      });
+
+    return [...pending, ...completed];
+  }
+
+  List<Milestone> _visibleAchievements(
+      List<Milestone> milestones,
+      bool showAll,
+      ) {
+    final ordered = _orderedAchievements(milestones);
+    if (showAll || ordered.length <= 2) return ordered;
+    return ordered.sublist(0, 2);
+  }
 
   @override
   Widget build(BuildContext context) {
     return Consumer<MilestoneProvider>(
       builder: (context, milestoneProvider, child) {
-        final activeAchievements = milestoneProvider.getActiveAchievements();
-        final allHealingMilestones = milestoneProvider.getHealingMilestones();
-        final allCharacterDiscoveryMilestones =
-        milestoneProvider.getCharacterDiscoveryMilestones();
+        final allStableMilestones =
+        _orderedAchievements(milestoneProvider.getStableMilestones());
 
-        final healingMilestones = _showAllHealingProgress
-            ? allHealingMilestones
-            : (allHealingMilestones.length > 2
-            ? allHealingMilestones.sublist(0, 2)
-            : allHealingMilestones);
+        final allCharacterDiscoveryMilestones = _orderedAchievements(
+          milestoneProvider.getCharacterDiscoveryMilestones(),
+        );
 
-        final characterDiscoveryMilestones = _showAllCharacterDiscovery
-            ? allCharacterDiscoveryMilestones
-            : (allCharacterDiscoveryMilestones.length > 2
-            ? allCharacterDiscoveryMilestones.sublist(0, 2)
-            : allCharacterDiscoveryMilestones);
+        final allStreakAchievements =
+        _orderedAchievements(milestoneProvider.getAllStreakAchievements());
 
-        final streakAchievements = _showAllStreakAchievements
-            ? milestoneProvider.getAllStreakAchievements()
-            : milestoneProvider.getLimitedStreakAchievements();
+        final characterDiscoveryMilestones = _visibleAchievements(
+          allCharacterDiscoveryMilestones,
+          _showAllCharacterDiscovery,
+        );
+
+        final stableMilestones = _visibleAchievements(
+          allStableMilestones,
+          _showAllStableAchievements,
+        );
+
+        final streakAchievements = _visibleAchievements(
+          allStreakAchievements,
+          _showAllStreakAchievements,
+        );
 
         return Column(
           children: [
@@ -51,23 +85,24 @@ class _ProgressAchievementsState extends State<ProgressAchievements> {
                 allCharacterDiscoveryMilestones,
                 context,
               ),
-            const SizedBox(height: 28),
-            if (streakAchievements.isNotEmpty)
+            if (allCharacterDiscoveryMilestones.isNotEmpty &&
+                (streakAchievements.isNotEmpty || allStableMilestones.isNotEmpty))
+              const SizedBox(height: 28),
+            if (allStreakAchievements.isNotEmpty)
               _buildStreakAchievementsSection(
                 streakAchievements,
+                allStreakAchievements,
                 milestoneProvider,
                 context,
               ),
-            const SizedBox(height: 28),
-            if (allHealingMilestones.isNotEmpty)
-              _buildHealingSection(
-                healingMilestones,
-                allHealingMilestones,
+            if (allStreakAchievements.isNotEmpty && allStableMilestones.isNotEmpty)
+              const SizedBox(height: 28),
+            if (allStableMilestones.isNotEmpty)
+              _buildStableSection(
+                stableMilestones,
+                allStableMilestones,
                 context,
               ),
-            const SizedBox(height: 12),
-            if (activeAchievements.isNotEmpty)
-              _buildActiveAchievementsSection(activeAchievements, context),
           ],
         );
       },
@@ -81,7 +116,11 @@ class _ProgressAchievementsState extends State<ProgressAchievements> {
       ) {
     return _AchievementSectionShell(
       title: tr(context, 'Character Discovery', 'اكتشاف الشخصيات'),
-      subtitle: tr(context, 'Discover your inner characters', 'اكتشف شخصياتك الداخلية'),
+      subtitle: tr(
+        context,
+        'Discover your inner characters',
+        'اكتشف شخصياتك الداخلية',
+      ),
       action: allMilestones.length > 2
           ? TextButton(
         onPressed: () {
@@ -102,40 +141,42 @@ class _ProgressAchievementsState extends State<ProgressAchievements> {
           : null,
       child: Column(
         children: milestones
-            .map((achievement) => Padding(
-          padding: const EdgeInsets.only(bottom: 14),
-          child: _AchievementCard(milestone: achievement),
-        ))
+            .map(
+              (achievement) => Padding(
+            padding: const EdgeInsets.only(bottom: 14),
+            child: _AchievementCard(milestone: achievement),
+          ),
+        )
             .toList(),
       ),
     );
   }
 
-  Widget _buildHealingSection(
+  Widget _buildStableSection(
       List<Milestone> milestones,
       List<Milestone> allMilestones,
       BuildContext context,
       ) {
     return _AchievementSectionShell(
-      title: tr(context, 'Healing Progress', 'تقدم الشفاء'),
+      title: tr(context, 'Stable Milestones', 'إنجازات الاستقرار'),
       subtitle: tr(
         context,
-        'Track your healing journey milestones',
-        'تتبع معالم رحلة الشفاء الخاصة بك',
+        'Celebrate every character that reaches stability',
+        'احتفلي بكل شخصية تصل إلى الاستقرار',
       ),
       action: allMilestones.length > 2
           ? TextButton(
         onPressed: () {
           setState(() {
-            _showAllHealingProgress = !_showAllHealingProgress;
+            _showAllStableAchievements = !_showAllStableAchievements;
           });
         },
         child: Text(
-          _showAllHealingProgress
+          _showAllStableAchievements
               ? tr(context, 'See Less', 'عرض أقل')
               : tr(context, 'See More', 'عرض المزيد'),
           style: const TextStyle(
-            color: Color(0xFF8E7CFF),
+            color: Color(0xFF59A874),
             fontWeight: FontWeight.w700,
           ),
         ),
@@ -143,10 +184,12 @@ class _ProgressAchievementsState extends State<ProgressAchievements> {
           : null,
       child: Column(
         children: milestones
-            .map((achievement) => Padding(
-          padding: const EdgeInsets.only(bottom: 14),
-          child: _AchievementCard(milestone: achievement),
-        ))
+            .map(
+              (achievement) => Padding(
+            padding: const EdgeInsets.only(bottom: 14),
+            child: _AchievementCard(milestone: achievement),
+          ),
+        )
             .toList(),
       ),
     );
@@ -154,6 +197,7 @@ class _ProgressAchievementsState extends State<ProgressAchievements> {
 
   Widget _buildStreakAchievementsSection(
       List<Milestone> streakAchievements,
+      List<Milestone> allStreakAchievements,
       MilestoneProvider milestoneProvider,
       BuildContext context,
       ) {
@@ -164,7 +208,7 @@ class _ProgressAchievementsState extends State<ProgressAchievements> {
         'Maintaining your daily streak',
         'افتح الإنجازات بالمحافظة على سلسلتك اليومية',
       ),
-      action: milestoneProvider.getAllStreakAchievements().length > 2
+      action: allStreakAchievements.length > 2
           ? TextButton(
         onPressed: () {
           setState(() {
@@ -176,7 +220,7 @@ class _ProgressAchievementsState extends State<ProgressAchievements> {
               ? tr(context, 'See Less', 'عرض أقل')
               : tr(context, 'See More', 'عرض المزيد'),
           style: const TextStyle(
-            color: Color(0xFF8E7CFF),
+            color: Color(0xFFFF8A3D),
             fontWeight: FontWeight.w700,
           ),
         ),
@@ -201,28 +245,12 @@ class _ProgressAchievementsState extends State<ProgressAchievements> {
     );
   }
 
-  Widget _buildActiveAchievementsSection(
-      List<Milestone> achievements,
-      BuildContext context,
-      ) {
-    return _AchievementSectionShell(
-      title: tr(context, 'Active Milestones', 'المعالم النشطة'),
-      subtitle: tr(context, 'Work in progress achievements', 'الإنجازات قيد التقدم'),
-      child: Column(
-        children: achievements
-            .map((achievement) => Padding(
-          padding: const EdgeInsets.only(bottom: 14),
-          child: _AchievementCard(milestone: achievement),
-        ))
-            .toList(),
-      ),
-    );
-  }
-
   void _showAchievementDetails(Milestone milestone, BuildContext context) {
-    final isAchieved = milestone.isAchieved;
-    final accent = isAchieved ? const Color(0xFF59A874) : const Color(0xFF8E7CFF);
-    final soft = isAchieved ? const Color(0xFFE8F8EE) : const Color(0xFFF0EDFF);
+    final accent = _getCategoryColor(milestone.category);
+    final soft = _getCategorySoftColor(
+      milestone.category,
+      achieved: milestone.isAchieved,
+    );
 
     showDialog(
       context: context,
@@ -254,7 +282,7 @@ class _ProgressAchievementsState extends State<ProgressAchievements> {
               ),
               const SizedBox(height: 14),
               Text(
-                milestone.title,
+                _milestoneTitle(context, milestone),
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   fontSize: 22,
@@ -264,7 +292,7 @@ class _ProgressAchievementsState extends State<ProgressAchievements> {
               ),
               const SizedBox(height: 8),
               Text(
-                milestone.description,
+                _milestoneDescription(context, milestone),
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   fontSize: 14,
@@ -285,7 +313,7 @@ class _ProgressAchievementsState extends State<ProgressAchievements> {
                   children: [
                     _DialogInfoRow(
                       label: tr(context, 'Category', 'الفئة'),
-                      value: milestone.category,
+                      value: _localizedCategory(context, milestone.category),
                     ),
                     const SizedBox(height: 10),
                     _DialogInfoRow(
@@ -304,7 +332,7 @@ class _ProgressAchievementsState extends State<ProgressAchievements> {
                       _DialogInfoRow(
                         label: tr(context, 'Unlocked on', 'تم فتحه في'),
                         value: milestone.achievedAt!.toString().split(' ')[0],
-                        valueColor: const Color(0xFF59A874),
+                        valueColor: accent,
                       ),
                     ],
                   ],
@@ -334,20 +362,57 @@ class _ProgressAchievementsState extends State<ProgressAchievements> {
     );
   }
 
+  String _localizedCategory(BuildContext context, String category) {
+    switch (category) {
+      case 'streak':
+        return tr(context, 'Streak', 'السلسلة');
+      case 'character_discovery':
+        return tr(context, 'Character Discovery', 'اكتشاف الشخصيات');
+      case 'stable':
+        return tr(context, 'Stability', 'الاستقرار');
+      default:
+        return tr(context, 'Achievement', 'إنجاز');
+    }
+  }
+
   IconData _getAchievementIcon(Milestone milestone) {
     if (milestone.isAchieved) return Icons.emoji_events_rounded;
 
     switch (milestone.category) {
-      case 'healing':
-        return Icons.favorite_rounded;
       case 'streak':
         return Icons.local_fire_department_rounded;
       case 'character_discovery':
         return Icons.auto_awesome_rounded;
-      case 'daily':
-        return Icons.check_circle_rounded;
+      case 'stable':
+        return Icons.shield_rounded;
       default:
         return Icons.flag_rounded;
+    }
+  }
+
+  Color _getCategoryColor(String category) {
+    switch (category) {
+      case 'streak':
+        return const Color(0xFFFF8A3D);
+      case 'character_discovery':
+        return const Color(0xFF8E7CFF);
+      case 'stable':
+        return const Color(0xFF59A874);
+      default:
+        return const Color(0xFF8E7CFF);
+    }
+  }
+
+  Color _getCategorySoftColor(String category, {bool achieved = false}) {
+    switch (category) {
+      case 'streak':
+        return achieved ? const Color(0xFFFFF4EC) : const Color(0xFFFFF1E7);
+      case 'character_discovery':
+        return achieved ? const Color(0xFFF5F2FF) : const Color(0xFFF0EDFF);
+      case 'stable':
+        return achieved ? const Color(0xFFEEF9F1) : const Color(0xFFE8F8EE);
+      default:
+        return achieved ? const Color(0xFFF5F2FF) : const Color(0xFFF0EDFF);
     }
   }
 }
@@ -414,23 +479,30 @@ class _AchievementCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final progress = milestone.targetCount == 0 ? 0.0 : milestone.currentCount / milestone.targetCount;
+    final progress = milestone.targetCount == 0
+        ? 0.0
+        : milestone.currentCount / milestone.targetCount;
     final color = _getCategoryColor(milestone.category);
-    final softColor = color.withOpacity(0.10);
+    final softColor = _getCategorySoftColor(milestone.category);
+    final achievedTint = _getCategorySoftColor(milestone.category, achieved: true);
 
     return GestureDetector(
       onTap: () => _showCardDetails(context),
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.85),
+          color: milestone.isAchieved
+              ? achievedTint
+              : Colors.white.withOpacity(0.85),
           borderRadius: BorderRadius.circular(24),
           border: Border.all(
-            color: milestone.isAchieved ? const Color(0xFFBDE5C8) : const Color(0xFFE7E3FF),
+            color: milestone.isAchieved
+                ? color.withOpacity(0.28)
+                : const Color(0xFFE7E3FF),
           ),
           boxShadow: [
             BoxShadow(
-              color: color.withOpacity(0.08),
+              color: color.withOpacity(milestone.isAchieved ? 0.12 : 0.08),
               blurRadius: 18,
               offset: const Offset(0, 8),
             ),
@@ -440,8 +512,9 @@ class _AchievementCard extends StatelessWidget {
           children: [
             _HexagonIconBadge(
               icon: _getAchievementIcon(milestone),
-              backgroundColor: milestone.isAchieved ? const Color(0xFFE8F8EE) : softColor,
-              iconColor: milestone.isAchieved ? const Color(0xFF59A874) : color,
+              backgroundColor:
+              milestone.isAchieved ? color.withOpacity(0.14) : softColor,
+              iconColor: color,
               size: 58,
             ),
             const SizedBox(width: 14),
@@ -450,7 +523,7 @@ class _AchievementCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    milestone.title,
+                    _milestoneTitle(context, milestone),
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w800,
@@ -459,7 +532,7 @@ class _AchievementCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 5),
                   Text(
-                    milestone.description,
+                    _milestoneDescription(context, milestone),
                     style: const TextStyle(
                       fontSize: 12,
                       color: Color(0xFF8881A1),
@@ -473,7 +546,7 @@ class _AchievementCard extends StatelessWidget {
                       child: LinearProgressIndicator(
                         value: progress.clamp(0.0, 1.0),
                         minHeight: 8,
-                        backgroundColor: const Color(0xFFEEEAFE),
+                        backgroundColor: softColor,
                         valueColor: AlwaysStoppedAnimation<Color>(color),
                       ),
                     ),
@@ -488,23 +561,37 @@ class _AchievementCard extends StatelessWidget {
                       ],
                     ),
                   ] else ...[
-                    if (milestone.achievedAt != null)
+                    Row(
+                      children: [
+                        _SoftChip(
+                          text: tr(context, 'Completed', 'مكتمل'),
+                          background: color.withOpacity(0.12),
+                          color: color,
+                          icon: Icons.check_rounded,
+                        ),
+                      ],
+                    ),
+                    if (milestone.achievedAt != null) ...[
+                      const SizedBox(height: 6),
                       Text(
-                        milestone.achievedAt!.toString().split(' ')[0],
-                        style: const TextStyle(
+                        '${tr(context, 'Unlocked on', 'تم فتحه في')} ${milestone.achievedAt!.toString().split(' ')[0]}',
+                        style: TextStyle(
                           fontSize: 12,
-                          color: Color(0xFF7FA08A),
-                          fontWeight: FontWeight.w600,
+                          color: color,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
+                    ],
                   ],
                 ],
               ),
             ),
             const SizedBox(width: 10),
             Icon(
-              milestone.isAchieved ? Icons.check_circle_rounded : Icons.chevron_right_rounded,
-              color: milestone.isAchieved ? const Color(0xFF59A874) : const Color(0xFFAEA7C9),
+              milestone.isAchieved
+                  ? Icons.check_circle_rounded
+                  : Icons.chevron_right_rounded,
+              color: milestone.isAchieved ? color : const Color(0xFFAEA7C9),
               size: 24,
             ),
           ],
@@ -522,14 +609,12 @@ class _AchievementCard extends StatelessWidget {
     if (milestone.isAchieved) return Icons.emoji_events_rounded;
 
     switch (milestone.category) {
-      case 'healing':
-        return Icons.favorite_rounded;
       case 'streak':
         return Icons.local_fire_department_rounded;
       case 'character_discovery':
-        return Icons.psychology_rounded;
-      case 'daily':
-        return Icons.check_circle_rounded;
+        return Icons.auto_awesome_rounded;
+      case 'stable':
+        return Icons.shield_rounded;
       default:
         return Icons.flag_rounded;
     }
@@ -537,31 +622,27 @@ class _AchievementCard extends StatelessWidget {
 
   Color _getCategoryColor(String category) {
     switch (category) {
-      case 'healing':
-        return const Color(0xFF8E7CFF);
       case 'streak':
         return const Color(0xFFFF8A3D);
       case 'character_discovery':
-        return const Color(0xFF4DA6FF);
-      case 'daily':
-        return const Color(0xFF9E8CFF);
+        return const Color(0xFF8E7CFF);
+      case 'stable':
+        return const Color(0xFF59A874);
       default:
         return const Color(0xFF8E7CFF);
     }
   }
 
-  String _categoryLabel(BuildContext context, String category) {
+  Color _getCategorySoftColor(String category, {bool achieved = false}) {
     switch (category) {
-      case 'healing':
-        return tr(context, 'Healing', 'الشفاء');
       case 'streak':
-        return tr(context, 'Streak', 'السلسلة');
+        return achieved ? const Color(0xFFFFF4EC) : const Color(0xFFFFF1E7);
       case 'character_discovery':
-        return tr(context, 'Discovery', 'الاكتشاف');
-      case 'daily':
-        return tr(context, 'Daily', 'يومي');
+        return achieved ? const Color(0xFFF5F2FF) : const Color(0xFFF0EDFF);
+      case 'stable':
+        return achieved ? const Color(0xFFEEF9F1) : const Color(0xFFE8F8EE);
       default:
-        return tr(context, 'Progress', 'التقدم');
+        return achieved ? const Color(0xFFF5F2FF) : const Color(0xFFF0EDFF);
     }
   }
 }
@@ -580,8 +661,12 @@ class _StreakAchievementCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isActuallyAchieved = milestone.isAchieved;
-    final progress = milestone.targetCount == 0 ? 0.0 : currentStreak / milestone.targetCount;
+    final progress =
+    milestone.targetCount == 0 ? 0.0 : currentStreak / milestone.targetCount;
     final progressPercentage = progress.clamp(0.0, 1.0);
+    const streakColor = Color(0xFFFF8A3D);
+    const streakSoft = Color(0xFFFFF1E7);
+    const streakAchievedTint = Color(0xFFFFF4EC);
 
     return GestureDetector(
       onTap: () {
@@ -591,14 +676,18 @@ class _StreakAchievementCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.85),
+          color: isActuallyAchieved
+              ? streakAchievedTint
+              : Colors.white.withOpacity(0.85),
           borderRadius: BorderRadius.circular(24),
           border: Border.all(
-            color: isActuallyAchieved ? const Color(0xFFBDE5C8) : const Color(0xFFE7E3FF),
+            color: isActuallyAchieved
+                ? streakColor.withOpacity(0.28)
+                : const Color(0xFFE7E3FF),
           ),
           boxShadow: [
             BoxShadow(
-              color: const Color(0xFF8E7CFF).withOpacity(0.08),
+              color: streakColor.withOpacity(isActuallyAchieved ? 0.14 : 0.10),
               blurRadius: 18,
               offset: const Offset(0, 8),
             ),
@@ -608,8 +697,10 @@ class _StreakAchievementCard extends StatelessWidget {
           children: [
             _HexagonIconBadge(
               icon: Icons.local_fire_department_rounded,
-              backgroundColor: isActuallyAchieved ? const Color(0xFFE8F8EE) : const Color(0xFFFFF1E7),
-              iconColor: isActuallyAchieved ? const Color(0xFF59A874) : const Color(0xFFFF8A3D),
+              backgroundColor: isActuallyAchieved
+                  ? streakColor.withOpacity(0.14)
+                  : streakSoft,
+              iconColor: streakColor,
               size: 58,
             ),
             const SizedBox(width: 14),
@@ -618,7 +709,7 @@ class _StreakAchievementCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    milestone.title,
+                    _milestoneTitle(context, milestone),
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w800,
@@ -627,7 +718,7 @@ class _StreakAchievementCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 5),
                   Text(
-                    milestone.description,
+                    _milestoneDescription(context, milestone),
                     style: const TextStyle(
                       fontSize: 12,
                       color: Color(0xFF8881A1),
@@ -641,8 +732,9 @@ class _StreakAchievementCard extends StatelessWidget {
                       child: LinearProgressIndicator(
                         value: progressPercentage,
                         minHeight: 8,
-                        backgroundColor: const Color(0xFFFFE7D6),
-                        valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFFF8A3D)),
+                        backgroundColor: streakSoft,
+                        valueColor:
+                        const AlwaysStoppedAnimation<Color>(streakColor),
                       ),
                     ),
                     const SizedBox(height: 6),
@@ -650,29 +742,41 @@ class _StreakAchievementCard extends StatelessWidget {
                       children: [
                         _SoftChip(
                           text: '$currentStreak/${milestone.targetCount}',
-                          background: const Color(0xFFFFF1E7),
-                          color: const Color(0xFFFF8A3D),
+                          background: streakSoft,
+                          color: streakColor,
                         ),
                         const SizedBox(width: 8),
                         if (shouldBeAchieved)
-                          const _SoftChip(
-                            text: 'Ready',
-                            background: Color(0xFFE8F8EE),
-                            color: Color(0xFF59A874),
+                          _SoftChip(
+                            text: tr(context, 'Ready', 'جاهز'),
+                            background: streakColor.withOpacity(0.14),
+                            color: streakColor,
                             icon: Icons.auto_awesome_rounded,
                           ),
                       ],
                     ),
                   ] else ...[
-                    if (milestone.achievedAt != null)
+                    Row(
+                      children: [
+                        _SoftChip(
+                          text: tr(context, 'Completed', 'مكتمل'),
+                          background: streakColor.withOpacity(0.12),
+                          color: streakColor,
+                          icon: Icons.check_rounded,
+                        ),
+                      ],
+                    ),
+                    if (milestone.achievedAt != null) ...[
+                      const SizedBox(height: 6),
                       Text(
-                        milestone.achievedAt!.toString().split(' ')[0],
+                        '${tr(context, 'Unlocked on', 'تم فتحه في')} ${milestone.achievedAt!.toString().split(' ')[0]}',
                         style: const TextStyle(
                           fontSize: 12,
-                          color: Color(0xFF7FA08A),
-                          fontWeight: FontWeight.w600,
+                          color: streakColor,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
+                    ],
                   ],
                 ],
               ),
@@ -681,8 +785,10 @@ class _StreakAchievementCard extends StatelessWidget {
             Icon(
               isActuallyAchieved
                   ? Icons.check_circle_rounded
-                  : (shouldBeAchieved ? Icons.auto_awesome_rounded : Icons.chevron_right_rounded),
-              color: isActuallyAchieved ? const Color(0xFF59A874) : const Color(0xFF8E7CFF),
+                  : (shouldBeAchieved
+                  ? Icons.auto_awesome_rounded
+                  : Icons.chevron_right_rounded),
+              color: streakColor,
               size: 24,
             ),
           ],
@@ -697,7 +803,11 @@ class _DialogInfoRow extends StatelessWidget {
   final String value;
   final Color? valueColor;
 
-  const _DialogInfoRow({required this.label, required this.value, this.valueColor});
+  const _DialogInfoRow({
+    required this.label,
+    required this.value,
+    this.valueColor,
+  });
 
   @override
   Widget build(BuildContext context) {
