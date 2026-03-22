@@ -29,6 +29,8 @@ class GuidedChatResponse {
 }
 
 class ChatAiRemoteDataSource {
+  static const Duration _requestTimeout = Duration(seconds: 60);
+
   ChatAiRemoteDataSource({http.Client? client, String? baseUrl})
       : _client = client ?? http.Client(),
         _baseUrl = baseUrl ?? AppConfig.aiBaseUrl;
@@ -48,19 +50,21 @@ class ChatAiRemoteDataSource {
     bool checkIntervention = true,
   }) async {
     final uri = Uri.parse('$_baseUrl/chat');
-    final response = await _client.post(
-      uri,
-      headers: {'Content-Type': 'application/json'},
-      body: json.encode({
-        'uid': uid,
-        'threadId': threadId,
-        'sessionId': sessionId,
-        'characterId': characterId,
-        'characterProfile': characterProfile,
-        'messages': messages,
-        'checkIntervention': checkIntervention,
-      }),
-    );
+    final response = await _client
+        .post(
+          uri,
+          headers: {'Content-Type': 'application/json'},
+          body: json.encode({
+            'uid': uid,
+            'threadId': threadId,
+            'sessionId': sessionId,
+            'characterId': characterId,
+            'characterProfile': characterProfile,
+            'messages': messages,
+            'checkIntervention': checkIntervention,
+          }),
+        )
+        .timeout(_requestTimeout);
 
     //Handle errors from the AI server.
     if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -116,18 +120,20 @@ class ChatAiRemoteDataSource {
     required List<Map<String, dynamic>> messages,
   }) async {
     final uri = Uri.parse('$_baseUrl/chat_guided');
-    final response = await _client.post(
-      uri,
-      headers: {'Content-Type': 'application/json'},
-      body: json.encode({
-        'uid': uid,
-        'threadId': threadId,
-        'sessionId': sessionId,
-        'characterId': characterId,
-        'characterProfile': characterProfile,
-        'messages': messages,
-      }),
-    );
+    final response = await _client
+        .post(
+          uri,
+          headers: {'Content-Type': 'application/json'},
+          body: json.encode({
+            'uid': uid,
+            'threadId': threadId,
+            'sessionId': sessionId,
+            'characterId': characterId,
+            'characterProfile': characterProfile,
+            'messages': messages,
+          }),
+        )
+        .timeout(_requestTimeout);
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception('AI server error: ${response.statusCode}');
@@ -142,5 +148,38 @@ class ChatAiRemoteDataSource {
       characterMessage: decoded['characterMessage']?.toString() ?? '',
       guiderMessage: decoded['guiderMessage']?.toString() ?? '',
     );
+  }
+
+  /// called when the user ends a session
+
+  /// computing end intensity, delta vs start intensity, session summary
+  Future<void> endAnalyzeSession({
+    required String uid,
+    required String sessionId,
+    required String threadId,
+    required String characterId,
+  }) async {
+    final uri = Uri.parse('$_baseUrl/sessions/end_analyze');
+    final response = await _client
+        .post(
+          uri,
+          headers: {'Content-Type': 'application/json'},
+          body: json.encode({
+            'uid': uid,
+            'sessionId': sessionId,
+            'threadId': threadId,
+            'characterId': characterId,
+          }),
+        )
+        .timeout(_requestTimeout);
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('AI server error: ${response.statusCode}');
+    }
+
+    final decoded = json.decode(response.body) as Map<String, dynamic>;
+    if (decoded['success'] != true) {
+      throw Exception(decoded['error'] ?? 'Unknown AI error');
+    }
   }
 }

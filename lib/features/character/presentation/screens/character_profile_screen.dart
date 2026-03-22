@@ -6,7 +6,7 @@ import 'package:flutter/services.dart';
 
 import 'package:ana_ifs_app/l10n/app_strings.dart';
 import 'package:ana_ifs_app/features/character/domain/entities/user_character.dart';
-import 'package:ana_ifs_app/features/character/presentation/screens/character_chat_screen.dart';
+import 'package:ana_ifs_app/features/chat/presentation/screens/character_chat_sessions_screen.dart';
 import 'package:ana_ifs_app/features/voice_analysis/presentation/screens/voice_analysis_screen.dart';
 import 'package:ana_ifs_app/features/video_chat/presentation/screens/video_call_screen.dart';
 class CharacterProfileScreen extends StatefulWidget {
@@ -316,7 +316,8 @@ class _CharacterProfileScreenState extends State<CharacterProfileScreen> {
                           onChat: () {
                             Navigator.of(context).push(
                               MaterialPageRoute(
-                                builder: (_) => CharacterChatScreen(
+                                // New flow: show session history first.
+                                builder: (_) => CharacterChatSessionsScreen(
                                   character: widget.character,
                                 ),
                               ),
