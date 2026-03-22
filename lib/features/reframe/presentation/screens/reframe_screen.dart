@@ -1195,6 +1195,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
   }
 
   // Save to database
+  // Save to database - ONLY reduce attributes, keep everything else the same
   Future<void> _saveToDatabase({
     required String inputType,
     required String transcript,
@@ -1206,24 +1207,111 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
     try {
       if (_currentUserId == null) return;
 
+      // Get inner characters as array
+      final innerCharacters = analysisResult['inner_characters'] ?? [];
+
+      // Get emotions as array
+      final List<Map<String, dynamic>> emotions = [];
+
+      // Add face emotion if available
+      if (analysisResult['face_emotion'] != null &&
+          analysisResult['face_emotion'] != 'Unknown' &&
+          analysisResult['face_emotion'] != 'Not Analyzed') {
+        emotions.add({
+          'type': 'face',
+          'emotion': analysisResult['face_emotion'].toString(),
+          'confidence': (analysisResult['face_confidence'] ?? 0.0).toDouble(),
+        });
+      }
+
+      // Add hand gesture emotion if available
+      if (analysisResult['hand_gesture_emotion'] != null &&
+          analysisResult['hand_gesture_emotion'] != 'Neutral' &&
+          analysisResult['hand_gesture_emotion'] != 'Unknown') {
+        emotions.add({
+          'type': 'gesture',
+          'emotion': analysisResult['hand_gesture_emotion'].toString(),
+          'confidence': (analysisResult['hand_gesture_confidence'] ?? 0.0).toDouble(),
+          'gesture': analysisResult['hand_gesture']?.toString() ?? '',
+        });
+      }
+
+      // Add voice emotions (all of them)
+      final voiceEmotions = analysisResult['voice_emotions'] ?? [];
+      for (var ve in voiceEmotions) {
+        emotions.add({
+          'type': 'voice',
+          'emotion': ve['emotion']?.toString() ?? 'Unknown',
+          'confidence': (ve['confidence'] ?? 0.0).toDouble(),
+        });
+      }
+
+      // Add primary voice emotion if exists and not already added
+      if (analysisResult['primary_voice_emotion'] != null &&
+          analysisResult['primary_voice_emotion'] != 'Unknown') {
+        // Check if already added to avoid duplicates
+        bool alreadyAdded = emotions.any((e) =>
+        e['type'] == 'voice' && e['emotion'] == analysisResult['primary_voice_emotion']);
+
+        if (!alreadyAdded) {
+          emotions.add({
+            'type': 'voice',
+            'emotion': analysisResult['primary_voice_emotion'].toString(),
+            'confidence': (analysisResult['primary_voice_confidence'] ?? 0.0).toDouble(),
+          });
+        }
+      }
+
       final sessionData = {
+        // Required fields
         'userId': _currentUserId!,
         'inputType': inputType,
-        'transcript': transcript,
+        'createdAt': FieldValue.serverTimestamp(),
+
+        // Transcript (limited length)
+        'transcript': transcript.length > 500 ? transcript.substring(0, 500) : transcript,
+
+        // ALL classified characters as array
+        'innerCharacters': innerCharacters.map((char) {
+          return {
+            'character': char['character']?.toString() ?? 'Unknown',
+            'characterName': char['character_name']?.toString() ?? '',
+            'confidence': (char['confidence'] ?? 0.0).toDouble(),
+          };
+        }).toList(),
+
+        // ALL emotions as array
+        'emotions': emotions,
+
+        // Language info
         'language': language,
-        'analysisResult': analysisResult,
-        'audioFilePath': audioFilePath,
-        'videoFilePath': videoFilePath,
-        'timestamp': FieldValue.serverTimestamp(),
-        'createdAt': DateTime.now().toIso8601String(),
+
+        // Keep these for backward compatibility (optional, can be removed later)
         'primaryCharacter': analysisResult['primary_character'] ?? 'Unknown',
         'confidence': analysisResult['confidence'] ?? 0.0,
         'characterName': analysisResult['character_name'] ?? '',
       };
 
+      // Add optional fields only if they exist
+      if (analysisResult['detected_language'] != null) {
+        sessionData['detectedLanguage'] = analysisResult['detected_language'];
+      }
+
+      if (analysisResult['is_translated'] != null) {
+        sessionData['isTranslated'] = analysisResult['is_translated'];
+      }
+
+      // Save to database
       await _firestore.collection('reframe_sessions').add(sessionData);
 
-      print('✅ Reframe session saved to database');
+      print('✅ Reframe session saved with ${innerCharacters.length} characters and ${emotions.length} emotions');
+      if (emotions.isNotEmpty) {
+        print('   Emotions: ${emotions.map((e) => '${e['emotion']} (${e['type']})').join(', ')}');
+      }
+
+      // DO NOT delete local files - let the existing cleanup handle it
+      // The _cleanupTempFiles() is already called elsewhere
+
     } catch (e) {
       print('❌ Error saving to database: $e');
     }
@@ -1330,9 +1418,9 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
       await _audioRecorder.start(
         const RecordConfig(
           encoder: AudioEncoder.wav,
-          sampleRate: 16000,
+          sampleRate: 44100,  // ← Increase to 44.1kHz for better quality
           numChannels: 1,
-          bitRate: 256000,
+          bitRate: 705600,
         ),
         path: _audioFilePath!,
       );
