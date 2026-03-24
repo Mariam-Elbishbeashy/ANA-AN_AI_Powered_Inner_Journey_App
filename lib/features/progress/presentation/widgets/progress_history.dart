@@ -34,9 +34,19 @@ class _ProgressHistoryState extends State<ProgressHistory> {
 
   bool _showAllStableHistory = false;
   bool _showAllAchievementHistory = false;
+  late final Stream<List<StableCharacterHistory>> _stableHistoryStream;
 
-  int get _stableHistoryLimit =>
-      _showAllStableHistory ? _expandedStableHistoryLimit : _collapsedStableHistoryLimit;
+  @override
+  void initState() {
+    super.initState();
+    _stableHistoryStream = _firestoreService.watchStableCharacterHistory();
+  }
+
+  @override
+  void dispose() {
+    _firestoreService.stopStableCharactersRealtimeSync();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -58,9 +68,7 @@ class _ProgressHistoryState extends State<ProgressHistory> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             StreamBuilder<List<StableCharacterHistory>>(
-              stream: _firestoreService.watchStableCharacterHistory(
-                limit: _stableHistoryLimit,
-              ),
+              stream: _stableHistoryStream,
               builder: (context, snapshot) {
                 if (!snapshot.hasData && snapshot.connectionState == ConnectionState.waiting) {
                   return _LoadingHistoryCard(
@@ -71,6 +79,9 @@ class _ProgressHistoryState extends State<ProgressHistory> {
                 final stableHistory = List<StableCharacterHistory>.from(
                   snapshot.data ?? const <StableCharacterHistory>[],
                 )..sort((a, b) => b.stableAt.compareTo(a.stableAt));
+
+                final hasMoreStableHistory =
+                    stableHistory.length > _collapsedStableHistoryLimit;
 
                 if (stableHistory.isEmpty) {
                   return _EmptyHistoryCard(
@@ -94,7 +105,7 @@ class _ProgressHistoryState extends State<ProgressHistory> {
                     'A quiet record of parts that have reached inner balance.',
                     'سجل هادئ للأجزاء التي وصلت إلى توازن داخلي.',
                   ),
-                  action: stableHistory.length > _collapsedStableHistoryLimit
+                  action: hasMoreStableHistory
                       ? TextButton(
                     onPressed: () {
                       setState(() {

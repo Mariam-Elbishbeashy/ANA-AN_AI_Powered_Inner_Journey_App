@@ -481,7 +481,8 @@ class MilestoneProvider with ChangeNotifier {
       final nextCount = category == 'character_discovery'
           ? totalCharacterCount
           : stableCharacterCount;
-      final nextAchieved = nextCount >= targetCount;
+      final lockedAchieved = isAchieved || achievedAt != null;
+      final nextAchieved = lockedAchieved || nextCount >= targetCount;
 
       if (currentCount != nextCount ||
           isAchieved != nextAchieved ||
@@ -577,7 +578,8 @@ class MilestoneProvider with ChangeNotifier {
       final currentCount = data['currentCount'] as int? ?? 0;
       final isAchieved = data['isAchieved'] as bool? ?? false;
       final achievedAt = data['achievedAt'];
-      final nextAchieved = currentStreak >= targetCount;
+      final lockedAchieved = isAchieved || achievedAt != null;
+      final nextAchieved = lockedAchieved || currentStreak >= targetCount;
 
       final nextUpdate = <String, dynamic>{
         'currentCount': currentStreak,
@@ -659,12 +661,15 @@ class MilestoneProvider with ChangeNotifier {
     if (milestone == null) return;
 
     final newCount = milestone.currentCount + increment;
+    final lockedAchieved = milestone.isAchieved || milestone.achievedAt != null;
+    final nextAchieved = lockedAchieved || newCount >= milestone.targetCount;
+
     await updateMilestone(milestoneId, {
       'currentCount': newCount,
-      'isAchieved': newCount >= milestone.targetCount,
-      'achievedAt': newCount >= milestone.targetCount && milestone.achievedAt == null
-          ? DateTime.now()
-          : milestone.achievedAt,
+      'isAchieved': nextAchieved,
+      'achievedAt': nextAchieved
+          ? (milestone.achievedAt ?? DateTime.now())
+          : null,
     });
   }
 
