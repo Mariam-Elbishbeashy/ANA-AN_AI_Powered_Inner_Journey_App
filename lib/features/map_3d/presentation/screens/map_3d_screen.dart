@@ -32,16 +32,25 @@ class Map3DScreen extends StatefulWidget {
 }
 
 class _Map3DScreenState extends State<Map3DScreen> {
-  // Normal positions (NOT reversed) - bottom nodes have highest dy values
   final List<Offset> nodePositions = [
-    const Offset(0.3, 820), // Bottom first (highest dy value)
-    const Offset(0.65, 730), // Second bottom
-    const Offset(0.2, 610), // Third from bottom
-    const Offset(0.5, 500), // Fourth
-    const Offset(0.75, 370), // Fifth
-    const Offset(0.3, 270), // Sixth
-    const Offset(0.6, 150), // Seventh
-    const Offset(0.2, 30), // Top last (lowest dy value)
+    const Offset(0.3, 2410), // Bottom first
+    const Offset(0.65, 2270), // Slot 1 - 140px gap
+    const Offset(0.2, 2130), // Slot 2 - 140px gap
+    const Offset(0.5, 1990), // Slot 3 - 140px gap
+    const Offset(0.75, 1850), // Slot 4 - 140px gap
+    const Offset(0.3, 1710), // Slot 5 - 140px gap
+    const Offset(0.6, 1570), // Slot 6 - 140px gap
+    const Offset(0.2, 1430), // Slot 7 - 140px gap
+    const Offset(0.5, 1290), // Slot 8 - 140px gap
+    const Offset(0.75, 1150), // Slot 9 - 140px gap
+    const Offset(0.3, 1010), // Slot 10 - 140px gap
+    const Offset(0.6, 870), // Slot 11 - 140px gap
+    const Offset(0.2, 730), // Slot 12 - 140px gap
+    const Offset(0.5, 590), // Slot 13 - 140px gap
+    const Offset(0.75, 450), // Slot 14 - 140px gap
+    const Offset(0.3, 310), // Slot 15 - 140px gap
+    const Offset(0.6, 170), // Slot 16 - 140px gap
+    const Offset(0.2, 30), // Top most - Slot 17
   ];
 
   late List<UserCharacter?> mapSlots;
@@ -445,8 +454,9 @@ class _Map3DScreenState extends State<Map3DScreen> {
                 : SingleChildScrollView(
               controller: _scrollController,
               physics: const BouncingScrollPhysics(),
+              reverse: true,
               child: SizedBox(
-                height: 1150,
+                height: 2760,
                 width: MediaQuery.of(context).size.width,
                 child: Stack(
                   children: [
@@ -483,47 +493,6 @@ class _Map3DScreenState extends State<Map3DScreen> {
                     CustomPaint(
                       size: Size(MediaQuery.of(context).size.width, 1150),
                       painter: PathPainter(positions: nodePositions),
-                    ),
-
-                    // Floating scroll indicator
-                    Positioned(
-                      top: 20,
-                      right: 20,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 8,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.9),
-                          borderRadius: BorderRadius.circular(20),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.1),
-                              blurRadius: 10,
-                              offset: const Offset(0, 5),
-                            ),
-                          ],
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.arrow_upward,
-                              size: 16,
-                              color: Colors.purple,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              _isArabic ? "اسحب للاستكشاف" : "Scroll to explore",
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.purple,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
                     ),
 
                     // Character Islands

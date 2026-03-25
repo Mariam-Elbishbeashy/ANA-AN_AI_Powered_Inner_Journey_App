@@ -1,13 +1,20 @@
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import 'package:ana_ifs_app/features/questionnaire/domain/entities/question.dart';
 import 'package:ana_ifs_app/features/questionnaire/domain/entities/user_answer.dart';
 import 'package:ana_ifs_app/features/character/domain/entities/user_character.dart';
+import '../../features/progress/domain/entities/stable_character_history.dart';
 
 class FirestoreService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
+
+  static StreamSubscription<QuerySnapshot>? _stableCharactersRealtimeSyncSubscription;
+  static String? _stableCharactersRealtimeSyncUserId;
+  static final Map<String, String> _lastKnownCharacterStates = <String, String>{};
+  static final Map<String, String> _lastKnownCharacterStableAt = <String, String>{};
 
   // Questions Collection
   CollectionReference get questionsCollection =>
@@ -20,6 +27,10 @@ class FirestoreService {
   // User Characters Collection
   CollectionReference get userCharactersCollection =>
       _firestore.collection('user_characters');
+
+  // Stable Character History Collection
+  CollectionReference get stableCharacterHistoryCollection =>
+      _firestore.collection('user_character_stable_history');
 
   // Users Collection
   CollectionReference get usersCollection => _firestore.collection('users');
@@ -383,6 +394,479 @@ class FirestoreService {
     } catch (e) {
       print('Error marking character as unhealed: $e');
       throw e;
+    }
+  }
+
+  Future<List<UserCharacter>> getCharactersByState(String state) async {
+    final userId = currentUserId;
+    if (userId == null) return [];
+
+    try {
+      final querySnapshot = await userCharactersCollection
+          .where('userId', isEqualTo: userId)
+          .where('currentState', isEqualTo: state)
+          .orderBy('rank')
+          .get();
+
+      return querySnapshot.docs
+          .map(
+            (doc) => UserCharacter.fromMap(
+          doc.data() as Map<String, dynamic>,
+          doc.id,
+        ),
+      )
+          .toList();
+    } catch (e) {
+      print('Error getting characters by state: $e');
+      return [];
+    }
+  }
+
+  String _buildStableHistoryDocId(String userId, String characterId, DateTime stableAt) {
+    return '${userId}_${characterId}_${stableAt.millisecondsSinceEpoch}';
+  }
+
+  String? _normalizeState(dynamic value) {
+    final state = value?.toString().trim().toLowerCase();
+    if (state == null || state.isEmpty) return null;
+    return state;
+  }
+
+  DateTime? _parseFlexibleDate(dynamic value) {
+    if (value == null) return null;
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    return DateTime.tryParse(value.toString());
+  }
+
+  Future<bool> _historyEntryExists(
+      String userId,
+      String characterId,
+      DateTime stableAt,
+      ) async {
+    final docId = _buildStableHistoryDocId(userId, characterId, stableAt);
+    final doc = await stableCharacterHistoryCollection.doc(docId).get();
+    return doc.exists;
+  }
+
+  Future<bool> _historyEntryExistsForExactStableAt(
+      String userId,
+      String characterId,
+      DateTime stableAt,
+      ) async {
+    if (await _historyEntryExists(userId, characterId, stableAt)) {
+      return true;
+    }
+
+    final iso = stableAt.toIso8601String();
+    final query = await stableCharacterHistoryCollection
+        .where('userId', isEqualTo: userId)
+        .where('sourceCharacterId', isEqualTo: characterId)
+        .where('stableAt', isEqualTo: iso)
+        .limit(1)
+        .get();
+
+    return query.docs.isNotEmpty;
+  }
+
+  Future<DateTime> _ensureStableAtOnCharacterDoc(
+      String characterId,
+      Map<String, dynamic> data, {
+        DateTime? preferredStableAt,
+      }) async {
+    final stableDate =
+        preferredStableAt ??
+            _parseFlexibleDate(data['stableAt']) ??
+            _parseFlexibleDate(data['updatedAt']) ??
+            _parseFlexibleDate(data['predictedAt']) ??
+            DateTime.now();
+
+    final currentStableAt = data['stableAt']?.toString();
+    if (currentStableAt == null || currentStableAt.isEmpty) {
+      await userCharactersCollection.doc(characterId).set({
+        'stableAt': stableDate.toIso8601String(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+
+    return stableDate;
+  }
+
+  Future<void> saveStableCharacterHistory(UserCharacter character, {DateTime? stableAt}) async {
+    final userId = currentUserId;
+    if (userId == null) return;
+
+    try {
+      final characterDoc = await userCharactersCollection.doc(character.id).get();
+      final latestData = characterDoc.data() as Map<String, dynamic>? ?? <String, dynamic>{};
+
+      await _saveStableCharacterHistoryFromData(
+        character.id,
+        <String, dynamic>{
+          ...latestData,
+          'characterName': latestData['characterName'] ?? character.characterName,
+          'displayNameEn': latestData['displayNameEn'] ?? character.displayNameEn,
+          'displayNameAr': latestData['displayNameAr'] ?? character.displayNameAr,
+          'archetype': latestData['archetype'] ?? character.archetype,
+          'glbFileName': latestData['glbFileName'] ?? character.glbFileName,
+        },
+        stableAt: stableAt,
+        userIdOverride: userId,
+      );
+    } catch (e) {
+      print('Error saving stable character history: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> _saveStableCharacterHistoryFromData(
+      String characterId,
+      Map<String, dynamic> data, {
+        DateTime? stableAt,
+        String? userIdOverride,
+      }) async {
+    final userId = userIdOverride ?? currentUserId;
+    if (userId == null) return;
+
+    try {
+      final stableDate = await _ensureStableAtOnCharacterDoc(
+        characterId,
+        data,
+        preferredStableAt: stableAt,
+      );
+      final stableIso = stableDate.toIso8601String();
+      final docId = _buildStableHistoryDocId(userId, characterId, stableDate);
+      final historyRef = stableCharacterHistoryCollection.doc(docId);
+
+      await _firestore.runTransaction((transaction) async {
+        final existingDoc = await transaction.get(historyRef);
+        if (existingDoc.exists) {
+          return;
+        }
+
+        final sameCycleQuery = await stableCharacterHistoryCollection
+            .where('userId', isEqualTo: userId)
+            .where('sourceCharacterId', isEqualTo: characterId)
+            .where('stableAt', isEqualTo: stableIso)
+            .limit(1)
+            .get();
+
+        if (sameCycleQuery.docs.isNotEmpty) {
+          return;
+        }
+
+        transaction.set(historyRef, {
+          'userId': userId,
+          'sourceCharacterId': characterId,
+          'characterName': data['characterName'] ?? '',
+          'displayNameEn': data['displayNameEn'] ?? data['displayName'] ?? '',
+          'displayNameAr': data['displayNameAr'] ?? data['displayName'] ?? '',
+          'archetype': data['archetype'] ?? '',
+          'glbFileName': data['glbFileName'] ?? '',
+          'stableAt': stableIso,
+          'stateAtSave': 'stable',
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      });
+
+      _lastKnownCharacterStates[characterId] = 'stable';
+      _lastKnownCharacterStableAt[characterId] = stableIso;
+      print('✅ Stable history synced from character $characterId at $stableIso');
+    } catch (e) {
+      print('Error syncing stable history from character data: $e');
+    }
+  }
+
+  Future<void> syncStableCharactersToHistory() async {
+    final userId = currentUserId;
+    if (userId == null) return;
+
+    try {
+      final charactersQuery = await userCharactersCollection
+          .where('userId', isEqualTo: userId)
+          .get();
+
+      for (final doc in charactersQuery.docs) {
+        final data = doc.data() as Map<String, dynamic>;
+        final state = _normalizeState(data['currentState']) ?? 'active';
+        _lastKnownCharacterStates[doc.id] = state;
+
+        if (state == 'stable') {
+          final stableDate = await _ensureStableAtOnCharacterDoc(doc.id, data);
+          _lastKnownCharacterStableAt[doc.id] = stableDate.toIso8601String();
+
+          final exists = await _historyEntryExistsForExactStableAt(userId, doc.id, stableDate);
+          if (!exists) {
+            await _saveStableCharacterHistoryFromData(
+              doc.id,
+              data,
+              stableAt: stableDate,
+              userIdOverride: userId,
+            );
+          }
+        } else {
+          _lastKnownCharacterStableAt.remove(doc.id);
+        }
+      }
+    } catch (e) {
+      print('Error syncing stable characters to history: $e');
+    }
+  }
+
+  Future<void> _handleStableCharacterRealtimeChange(
+      DocumentChange change,
+      String userId,
+      ) async {
+    final characterId = change.doc.id;
+    final data = change.doc.data() as Map<String, dynamic>?;
+
+    if (data == null) {
+      _lastKnownCharacterStates.remove(characterId);
+      _lastKnownCharacterStableAt.remove(characterId);
+      return;
+    }
+
+    final previousState = _lastKnownCharacterStates[characterId];
+    final currentState = _normalizeState(data['currentState']) ?? 'active';
+    final existingStableAt = _parseFlexibleDate(data['stableAt']);
+
+    if (currentState == 'stable') {
+      if (previousState == 'stable') {
+        final stableDate = existingStableAt ??
+            (_lastKnownCharacterStableAt[characterId] != null
+                ? DateTime.tryParse(_lastKnownCharacterStableAt[characterId]!)
+                : null) ??
+            await _ensureStableAtOnCharacterDoc(characterId, data);
+
+        _lastKnownCharacterStates[characterId] = 'stable';
+        _lastKnownCharacterStableAt[characterId] = stableDate.toIso8601String();
+        return;
+      }
+
+      final stableDate = existingStableAt ?? await _ensureStableAtOnCharacterDoc(
+        characterId,
+        data,
+        preferredStableAt: DateTime.now(),
+      );
+
+      await _saveStableCharacterHistoryFromData(
+        characterId,
+        data,
+        stableAt: stableDate,
+        userIdOverride: userId,
+      );
+
+      _lastKnownCharacterStates[characterId] = 'stable';
+      _lastKnownCharacterStableAt[characterId] = stableDate.toIso8601String();
+      return;
+    }
+
+    if (previousState == 'stable' && currentState == 'active') {
+      await userCharactersCollection.doc(characterId).set({
+        'stableAt': FieldValue.delete(),
+        'reactivatedAt': DateTime.now().toIso8601String(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+
+    _lastKnownCharacterStates[characterId] = currentState;
+    _lastKnownCharacterStableAt.remove(characterId);
+  }
+
+  Future<void> startStableCharactersRealtimeSync() async {
+    final userId = currentUserId;
+    if (userId == null) return;
+
+    if (_stableCharactersRealtimeSyncSubscription != null &&
+        _stableCharactersRealtimeSyncUserId == userId) {
+      return;
+    }
+
+    await _stableCharactersRealtimeSyncSubscription?.cancel();
+    _stableCharactersRealtimeSyncSubscription = null;
+    _stableCharactersRealtimeSyncUserId = userId;
+    _lastKnownCharacterStates.clear();
+    _lastKnownCharacterStableAt.clear();
+
+    await syncStableCharactersToHistory();
+
+    _stableCharactersRealtimeSyncSubscription = userCharactersCollection
+        .where('userId', isEqualTo: userId)
+        .snapshots()
+        .listen((snapshot) async {
+      for (final change in snapshot.docChanges) {
+        await _handleStableCharacterRealtimeChange(change, userId);
+      }
+    }, onError: (error) {
+      print('Error in stable characters realtime sync: $error');
+    });
+
+    print('📡 Stable characters realtime sync started for user $userId');
+  }
+
+  Future<void> stopStableCharactersRealtimeSync() async {
+    await _stableCharactersRealtimeSyncSubscription?.cancel();
+    _stableCharactersRealtimeSyncSubscription = null;
+    _stableCharactersRealtimeSyncUserId = null;
+    _lastKnownCharacterStates.clear();
+    _lastKnownCharacterStableAt.clear();
+  }
+
+  Future<void> markCharacterAsStable(UserCharacter character, {DateTime? stableAt}) async {
+    try {
+      final characterDoc = await userCharactersCollection.doc(character.id).get();
+      final data = characterDoc.data() as Map<String, dynamic>? ?? <String, dynamic>{};
+      final currentState = _normalizeState(data['currentState']) ??
+          _normalizeState(character.currentState) ??
+          'active';
+
+      if (currentState == 'stable') {
+        final preservedStableAt = await _ensureStableAtOnCharacterDoc(
+          character.id,
+          data,
+          preferredStableAt: stableAt,
+        );
+        _lastKnownCharacterStates[character.id] = 'stable';
+        _lastKnownCharacterStableAt[character.id] = preservedStableAt.toIso8601String();
+        print('ℹ️ Character ${character.id} is already stable. Keeping same stable date.');
+        return;
+      }
+
+      final stableDate = stableAt ?? DateTime.now();
+
+      await userCharactersCollection.doc(character.id).update({
+        'currentState': 'stable',
+        'stableAt': stableDate.toIso8601String(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      _lastKnownCharacterStates[character.id] = 'stable';
+      _lastKnownCharacterStableAt[character.id] = stableDate.toIso8601String();
+
+      await _saveStableCharacterHistoryFromData(
+        character.id,
+        <String, dynamic>{
+          ...data,
+          'characterName': data['characterName'] ?? character.characterName,
+          'displayNameEn': data['displayNameEn'] ?? character.displayNameEn,
+          'displayNameAr': data['displayNameAr'] ?? character.displayNameAr,
+          'archetype': data['archetype'] ?? character.archetype,
+          'glbFileName': data['glbFileName'] ?? character.glbFileName,
+          'stableAt': stableDate.toIso8601String(),
+        },
+        stableAt: stableDate,
+      );
+
+      print('✅ Character ${character.id} marked as stable');
+    } catch (e) {
+      print('Error marking character as stable: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> markCharacterAsActive(String characterId) async {
+    try {
+      _lastKnownCharacterStates[characterId] = 'active';
+      _lastKnownCharacterStableAt.remove(characterId);
+      await userCharactersCollection.doc(characterId).update({
+        'currentState': 'active',
+        'stableAt': FieldValue.delete(),
+        'reactivatedAt': DateTime.now().toIso8601String(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      print('✅ Character $characterId marked as active');
+    } catch (e) {
+      print('Error marking character as active: $e');
+      rethrow;
+    }
+  }
+
+
+  Future<void> updateCharacterCurrentState(
+      UserCharacter character,
+      String newState, {
+        DateTime? changedAt,
+      }) async {
+    try {
+      if (newState == 'stable') {
+        await markCharacterAsStable(character, stableAt: changedAt);
+        return;
+      }
+
+      final Map<String, dynamic> payload = {
+        'currentState': newState,
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+
+      if (newState == 'active') {
+        payload['reactivatedAt'] = (changedAt ?? DateTime.now()).toIso8601String();
+        payload['stableAt'] = FieldValue.delete();
+        _lastKnownCharacterStableAt.remove(character.id);
+      }
+
+      await userCharactersCollection.doc(character.id).update(payload);
+      _lastKnownCharacterStates[character.id] = newState;
+      print('✅ Character ${character.id} state updated to $newState');
+    } catch (e) {
+      print('Error updating character state: $e');
+      rethrow;
+    }
+  }
+
+  Stream<List<StableCharacterHistory>> watchStableCharacterHistory({int? limit}) {
+    final userId = currentUserId;
+    if (userId == null) return const Stream<List<StableCharacterHistory>>.empty();
+
+    startStableCharactersRealtimeSync();
+
+    Query query = stableCharacterHistoryCollection
+        .where('userId', isEqualTo: userId)
+        .orderBy('stableAt', descending: true);
+
+    if (limit != null) {
+      query = query.limit(limit);
+    }
+
+    return query.snapshots().map((snapshot) {
+      return snapshot.docs
+          .map(
+            (doc) => StableCharacterHistory.fromMap(
+          doc.data() as Map<String, dynamic>,
+          doc.id,
+        ),
+      )
+          .toList();
+    });
+  }
+
+  Future<List<StableCharacterHistory>> getStableCharacterHistory({int? limit}) async {
+    final userId = currentUserId;
+    if (userId == null) return [];
+
+    try {
+      await syncStableCharactersToHistory();
+
+      Query query = stableCharacterHistoryCollection
+          .where('userId', isEqualTo: userId)
+          .orderBy('stableAt', descending: true);
+
+      if (limit != null) {
+        query = query.limit(limit);
+      }
+
+      final querySnapshot = await query.get();
+
+      return querySnapshot.docs
+          .map(
+            (doc) => StableCharacterHistory.fromMap(
+          doc.data() as Map<String, dynamic>,
+          doc.id,
+        ),
+      )
+          .toList();
+    } catch (e) {
+      print('Error getting stable character history: $e');
+      return [];
     }
   }
 

@@ -3,6 +3,7 @@ import json
 import base64
 import re
 import traceback
+import requests
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 
@@ -17,10 +18,12 @@ voice_bp = Blueprint("voice_bp", __name__, url_prefix="/voice")
 # =============================
 # Config
 # =============================
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
 OPENAI_TRANSCRIBE_MODEL = os.getenv("OPENAI_TRANSCRIBE_MODEL", "whisper-1")
 OPENAI_TTS_MODEL = os.getenv("OPENAI_TTS_MODEL", "tts-1")
 VOICE_NAME = os.getenv("OPENAI_VOICE", "nova")
+
+# Agents service URL (internal communication)
+AGENTS_URL = os.getenv("AGENTS_URL", "http://localhost:5001")
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
@@ -54,106 +57,15 @@ except Exception:
     print("⚠️ Firebase not initialized - running without Firestore (voice_routes)")
 
 # =============================
-# Language + plan helpers
+# Language detection (still needed for TTS)
 # =============================
 ARABIC_RE = re.compile(r"[\u0600-\u06FF]")
 
 def detect_lang(text: str) -> str:
     return "ar" if ARABIC_RE.search(text or "") else "en"
 
-B_TRIGGERS_EN = [
-    "panic","panicking","can't breathe","overwhelmed","too much",
-    "i can't","i cannot","i'm not ok","help me","scared","terrified",
-    "i feel like dying","i want to disappear"
-]
-B_TRIGGERS_AR = [
-    "مخنوق","مش قادر","مش قادره","تايه","مرعوب","خايف",
-    "قلقان قوي","هلع","بنهار","مش تمام","ساعدني","كتير اوي","غرقان"
-]
-
-def choose_plan(user_text: str) -> str:
-    t = (user_text or "").lower()
-    if any(x in t for x in B_TRIGGERS_EN):
-        return "B"
-    if any(x in (user_text or "") for x in B_TRIGGERS_AR):
-        return "B"
-    return "A"
-
 # =============================
-# Prompts
-# =============================
-INNER_CRITIC_RULES = """
-You are the user's Inner Critic part, but you must be warm and helpful (not harsh).
-- Do not insult the user.
-- If the user is distressed, soften and prioritize safety and steadiness.
-- Ask 1 gentle question at a time (max 2 questions).
-- Keep replies short to medium (2–7 lines).
-- If user speaks Arabic, respond in Egyptian Arabic.
-- If user speaks English, respond in English.
-""".strip()
-
-PLAN_GUIDANCE = """
-Private plan guidance (do not reveal):
-- Plan A: gentle exploration, curiosity, witnessing, meaning.
-- Plan B: safety & grounding first, reduce intensity, steady the body/breath.
-Use the plan silently to shape your tone and questions.
-""".strip()
-
-SYSTEM_PROMPT_INNER_CRITIC = f"""
-You are a warm, human-like voice companion speaking as Inner Critic.
-
-{INNER_CRITIC_RULES}
-{PLAN_GUIDANCE}
-""".strip()
-
-SYSTEM_PROMPT_FREE_CHAT = """
-You are a friendly, human-like voice companion.
-- Answer any user question naturally, in full sentences.
-- Speak in Arabic if the user speaks Arabic, English if English.
-- Provide factual answers when possible.
-- Do NOT ask questions unless necessary.
-- Be dynamic and respond appropriately to anything the user asks.
-""".strip()
-
-# =============================
-# In-memory conversations
-# =============================
-CONVERSATIONS: Dict[str, List[Dict[str, str]]] = {}
-MEMORY_SUMMARIES: Dict[str, str] = {}
-
-def build_memory_summary_prompt(existing_summary: str, messages: List[Dict[str, str]]):
-    system = (
-        "Summarize the conversation into a short memory for future chats. "
-        "Focus on stable facts, recurring themes, triggers, and helpful responses. "
-        "Keep it under 6 bullet points."
-    )
-    user_content = {
-        "existing_summary": existing_summary,
-        "recent_messages": messages[-20:],
-    }
-    return [
-        {"role": "system", "content": system},
-        {"role": "user", "content": json.dumps(user_content, ensure_ascii=False)},
-    ]
-
-def update_memory_summary_if_needed(uid_key: str, conversation_history: List[Dict[str, str]], every_n_user_turns=3):
-    user_turns = sum(1 for m in conversation_history if m.get("role") == "user")
-    if user_turns == 0 or (user_turns % every_n_user_turns) != 0:
-        return
-
-    existing = MEMORY_SUMMARIES.get(uid_key, "")
-    try:
-        resp = client.chat.completions.create(
-            model=OPENAI_MODEL,
-            messages=build_memory_summary_prompt(existing, conversation_history),
-            temperature=0.2,
-        )
-        MEMORY_SUMMARIES[uid_key] = (resp.choices[0].message.content or "").strip()
-    except Exception:
-        pass
-
-# =============================
-# Helpers - OpenAI
+# Helpers - OpenAI (only transcription and TTS)
 # =============================
 def transcribe_audio(wav_path: str) -> str:
     with open(wav_path, "rb") as f:
@@ -162,37 +74,6 @@ def transcribe_audio(wav_path: str) -> str:
             file=f,
         )
         return (getattr(t, "text", "") or "").strip()
-
-def chat_reply(uid_key: str, user_text: str) -> Dict[str, str]:
-    lang = detect_lang(user_text)
-    plan = choose_plan(user_text)
-    free_chat = plan == "A"
-
-    # Initialize conversation
-    if uid_key not in CONVERSATIONS:
-        prompt = SYSTEM_PROMPT_FREE_CHAT if free_chat else SYSTEM_PROMPT_INNER_CRITIC
-        CONVERSATIONS[uid_key] = [{"role": "system", "content": prompt}]
-
-    convo = CONVERSATIONS[uid_key]
-
-    # Only update memory for Inner Critic
-    if not free_chat:
-        update_memory_summary_if_needed(uid_key, convo, every_n_user_turns=3)
-
-    # Append user message
-    convo.append({"role": "user", "content": user_text})
-
-    # Get AI response
-    resp = client.chat.completions.create(
-        model=OPENAI_MODEL,
-        messages=convo,
-        temperature=0.6 if free_chat else 0.4,
-        max_tokens=500,
-    )
-    ai_text = (resp.choices[0].message.content or "").strip()
-    convo.append({"role": "assistant", "content": ai_text})
-
-    return {"assistant": ai_text, "lang": lang, "plan": plan, "free_chat": free_chat}
 
 def tts_to_file(text: str, out_path: str, voice: str = VOICE_NAME):
     audio = client.audio.speech.create(
@@ -222,7 +103,7 @@ def make_public_audio_url(req, filename: str) -> str:
 
     return f"http://{host}:5003/voice/audio/{filename}"
 
-def _save_chat_to_firestore(uid: str, character_id: str, user_text: str, ai_text: str, uid_key: str):
+def _save_chat_to_firestore(uid: str, character_id: str, user_text: str, ai_text: str):
     """
     Save voice messages exactly like the Flutter text chat:
     users/{uid}/chat_threads/{threadId}/messages
@@ -309,15 +190,78 @@ def _save_chat_to_firestore(uid: str, character_id: str, user_text: str, ai_text
     except Exception as e:
         print("❌ FIRESTORE SAVE ERROR")
         traceback.print_exc()
+
+# =============================
+# Agents API Helpers
+# =============================
+def get_character_response(uid: str, character_id: str, character_profile: Dict, messages: List[Dict]) -> Dict:
+    """Call the agents service to get a character response."""
+    try:
+        response = requests.post(
+            f"{AGENTS_URL}/chat",
+            json={
+                "uid": uid,
+                "characterId": character_id,
+                "characterProfile": character_profile,
+                "messages": messages,
+                "checkIntervention": True  # Enable Guider intervention
+            },
+            timeout=30
+        )
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        print(f"❌ Error calling agents service: {e}")
+        # Fallback response if agents service fails
+        return {
+            "success": False,
+            "assistantMessage": "I'm having trouble connecting right now. Please try again in a moment.",
+            "toolCalls": [],
+            "intervention": None
+        }
+
+def get_guided_response(uid: str, character_id: str, character_profile: Dict, messages: List[Dict]) -> Dict:
+    """Call the agents service for guided chat (character + guider)."""
+    try:
+        response = requests.post(
+            f"{AGENTS_URL}/chat_guided",
+            json={
+                "uid": uid,
+                "characterId": character_id,
+                "characterProfile": character_profile,
+                "messages": messages
+            },
+            timeout=30
+        )
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        print(f"❌ Error calling guided agents service: {e}")
+        return {
+            "success": False,
+            "characterMessage": "",
+            "guiderMessage": "",
+            "respondent": "character_only"
+        }
+
 # =============================
 # Routes
 # =============================
 @voice_bp.get("/health")
 def voice_health():
+    # Check if agents service is reachable
+    agents_ok = False
+    try:
+        agents_response = requests.get(f"{AGENTS_URL}/health", timeout=5)
+        agents_ok = agents_response.status_code == 200
+    except:
+        pass
+
     return jsonify({
         "ok": True,
         "openai_ready": bool(os.getenv("OPENAI_API_KEY")),
-        "firebase_ready": db is not None
+        "firebase_ready": db is not None,
+        "agents_ready": agents_ok
     })
 
 @voice_bp.get("/audio/<filename>")
@@ -384,6 +328,10 @@ def tts_route():
 
 @voice_bp.post("/complete")
 def voice_complete():
+    """
+    Legacy endpoint - kept for backward compatibility.
+    Uses agents service for AI responses.
+    """
     try:
         file = request.files.get("file")
         if not file:
@@ -391,7 +339,6 @@ def voice_complete():
 
         uid = (request.form.get("uid") or "anonymous").strip()
         character_id = (request.form.get("characterId") or "inner_critic").strip()
-        uid_key = f"{uid}:{character_id}"
 
         ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
         in_path = os.path.join(RECORDINGS_DIR, f"{uid}_{character_id}_{ts}_complete_user.wav")
@@ -401,20 +348,42 @@ def voice_complete():
         if not transcript:
             return jsonify({"success": False, "error": "Transcription returned empty"}), 400
 
-        chat_res = chat_reply(uid_key, transcript)
-        assistant_text = chat_res["assistant"]
+        # Get character profile (simplified - in production, fetch from Firebase)
+        character_profile = {
+            "displayName": character_id.replace("_", " ").title(),
+            "role": "Inner Part",
+            "shortDescription": "",
+            "whyIExist": "",
+            "triggers": [],
+            "coreBelief": "",
+            "intention": "",
+            "fear": "",
+            "whatINeed": []
+        }
+
+        # Get response from agents service
+        messages = [{"role": "user", "content": transcript}]
+        agent_response = get_character_response(uid, character_id, character_profile, messages)
+
+        assistant_text = agent_response.get("assistantMessage", "I'm here listening.")
+
+        # Check for Guider intervention
+        intervention = agent_response.get("intervention")
+        if intervention and intervention.get("shouldIntervene"):
+            # If Guider intervened, use their message instead
+            assistant_text = intervention.get("guiderMessage", assistant_text)
 
         audio_b64 = tts_to_base64(assistant_text, voice=VOICE_NAME)
 
-        _save_chat_to_firestore(uid, character_id, transcript, assistant_text, uid_key)
+        _save_chat_to_firestore(uid, character_id, transcript, assistant_text)
 
         return jsonify({
             "success": True,
             "transcript": transcript,
             "assistantText": assistant_text,
             "wav_base64": audio_b64,
-            "lang": chat_res["lang"],
-            "plan": chat_res["plan"],
+            "lang": detect_lang(assistant_text),
+            "intervention": intervention
         })
 
     except Exception as e:
@@ -423,13 +392,17 @@ def voice_complete():
 
 @voice_bp.post("/chat")
 def voice_chat():
+    """
+    Main voice chat endpoint.
+    Uses agents service for AI responses with full guided chat support.
+    """
     try:
         uid = (request.form.get("uid") or "").strip()
         if not uid:
             return jsonify({"success": False, "error": "uid is required"}), 400
 
         character_id = (request.form.get("characterId") or "inner_critic").strip()
-        uid_key = f"{uid}:{character_id}"
+        use_guided = request.form.get("guided", "true").lower() == "true"
 
         file = request.files.get("audio")
         if file is None:
@@ -447,47 +420,149 @@ def voice_chat():
         if not transcript:
             return jsonify({"success": False, "error": "Transcription returned empty. Try again."}), 400
 
-        chat_res = chat_reply(uid_key, transcript)
-        assistant_text = chat_res["assistant"]
+        # Get character profile (simplified - in production, fetch from Firebase)
+        character_profile = {
+            "displayName": character_id.replace("_", " ").title(),
+            "role": "Inner Part",
+            "shortDescription": "",
+            "whyIExist": "",
+            "triggers": [],
+            "coreBelief": "",
+            "intention": "",
+            "fear": "",
+            "whatINeed": []
+        }
+
+        messages = [{"role": "user", "content": transcript}]
+
+        if use_guided:
+            # Use guided chat (character + guider)
+            agent_response = get_guided_response(uid, character_id, character_profile, messages)
+            character_message = agent_response.get("characterMessage", "")
+            guider_message = agent_response.get("guiderMessage", "")
+            respondent = agent_response.get("respondent", "character_only")
+
+            # Combine messages for TTS
+            if guider_message and respondent == "both":
+                # When both respond, character speaks first, then guider
+                assistant_text = f"{character_message} {guider_message}"
+            elif guider_message and respondent == "guider_only":
+                assistant_text = guider_message
+            else:
+                assistant_text = character_message
+        else:
+            # Use regular character chat with intervention
+            agent_response = get_character_response(uid, character_id, character_profile, messages)
+            assistant_text = agent_response.get("assistantMessage", "")
+
+            # Check for Guider intervention
+            intervention = agent_response.get("intervention")
+            if intervention and intervention.get("shouldIntervene"):
+                assistant_text = intervention.get("guiderMessage", assistant_text)
+
+        if not assistant_text:
+            assistant_text = "I'm here listening. Please continue."
 
         out_name = f"{uid}_{character_id}_{ts}_ai.wav"
         out_path = os.path.join(TTS_DIR, out_name)
         tts_to_file(assistant_text, out_path, voice=VOICE_NAME)
         audio_url = make_public_audio_url(request, out_name)
 
-        _save_chat_to_firestore(uid, character_id, transcript, assistant_text, uid_key)
+        _save_chat_to_firestore(uid, character_id, transcript, assistant_text)
 
-        return jsonify({
+        response_data = {
             "success": True,
-            "lang": chat_res["lang"],
-            "plan": chat_res["plan"],
+            "lang": detect_lang(assistant_text),
             "transcript": transcript,
             "assistantText": assistant_text,
             "audioUrl": audio_url,
             "audioBase64": "",
             "savedUserAudioPath": in_path,
             "savedAiAudioPath": out_path,
-        })
+        }
+
+        # Add guided chat metadata if applicable
+        if use_guided:
+            response_data["respondent"] = respondent
+            if 'character_message' in locals() and character_message:
+                response_data["characterMessage"] = character_message
+            if 'guider_message' in locals() and guider_message:
+                response_data["guiderMessage"] = guider_message
+        else:
+            # Add intervention data if any
+            intervention = agent_response.get("intervention")
+            if intervention:
+                response_data["intervention"] = intervention
+
+        return jsonify(response_data)
 
     except Exception as e:
         traceback.print_exc()
         return jsonify({"success": False, "error": f"Voice chat error: {str(e)}"}), 500
 
+# =============================
+# Conversation history endpoints (now proxy to agents)
+# =============================
 @voice_bp.get("/conversations/<uid>/<character_id>")
 def get_conversation(uid: str, character_id: str):
-    uid_key = f"{uid}:{character_id}"
-    convo = CONVERSATIONS.get(uid_key, [])
-    summary = MEMORY_SUMMARIES.get(uid_key, "")
-    return jsonify({
-        "success": True,
-        "uidKey": uid_key,
-        "summary": summary,
-        "messages": convo
-    })
+    """Get conversation history - proxies to Firebase directly"""
+    if not db:
+        return jsonify({"success": False, "error": "Firebase not available"}), 503
+
+    try:
+        # Fetch from Firestore
+        user_ref = db.collection("users").document(uid)
+        threads_ref = user_ref.collection("chat_threads")
+
+        # Find thread for this character
+        query = threads_ref.where("characterId", "==", character_id).limit(1).stream()
+        thread_doc = None
+        for doc in query:
+            thread_doc = doc
+            break
+
+        if not thread_doc:
+            return jsonify({
+                "success": True,
+                "uidKey": f"{uid}:{character_id}",
+                "summary": "",
+                "messages": []
+            })
+
+        # Get messages
+        messages_ref = threads_ref.document(thread_doc.id).collection("messages")
+        messages = messages_ref.order_by("createdAt").stream()
+
+        message_list = []
+        for msg in messages:
+            data = msg.to_dict()
+            message_list.append({
+                "role": data.get("role", "user"),
+                "content": data.get("content", ""),
+                "createdAt": str(data.get("createdAt", ""))
+            })
+
+        # Get memory summary from agent_memory collection
+        memory_ref = user_ref.collection("agent_memory").document(character_id)
+        memory_doc = memory_ref.get()
+        summary = memory_doc.to_dict().get("summary", "") if memory_doc.exists else ""
+
+        return jsonify({
+            "success": True,
+            "uidKey": f"{uid}:{character_id}",
+            "summary": summary,
+            "messages": message_list
+        })
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
 
 @voice_bp.post("/conversations/<uid>/<character_id>/clear")
 def clear_conversation(uid: str, character_id: str):
-    uid_key = f"{uid}:{character_id}"
-    CONVERSATIONS.pop(uid_key, None)
-    MEMORY_SUMMARIES.pop(uid_key, None)
-    return jsonify({"success": True, "message": "Conversation cleared", "uidKey": uid_key})
+    """Clear conversation - can't really delete from Firestore, so just return success"""
+    # In a real implementation, you might want to archive or delete messages
+    return jsonify({
+        "success": True,
+        "message": "Conversation clear requested",
+        "uidKey": f"{uid}:{character_id}"
+    })

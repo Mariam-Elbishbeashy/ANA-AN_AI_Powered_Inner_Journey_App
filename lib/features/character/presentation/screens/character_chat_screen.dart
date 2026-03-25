@@ -82,11 +82,12 @@ class _CharacterChatScreenState extends State<CharacterChatScreen> {
   }
 
   String _getTitle(BuildContext context) {
-    final isArabic = Localizations.localeOf(context).languageCode == 'ar';
+    // use the in-app language toggle (AppLanguageProvider), not the device locale
+    final ar = isArabic(context);
 
-    final displayName = widget.character.getDisplayName(isArabic ? 'ar' : 'en');
+    final displayName = widget.character.getDisplayName(ar ? 'ar' : 'en');
 
-    if (isArabic) {
+    if (ar) {
       return displayName;
     } else {
       final normalized = displayName.toLowerCase().startsWith('the ')
@@ -185,7 +186,9 @@ class _CharacterChatScreenState extends State<CharacterChatScreen> {
                     return ChatConversation(
                       characterId: characterId,
                       characterType: 'inner_character',
-                      fallbackTitle: widget.character.displayNameEn,
+                      fallbackTitle: widget.character.getDisplayName(
+                        isArabic(context) ? 'ar' : 'en',
+                      ),
                       fallbackSubtitle: tr(
                         context,
                         'A protective inner part.',

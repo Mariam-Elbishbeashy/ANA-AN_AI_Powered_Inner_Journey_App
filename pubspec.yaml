@@ -60,7 +60,8 @@ dependencies:
   cached_network_image: ^3.3.0
   flutter_tts: ^3.8.5
   fl_chart: ^0.66.0
-
+  shared_preferences: ^2.2.3
+  flutter_svg: ^2.0.10+1
 
   permission_handler: ^11.3.0
 dev_dependencies:
@@ -90,6 +91,7 @@ flutter:
      - assets/images/characters_full_body/
      - assets/data/
      - assets/models/
+     - assets/moods/
 
 
   # An image asset can refer to one or more resolution-specific "variants", see
