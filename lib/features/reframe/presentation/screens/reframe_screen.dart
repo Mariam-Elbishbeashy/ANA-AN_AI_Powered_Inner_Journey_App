@@ -52,9 +52,9 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
   bool _videoRecording = false;
   final ScrollController _scrollController = ScrollController();
 
-  // Track character counts
-  int _healedCharacterCount = 0;
-  int _unhealedCharacterCount = 0;
+  // Track character counts - ONLY based on currentState
+  int _activeCharacterCount = 0;
+  int _inactiveCharacterCount = 0;
 
   // Audio recording for video mode
   bool _videoAudioRecording = false;
@@ -86,16 +86,22 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
 
   // Refresh character data from database
   Future<void> _refreshCharacterData() async {
-    await _checkForHealedCharacters();
+    await _checkForCharacters();
   }
 
-  // Check if user has 3 or more unhealed characters
+  // Check if user has 3 or more ACTIVE characters
   bool _shouldRestrictAccess() {
-    return _unhealedCharacterCount >= 3;
+    return _activeCharacterCount >= 3;
   }
 
-  // Check character counts from database
-  Future<void> _checkForHealedCharacters() async {
+  // Helper method to check if a character is active
+  bool _isActiveCharacter(Map<String, dynamic> characterData) {
+    final currentState = characterData['currentState'] ?? 'active';
+    return currentState == 'active';
+  }
+
+  // Check character counts from database - only count ACTIVE characters
+  Future<void> _checkForCharacters() async {
     try {
       if (_currentUserId == null) return;
 
@@ -105,31 +111,32 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
           .where('userId', isEqualTo: _currentUserId)
           .get();
 
-      int healedCount = 0;
-      int unhealedCount = 0;
+      int activeCount = 0;
+      int inactiveCount = 0;
 
       for (final doc in querySnapshot.docs) {
         final data = doc.data();
-        final isHealed = data['isHealed'] == true;
-        if (isHealed) {
-          healedCount++;
-        } else {
-          unhealedCount++;
+        final currentState = data['currentState'] ?? 'active';
+
+        if (currentState == 'active') {
+          activeCount++;
+        } else if (currentState == 'inactive') {
+          inactiveCount++;
         }
       }
 
       setState(() {
-        _healedCharacterCount = healedCount;
-        _unhealedCharacterCount = unhealedCount;
+        _activeCharacterCount = activeCount;
+        _inactiveCharacterCount = inactiveCount;
       });
 
-      print('📊 Character Stats: $healedCount healed, $unhealedCount unhealed');
+      print('📊 Character Stats: $activeCount active, $inactiveCount inactive');
 
     } catch (e) {
       print('❌ Error checking characters: $e');
       setState(() {
-        _healedCharacterCount = 0;
-        _unhealedCharacterCount = 0;
+        _activeCharacterCount = 0;
+        _inactiveCharacterCount = 0;
       });
     }
   }
@@ -184,8 +191,8 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
             const SizedBox(height: 16),
             Text(
               tr(context,
-                  "To ensure each inner part receives the care it deserves, we gently pause new discoveries. You have $_unhealedCharacterCount parts awaiting your attention - nurturing them will renew your capacity for insight.",
-                  "لضمان حصول كل جزء داخلي على الرعاية التي يستحقها، نتوقف بلطف عن الاكتشافات الجديدة. لديك $_unhealedCharacterCount جزءًا تنتظر اهتمامك - رعايتها ستعيد تجديد قدرتك على البصيرة."),
+                  "You have $_activeCharacterCount active parts awaiting your attention. Please nurture them before discovering new insights. (Inactive parts can be reactivated)",
+                  "لديك $_activeCharacterCount جزءًا نشطًا تنتظر اهتمامك. يرجى رعايتها قبل اكتشاف رؤى جديدة. (يمكن إعادة تفعيل الأجزاء غير النشطة)"),
               textAlign: TextAlign.center,
               style: const TextStyle(
                 color: Color(0xFF4B3A66),
@@ -423,8 +430,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
     }
   }
 
-  // Save high confidence characters to user collection with media
-  // Save high confidence characters to user collection with only UserCharacter attributes
+  // Save high confidence characters to user collection
   Future<void> _saveHighConfidenceCharacters(
       Map<String, dynamic> analysisResult, {
         String? audioFilePath,
@@ -435,6 +441,92 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
       if (_currentUserId == null) {
         print('❌ No user ID available');
         return;
+      }
+
+      // FIRST CHECK: Verify user doesn't already have 3 or more active characters
+      await _checkForCharacters(); // Get latest counts
+
+      if (_shouldRestrictAccess()) {
+        print('🚫 Cannot create or reactivate characters: User already has $_activeCharacterCount active characters');
+
+        if (mounted) {
+          // Show dialog explaining why they can't create/reactivate more characters
+          showDialog(
+            context: context,
+            barrierDismissible: true,
+            builder: (context) => AlertDialog(
+              backgroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              contentPadding: const EdgeInsets.all(24),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 80,
+                    height: 80,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF8E7CFF).withOpacity(0.12),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.info_outline,
+                      size: 40,
+                      color: Color(0xFF8E7CFF),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    tr(context, "Cannot Create More Characters", "لا يمكن إنشاء المزيد من الشخصيات"),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF2A1E3B),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    tr(context,
+                        "You already have $_activeCharacterCount active parts. Please nurture them before discovering new insights or reactivating inactive parts.",
+                        "لديك بالفعل $_activeCharacterCount جزء نشط. يرجى رعايتها قبل اكتشاف رؤى جديدة أو إعادة تفعيل الأجزاء غير النشطة."),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Color(0xFF4B3A66),
+                      fontSize: 15,
+                      height: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF8E7CFF),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: Text(
+                        tr(context, "Got It", "حسناً"),
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+
+        return; // Stop here - don't create or reactivate any characters
       }
 
       // Get inner_characters from analysis result
@@ -489,26 +581,55 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
         return confB.compareTo(confA);
       });
 
-      // Get existing user characters
-      final existingCharacters = await _getUserCharacters();
-      final existingCharacterNames = existingCharacters
-          .map((c) => c.characterName.toLowerCase().trim())
-          .toSet();
+      // Get ALL existing user characters
+      final existingCharactersSnapshot = await _firestore
+          .collection('user_characters')
+          .where('userId', isEqualTo: _currentUserId)
+          .get();
+
+      // Create maps for quick lookup by character name
+      Map<String, Map<String, dynamic>> activeCharacters = {};
+      Map<String, Map<String, dynamic>> inactiveCharacters = {};
+
+      for (final doc in existingCharactersSnapshot.docs) {
+        final data = doc.data();
+        final characterName = data['characterName']?.toString().toLowerCase().trim() ?? '';
+        final currentState = data['currentState'] ?? 'active';
+
+        if (characterName.isNotEmpty) {
+          if (currentState == 'inactive') {
+            inactiveCharacters[characterName] = {
+              ...data,
+              'docId': doc.id,
+            };
+          } else {
+            activeCharacters[characterName] = {
+              ...data,
+              'docId': doc.id,
+            };
+          }
+        }
+      }
 
       int maxRank = 0;
-      for (final character in existingCharacters) {
-        if (character.rank > maxRank) {
-          maxRank = character.rank;
+      for (final doc in existingCharactersSnapshot.docs) {
+        final rank = (doc.data()['rank'] as num?)?.toInt() ?? 0;
+        if (rank > maxRank) {
+          maxRank = rank;
         }
       }
 
       int nextRank = maxRank + 1;
       int newCharactersCount = 0;
+      int reactivatedCharactersCount = 0;
 
       final batch = _firestore.batch();
       final timestamp = DateTime.now();
 
-      // Save each high confidence character
+      // Track how many active characters we'll have after all operations
+      int totalActiveAfterOperations = _activeCharacterCount;
+
+      // Process each high confidence character
       for (int i = 0; i < highConfidenceCharacters.length; i++) {
         final character = highConfidenceCharacters[i];
 
@@ -527,12 +648,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
           continue;
         }
 
-        // Check for duplicates
         final characterNameLower = characterName.toLowerCase().trim();
-        if (existingCharacterNames.contains(characterNameLower)) {
-          print('⏭️ Skipping duplicate character: $characterName');
-          continue;
-        }
 
         // Get confidence
         double confidence = 0.0;
@@ -544,8 +660,211 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
           }
         }
 
+        // Check if character exists as INACTIVE
+        if (inactiveCharacters.containsKey(characterNameLower)) {
+          // Check if reactivating would exceed the limit
+          if (totalActiveAfterOperations >= 3) {
+            print('🚫 Cannot reactivate: Would exceed active character limit. Current: $_activeCharacterCount, After operations: $totalActiveAfterOperations');
+
+            if (mounted && i == 0) {
+              showDialog(
+                context: context,
+                barrierDismissible: true,
+                builder: (context) => AlertDialog(
+                  backgroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  contentPadding: const EdgeInsets.all(24),
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 80,
+                        height: 80,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF8E7CFF).withOpacity(0.12),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.warning_amber_rounded,
+                          size: 40,
+                          color: Color(0xFF8E7CFF),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      Text(
+                        tr(context, "Active Character Limit", "حد الشخصيات النشطة"),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF2A1E3B),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        tr(context,
+                            "You can only have up to 3 active characters at a time. Cannot reactivate more characters at this time.",
+                            "يمكنك الحصول على 3 شخصيات نشطة فقط في المرة الواحدة. لا يمكن إعادة تفعيل المزيد من الشخصيات في هذا الوقت."),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Color(0xFF4B3A66),
+                          fontSize: 15,
+                          height: 1.5,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF3EDFF),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          tr(context,
+                              "Current active: $_activeCharacterCount of 3",
+                              "النشط حالياً: $_activeCharacterCount من 3"),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF8E7CFF),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
+
+            continue; // Skip this reactivation
+          }
+
+          // Reactivate the inactive character
+          final inactiveData = inactiveCharacters[characterNameLower]!;
+          final docId = inactiveData['docId'];
+
+          print('🔄 Reactivating inactive character: $characterName');
+
+          // Update the existing inactive character to active
+          final docRef = _firestore.collection('user_characters').doc(docId);
+          batch.update(docRef, {
+            'currentState': 'active',
+            'confidence': confidence, // Update with latest confidence
+            'predictedAt': timestamp.toIso8601String(),
+            'reactivatedAt': timestamp.toIso8601String(),
+          });
+
+          reactivatedCharactersCount++;
+          totalActiveAfterOperations++; // Increment active count
+
+          // Remove from inactive map so we don't process again
+          inactiveCharacters.remove(characterNameLower);
+          continue;
+        }
+
+        // Check if character exists as ACTIVE (skip if already active)
+        if (activeCharacters.containsKey(characterNameLower)) {
+          print('⏭️ Character already active: $characterName');
+          continue;
+        }
+
+        // SECOND CHECK: Before adding a NEW character, verify again that we're not exceeding the limit
+        if (totalActiveAfterOperations >= 3) {
+          print('🚫 Cannot add new character: Would exceed active character limit. Current: $_activeCharacterCount, After operations: $totalActiveAfterOperations');
+
+          if (mounted && i == 0) {
+            showDialog(
+              context: context,
+              barrierDismissible: true,
+              builder: (context) => AlertDialog(
+                backgroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                contentPadding: const EdgeInsets.all(24),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 80,
+                      height: 80,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF8E7CFF).withOpacity(0.12),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.warning_amber_rounded,
+                        size: 40,
+                        color: Color(0xFF8E7CFF),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Text(
+                      tr(context, "Active Character Limit", "حد الشخصيات النشطة"),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF2A1E3B),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      tr(context,
+                          "You can only have up to 3 active characters at a time. Some characters were not added.",
+                          "يمكنك الحصول على 3 شخصيات نشطة فقط في المرة الواحدة. لم تتم إضافة بعض الشخصيات."),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Color(0xFF4B3A66),
+                        fontSize: 15,
+                        height: 1.5,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF3EDFF),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        children: [
+                          Text(
+                            tr(context,
+                                "Current active: $_activeCharacterCount of 3",
+                                "النشط حالياً: $_activeCharacterCount من 3"),
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF4B3A66),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            tr(context,
+                                "Remaining slots: ${2 - _activeCharacterCount}",
+                                "المساحة المتبقية: ${2 - _activeCharacterCount}"),
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF8E7CFF),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+
+          break; // Stop adding more new characters
+        }
+
+        // New character - add to database
         final rank = nextRank + newCharactersCount;
         newCharactersCount++;
+        totalActiveAfterOperations++; // Increment active count
 
         // Get display names
         String displayNameEn = _getEnglishDisplayName(characterName);
@@ -578,7 +897,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
         // Create character document reference
         final characterDocRef = _firestore.collection('user_characters').doc();
 
-        // Create data with EXACTLY the UserCharacter attributes
+        // Create data - NO isHealed field!
         final characterData = {
           'userId': _currentUserId!,
           'characterName': characterName,
@@ -593,31 +912,49 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
           'descriptionAr': descriptionAr,
           'predictedAt': timestamp.toIso8601String(),
           'isHealed': false,
-          'healedAt': null,
+          'currentState': 'active', // Only 'active' or 'inactive' states
         };
 
         batch.set(characterDocRef, characterData);
-        print('📝 Saving character: $characterName (Rank: $rank)');
-
-        // Add to existing names to prevent duplicates in same batch
-        existingCharacterNames.add(characterNameLower);
+        print('📝 Adding new character: $characterName (Rank: $rank)');
       }
 
-      if (newCharactersCount > 0) {
+      if (newCharactersCount > 0 || reactivatedCharactersCount > 0) {
         await batch.commit();
-        print('✅ Saved $newCharactersCount new characters');
 
-        await _refreshCharacterData();
+        if (newCharactersCount > 0) {
+          print('✅ Added $newCharactersCount new characters');
+        }
+        if (reactivatedCharactersCount > 0) {
+          print('🔄 Reactivated $reactivatedCharactersCount inactive characters');
+        }
+
+        await _checkForCharacters();
 
         if (mounted) {
+          String message;
+          if (newCharactersCount > 0 && reactivatedCharactersCount > 0) {
+            message = tr(context,
+                '$newCharactersCount new and $reactivatedCharactersCount reactivated inner characters added!',
+                'تم إضافة $newCharactersCount شخصيات جديدة وإعادة تفعيل $reactivatedCharactersCount شخصيات!'
+            );
+          } else if (newCharactersCount > 0) {
+            message = tr(context,
+                '$newCharactersCount new inner ${newCharactersCount == 1 ? 'character' : 'characters'} added!',
+                'تم إضافة $newCharactersCount من الشخصيات الداخلية الجديدة!'
+            );
+          } else if (reactivatedCharactersCount > 0) {
+            message = tr(context,
+                '$reactivatedCharactersCount inactive inner ${reactivatedCharactersCount == 1 ? 'character has' : 'characters have'} been reactivated!',
+                'تم إعادة تفعيل $reactivatedCharactersCount من الشخصيات الداخلية غير النشطة!'
+            );
+          } else {
+            return; // No changes to report
+          }
+
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(
-                tr(context,
-                    '$newCharactersCount new inner ${newCharactersCount == 1 ? 'character' : 'characters'} added!',
-                    'تم إضافة $newCharactersCount من الشخصيات الداخلية الجديدة!'
-                ),
-              ),
+              content: Text(message),
               backgroundColor: const Color(0xFF8E7CFF),
               duration: const Duration(seconds: 3),
               behavior: SnackBarBehavior.floating,
@@ -627,6 +964,20 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
             ),
           );
         }
+      } else if (mounted && newCharactersCount == 0 && reactivatedCharactersCount == 0) {
+        // No changes made, but analysis completed
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              tr(context,
+                  'Analysis completed, but no new characters were added or reactivated',
+                  'تم اكتمال التحليل، ولكن لم تتم إضافة أو إعادة تفعيل شخصيات جديدة'),
+            ),
+            backgroundColor: const Color(0xFF8E7CFF).withOpacity(0.8),
+            duration: const Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
       }
 
     } catch (e) {
@@ -645,7 +996,6 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
     }
   }
 
-  // Helper method to get existing user characters
   // Helper method to get existing user characters
   Future<List<UserCharacter>> _getUserCharacters() async {
     try {
@@ -845,6 +1195,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
   }
 
   // Save to database
+  // Save to database - ONLY reduce attributes, keep everything else the same
   Future<void> _saveToDatabase({
     required String inputType,
     required String transcript,
@@ -856,24 +1207,111 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
     try {
       if (_currentUserId == null) return;
 
+      // Get inner characters as array
+      final innerCharacters = analysisResult['inner_characters'] ?? [];
+
+      // Get emotions as array
+      final List<Map<String, dynamic>> emotions = [];
+
+      // Add face emotion if available
+      if (analysisResult['face_emotion'] != null &&
+          analysisResult['face_emotion'] != 'Unknown' &&
+          analysisResult['face_emotion'] != 'Not Analyzed') {
+        emotions.add({
+          'type': 'face',
+          'emotion': analysisResult['face_emotion'].toString(),
+          'confidence': (analysisResult['face_confidence'] ?? 0.0).toDouble(),
+        });
+      }
+
+      // Add hand gesture emotion if available
+      if (analysisResult['hand_gesture_emotion'] != null &&
+          analysisResult['hand_gesture_emotion'] != 'Neutral' &&
+          analysisResult['hand_gesture_emotion'] != 'Unknown') {
+        emotions.add({
+          'type': 'gesture',
+          'emotion': analysisResult['hand_gesture_emotion'].toString(),
+          'confidence': (analysisResult['hand_gesture_confidence'] ?? 0.0).toDouble(),
+          'gesture': analysisResult['hand_gesture']?.toString() ?? '',
+        });
+      }
+
+      // Add voice emotions (all of them)
+      final voiceEmotions = analysisResult['voice_emotions'] ?? [];
+      for (var ve in voiceEmotions) {
+        emotions.add({
+          'type': 'voice',
+          'emotion': ve['emotion']?.toString() ?? 'Unknown',
+          'confidence': (ve['confidence'] ?? 0.0).toDouble(),
+        });
+      }
+
+      // Add primary voice emotion if exists and not already added
+      if (analysisResult['primary_voice_emotion'] != null &&
+          analysisResult['primary_voice_emotion'] != 'Unknown') {
+        // Check if already added to avoid duplicates
+        bool alreadyAdded = emotions.any((e) =>
+        e['type'] == 'voice' && e['emotion'] == analysisResult['primary_voice_emotion']);
+
+        if (!alreadyAdded) {
+          emotions.add({
+            'type': 'voice',
+            'emotion': analysisResult['primary_voice_emotion'].toString(),
+            'confidence': (analysisResult['primary_voice_confidence'] ?? 0.0).toDouble(),
+          });
+        }
+      }
+
       final sessionData = {
+        // Required fields
         'userId': _currentUserId!,
         'inputType': inputType,
-        'transcript': transcript,
+        'createdAt': FieldValue.serverTimestamp(),
+
+        // Transcript (limited length)
+        'transcript': transcript.length > 500 ? transcript.substring(0, 500) : transcript,
+
+        // ALL classified characters as array
+        'innerCharacters': innerCharacters.map((char) {
+          return {
+            'character': char['character']?.toString() ?? 'Unknown',
+            'characterName': char['character_name']?.toString() ?? '',
+            'confidence': (char['confidence'] ?? 0.0).toDouble(),
+          };
+        }).toList(),
+
+        // ALL emotions as array
+        'emotions': emotions,
+
+        // Language info
         'language': language,
-        'analysisResult': analysisResult,
-        'audioFilePath': audioFilePath,
-        'videoFilePath': videoFilePath,
-        'timestamp': FieldValue.serverTimestamp(),
-        'createdAt': DateTime.now().toIso8601String(),
+
+        // Keep these for backward compatibility (optional, can be removed later)
         'primaryCharacter': analysisResult['primary_character'] ?? 'Unknown',
         'confidence': analysisResult['confidence'] ?? 0.0,
         'characterName': analysisResult['character_name'] ?? '',
       };
 
+      // Add optional fields only if they exist
+      if (analysisResult['detected_language'] != null) {
+        sessionData['detectedLanguage'] = analysisResult['detected_language'];
+      }
+
+      if (analysisResult['is_translated'] != null) {
+        sessionData['isTranslated'] = analysisResult['is_translated'];
+      }
+
+      // Save to database
       await _firestore.collection('reframe_sessions').add(sessionData);
 
-      print('✅ Reframe session saved to database');
+      print('✅ Reframe session saved with ${innerCharacters.length} characters and ${emotions.length} emotions');
+      if (emotions.isNotEmpty) {
+        print('   Emotions: ${emotions.map((e) => '${e['emotion']} (${e['type']})').join(', ')}');
+      }
+
+      // DO NOT delete local files - let the existing cleanup handle it
+      // The _cleanupTempFiles() is already called elsewhere
+
     } catch (e) {
       print('❌ Error saving to database: $e');
     }
@@ -980,9 +1418,9 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
       await _audioRecorder.start(
         const RecordConfig(
           encoder: AudioEncoder.wav,
-          sampleRate: 16000,
+          sampleRate: 44100,  // ← Increase to 44.1kHz for better quality
           numChannels: 1,
-          bitRate: 256000,
+          bitRate: 705600,
         ),
         path: _audioFilePath!,
       );
@@ -1473,8 +1911,8 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                       Text(
                         tr(
                             context,
-                            "Some parts of your inner world are still in progress. Let's care for them first, then you can continue to a new insight.",
-                            "بعض الأجزاء في عالمك الداخلي ما زالت قيد التكوّن. دعنا نعتني بها أولًا، ثم يمكنك المتابعة لاكتشاف فهم جديد."
+                            "You have $_activeCharacterCount active parts that need attention. Care for them first, then you can continue to new insights. (Inactive parts can be reactivated)",
+                            "لديك $_activeCharacterCount جزء نشط يحتاج إلى اهتمامك. اعتني بهم أولاً، ثم يمكنك المتابعة لرؤى جديدة. (يمكن إعادة تفعيل الأجزاء غير النشطة)"
                         ),
                         textAlign: TextAlign.center,
                         style: const TextStyle(
@@ -1483,6 +1921,29 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                           height: 1.6,
                         ),
                       ),
+                      // if (_inactiveCharacterCount > 0) ...[
+                      // const SizedBox(height: 12),
+                      //   Container(
+                      //     padding: const EdgeInsets.all(12),
+                      //    decoration: BoxDecoration(
+                      //       color: const Color(0xFFF3EDFF),
+                      //        borderRadius: BorderRadius.circular(12),
+                      //     ),
+                      //     child: Text(
+                      //       tr(
+                      //           context,
+                      //          "You have $_inactiveCharacterCount inactive parts that can be reactivated through new sessions",
+                      //          "لديك $_inactiveCharacterCount جزء غير نشط يمكن إعادة تفعيلها من خلال جلسات جديدة"
+                      ///      ),
+                      ///       textAlign: TextAlign.center,
+                      //       style: const TextStyle(
+                      //         fontSize: 13,
+                      //         color: Color(0xFF8E7CFF),
+                      //         fontWeight: FontWeight.w600,
+                      //       ),
+                      //     ),
+                      //   ),
+                      //  ],
                     ],
                   ),
                 ),
@@ -1493,7 +1954,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
       );
     }
 
-    // Original UI for users with less than 3 unhealed characters
+    // Original UI for users with less than 3 active characters
     return Scaffold(
       body: Column(
         children: [
@@ -1555,6 +2016,41 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                     ),
                   ),
                   const SizedBox(height: 24),
+
+                  // Character count info
+                  if (_activeCharacterCount > 0) ...[
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF3EDFF),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.info_outline,
+                            size: 18,
+                            color: const Color(0xFF8E7CFF),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            tr(
+                                context,
+                                "You have $_activeCharacterCount active part${_activeCharacterCount == 1 ? '' : 's'} to nurture",
+                                "لديك $_activeCharacterCount جزء نشط للعناية به"
+                            ),
+                            style: TextStyle(
+                              color: const Color(0xFF8E7CFF),
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
 
                   // Mode selection cards
                   Row(
