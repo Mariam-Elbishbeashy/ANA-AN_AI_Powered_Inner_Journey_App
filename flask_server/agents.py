@@ -2,6 +2,9 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import os
 import json
+import logging
+from datetime import datetime, timezone
+import time
 from typing import Dict, List, Any
 import traceback
 
@@ -13,6 +16,18 @@ OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-4o-mini')
 OPENAI_SUMMARY_MODEL = os.getenv('OPENAI_SUMMARY_MODEL', 'gpt-4o-mini')
 openai_client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
+# -----------------------------------------------------------------------------
+# Logging (terminal visibility)
+# -----------------------------------------------------------------------------
+# logging structured JSON-like lines to terminal 
+logger = logging.getLogger("ana_agents")
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter("%(message)s")
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+logger.setLevel(logging.INFO)
+
 #Initialize Firebase Admin SDK.
 try:
     firebase_admin.get_app()
@@ -23,6 +38,74 @@ db = firestore.client()
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for Flutter app
+
+
+# -----------------------------------------------------------------------------
+# Firestore helpers (schema)
+# -----------------------------------------------------------------------------
+def _now_iso() -> str:
+    # useful for terminal logs (firestore uses SERVER_TIMESTAMP for writes).
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _now_dt():
+    """
+    Firestore does NOT allow SERVER_TIMESTAMP sentinels inside array elements.
+    Our checklistItems is an array of maps, so per-item timestamps must be real
+    datetime values.
+    """
+    return datetime.now(timezone.utc)
+
+
+def _json_default(obj):
+    """
+    Make Firestore/Python datetime-like objects JSON-serializable.
+    This is used ONLY for embedding context into prompts/logs.
+    """
+    # Firestore returns DatetimeWithNanoseconds which has isoformat().
+    iso = getattr(obj, "isoformat", None)
+    if callable(iso):
+        try:
+            return iso()
+        except Exception:
+            pass
+    return str(obj)
+
+
+def _user_ref(uid: str):
+    return db.collection("users").document(uid)
+
+
+def _sessions_ref(uid: str):
+    return _user_ref(uid).collection("sessions")
+
+
+def _session_ref(uid: str, session_id: str):
+    return _sessions_ref(uid).document(session_id)
+
+
+def _session_runs_ref(uid: str, session_id: str):
+    return _session_ref(uid, session_id).collection("agent_runs")
+
+
+def _character_plans_ref(uid: str):
+    return _user_ref(uid).collection("character_plans")
+
+
+def _character_plan_ref(uid: str, character_id: str):
+    return _character_plans_ref(uid).document(character_id)
+
+
+def _plan_runs_ref(uid: str, character_id: str):
+    return _character_plan_ref(uid, character_id).collection("agent_runs")
+
+
+def _threads_ref(uid: str):
+    return _user_ref(uid).collection("chat_threads")
+
+
+def _messages_ref(uid: str, thread_id: str):
+    return _threads_ref(uid).document(thread_id).collection("messages")
 
 
 #Build a system prompt for the inner character.
@@ -92,6 +175,837 @@ def save_agent_memory_summary(uid: str, character_id: str, summary: str) -> None
         'summary': summary,
         'updatedAt': firestore.SERVER_TIMESTAMP,
     }, merge=True)
+
+
+# -----------------------------------------------------------------------------
+# Per-character checklist templates (fully custom per characterId)
+# -----------------------------------------------------------------------------
+# Each characterId can override the list entirely.
+CHARACTER_CHECKLIST_TEMPLATES: Dict[str, List[Dict[str, str]]] = {
+    # Common IDs used by the app/backend.
+    "inner_critic": [
+        {
+            "id": "unblending",
+            "name": "Unblending (Self vs Part)",
+            "definition": "User can notice the Inner Critic without fully becoming it; uses language like 'a part of me' rather than 'I am'.",
+        },
+        {
+            "id": "appreciation",
+            "name": "Appreciation of protective intent",
+            "definition": "User can acknowledge the Inner Critic is trying to help/protect (even if the method hurts).",
+        },
+        {
+            "id": "triggers_fears",
+            "name": "Triggers and fears clarity",
+            "definition": "User can name what activates the part and what it is afraid would happen if it stopped.",
+        },
+        {
+            "id": "stabilization",
+            "name": "Stabilization skill",
+            "definition": "User can soften intensity (breath/body grounding) and return to conversation.",
+        },
+        {
+            "id": "relationship_shift",
+            "name": "Relationship shift",
+            "definition": "User can relate with compassion/curiosity instead of fighting or obeying the part.",
+        },
+    ],
+    "people_pleaser": [
+        {
+            "id": "unblending",
+            "name": "Unblending (Self vs Part)",
+            "definition": "User can notice the People Pleaser without merging; can observe urges to appease.",
+        },
+        {
+            "id": "needs_voice",
+            "name": "Needs and boundaries voice",
+            "definition": "User can name a personal need and experiment with a gentle boundary.",
+        },
+        {
+            "id": "fear_rejection",
+            "name": "Fear clarity (rejection/conflict)",
+            "definition": "User can articulate what they fear will happen if they disappoint others.",
+        },
+        {
+            "id": "stabilization",
+            "name": "Stabilization skill",
+            "definition": "User can regulate anxiety before/after boundary attempts.",
+        },
+    ],
+    "overwhelmed": [
+        {
+            "id": "unblending",
+            "name": "Unblending (Self vs Part)",
+            "definition": "User can notice the Overwhelmed Part without fully becoming it; can name it as 'a part of me'.",
+        },
+        {
+            "id": "stabilization",
+            "name": "Stabilization skill",
+            "definition": "User can slow down (breath/body) and reduce overload enough to keep the conversation safe.",
+        },
+        {
+            "id": "triggers_fears",
+            "name": "Triggers and fears clarity",
+            "definition": "User can name what piles up (pressure/expectations) and what feels threatened underneath.",
+        },
+        {
+            "id": "needs_capacity",
+            "name": "Needs and capacity clarity",
+            "definition": "User can identify one unmet need and one realistic limit (capacity) they can honor today.",
+        },
+    ],
+    "overater_binger": [
+        {
+            "id": "unblending",
+            "name": "Unblending (Self vs Part)",
+            "definition": "User can notice urges to eat/binge as a part response, not an identity.",
+        },
+        {
+            "id": "stabilization",
+            "name": "Stabilization skill",
+            "definition": "User can pause the urge long enough to choose a safer step (even small).",
+        },
+        {
+            "id": "triggers_fears",
+            "name": "Triggers and fears clarity",
+            "definition": "User can name emotional triggers (stress/loneliness) and what the part fears if it stops.",
+        },
+        {
+            "id": "soothing_alternatives",
+            "name": "Safer self-soothing options",
+            "definition": "User can practice at least one non-food soothing option when distress rises.",
+        },
+    ],
+    "jealous": [
+        {
+            "id": "unblending",
+            "name": "Unblending (Self vs Part)",
+            "definition": "User can observe jealousy without acting from it immediately.",
+        },
+        {
+            "id": "stabilization",
+            "name": "Stabilization skill",
+            "definition": "User can regulate activation (body/grounding) when attachment feels threatened.",
+        },
+        {
+            "id": "triggers_fears",
+            "name": "Triggers and fears clarity",
+            "definition": "User can name comparison/left-out triggers and the fear of being replaced.",
+        },
+        {
+            "id": "reassurance_requests",
+            "name": "Healthy reassurance requests",
+            "definition": "User can ask for reassurance/connection in a clear, non-attacking way.",
+        },
+    ],
+    "lonely": [
+        {
+            "id": "unblending",
+            "name": "Unblending (Self vs Part)",
+            "definition": "User can be with loneliness as a feeling/part, without collapsing into it.",
+        },
+        {
+            "id": "stabilization",
+            "name": "Stabilization skill",
+            "definition": "User can stay present with loneliness safely (breath/body) instead of shutting down.",
+        },
+        {
+            "id": "triggers_fears",
+            "name": "Triggers and fears clarity",
+            "definition": "User can name what situations activate loneliness and what it fears will never change.",
+        },
+        {
+            "id": "connection_steps",
+            "name": "Connection micro-steps",
+            "definition": "User can take one small step toward connection (message, activity, reaching out) without overwhelm.",
+        },
+    ],
+    "wounded_child": [
+        {
+            "id": "unblending",
+            "name": "Unblending (Self vs Part)",
+            "definition": "User can notice the younger vulnerable feelings as a part and stay present as Self.",
+        },
+        {
+            "id": "stabilization",
+            "name": "Stabilization skill",
+            "definition": "User can create safety (grounding, gentleness) before exploring painful memories/needs.",
+        },
+        {
+            "id": "triggers_fears",
+            "name": "Triggers and fears clarity",
+            "definition": "User can name what activates the child pain (criticism/abandonment) and what it fears now.",
+        },
+        {
+            "id": "reparenting",
+            "name": "Reparenting responses",
+            "definition": "User can offer a caring internal response (validation/comfort) instead of self-judgment.",
+        },
+    ],
+    "procrastinator": [
+        {
+            "id": "unblending",
+            "name": "Unblending (Self vs Part)",
+            "definition": "User can notice avoidance impulses without immediately obeying them.",
+        },
+        {
+            "id": "stabilization",
+            "name": "Stabilization skill",
+            "definition": "User can reduce task anxiety enough to take a tiny step.",
+        },
+        {
+            "id": "triggers_fears",
+            "name": "Triggers and fears clarity",
+            "definition": "User can name what tasks/pressures trigger avoidance and the fear underneath (failure/overwhelm).",
+        },
+        {
+            "id": "tiny_steps",
+            "name": "Tiny-step execution",
+            "definition": "User can choose the smallest next action and complete it with reduced pressure.",
+        },
+    ],
+    "workaholic": [
+        {
+            "id": "unblending",
+            "name": "Unblending (Self vs Part)",
+            "definition": "User can observe the drive to work as a protective part, not a necessity.",
+        },
+        {
+            "id": "stabilization",
+            "name": "Stabilization skill",
+            "definition": "User can tolerate rest/pause without panic and return to regulation.",
+        },
+        {
+            "id": "triggers_fears",
+            "name": "Triggers and fears clarity",
+            "definition": "User can name what triggers overworking and what the part fears (uselessness, loss of control).",
+        },
+        {
+            "id": "rest_permission",
+            "name": "Permission to rest",
+            "definition": "User can practice a planned rest window without compensating with overwork.",
+        },
+    ],
+    "perfectionist": [
+        {
+            "id": "unblending",
+            "name": "Unblending (Self vs Part)",
+            "definition": "User can notice perfectionism as a part with a strategy, rather than 'the truth'.",
+        },
+        {
+            "id": "stabilization",
+            "name": "Stabilization skill",
+            "definition": "User can soothe shame/anxiety that arises around mistakes or imperfection.",
+        },
+        {
+            "id": "triggers_fears",
+            "name": "Triggers and fears clarity",
+            "definition": "User can identify what imperfection threatens and what the part fears will happen.",
+        },
+        {
+            "id": "flexibility",
+            "name": "Flexibility practice",
+            "definition": "User can intentionally allow 'good enough' and recover from discomfort without spiraling.",
+        },
+    ],
+    "stoic": [
+        {
+            "id": "unblending",
+            "name": "Unblending (Self vs Part)",
+            "definition": "User can notice emotional suppression as a part strategy, not a requirement.",
+        },
+        {
+            "id": "stabilization",
+            "name": "Stabilization skill",
+            "definition": "User can stay regulated while allowing small amounts of feeling to surface.",
+        },
+        {
+            "id": "triggers_fears",
+            "name": "Triggers and fears clarity",
+            "definition": "User can name what feels unsafe about vulnerability and what the part fears will happen.",
+        },
+        {
+            "id": "emotional_access",
+            "name": "Emotional access",
+            "definition": "User can name at least one feeling in the body and allow it without shutting down.",
+        },
+    ],
+    "fearful": [
+        {
+            "id": "unblending",
+            "name": "Unblending (Self vs Part)",
+            "definition": "User can notice fear/anxiety as a part and step back into a steadier Self presence.",
+        },
+        {
+            "id": "stabilization",
+            "name": "Stabilization skill",
+            "definition": "User can ground in the present (sensations/breath) when anticipating danger.",
+        },
+        {
+            "id": "triggers_fears",
+            "name": "Triggers and fears clarity",
+            "definition": "User can name uncertainty triggers and what catastrophe the part is trying to prevent.",
+        },
+        {
+            "id": "safety_reality_check",
+            "name": "Safety reality-check",
+            "definition": "User can distinguish real present danger from predicted danger and choose a calmer response.",
+        },
+    ],
+    "ashamed": [
+        {
+            "id": "unblending",
+            "name": "Unblending (Self vs Part)",
+            "definition": "User can notice shame as a part experience rather than a fixed identity.",
+        },
+        {
+            "id": "stabilization",
+            "name": "Stabilization skill",
+            "definition": "User can stay with shame gently without collapsing or attacking themselves.",
+        },
+        {
+            "id": "triggers_fears",
+            "name": "Triggers and fears clarity",
+            "definition": "User can name shame triggers (criticism/exposure) and the fear underneath (rejection).",
+        },
+        {
+            "id": "self_compassion",
+            "name": "Self-compassion access",
+            "definition": "User can offer a kind internal response when shame arises (soft tone, acceptance).",
+        },
+    ],
+    "controller": [
+        {
+            "id": "unblending",
+            "name": "Unblending (Self vs Part)",
+            "definition": "User can notice controlling urges as a protective part response.",
+        },
+        {
+            "id": "stabilization",
+            "name": "Stabilization skill",
+            "definition": "User can tolerate uncertainty without escalating into micromanaging.",
+        },
+        {
+            "id": "triggers_fears",
+            "name": "Triggers and fears clarity",
+            "definition": "User can name what feels unpredictable and what the part fears will happen without control.",
+        },
+        {
+            "id": "flexibility_letting_go",
+            "name": "Flexibility / letting go",
+            "definition": "User can practice one small 'release' experiment (delegate, pause planning) and recover safely.",
+        },
+    ],
+    "confused": [
+        {
+            "id": "unblending",
+            "name": "Unblending (Self vs Part)",
+            "definition": "User can observe confusion without spiraling into overthinking.",
+        },
+        {
+            "id": "stabilization",
+            "name": "Stabilization skill",
+            "definition": "User can ground first, then revisit the problem with more clarity.",
+        },
+        {
+            "id": "triggers_fears",
+            "name": "Triggers and fears clarity",
+            "definition": "User can name what creates mixed signals and the fear of making the wrong choice.",
+        },
+        {
+            "id": "clarity_steps",
+            "name": "Clarity steps",
+            "definition": "User can reduce options and pick one next step (even provisional) without needing perfect certainty.",
+        },
+    ],
+    "dependent": [
+        {
+            "id": "unblending",
+            "name": "Unblending (Self vs Part)",
+            "definition": "User can notice dependency urges without immediately handing power away.",
+        },
+        {
+            "id": "stabilization",
+            "name": "Stabilization skill",
+            "definition": "User can soothe separation anxiety enough to stay grounded.",
+        },
+        {
+            "id": "triggers_fears",
+            "name": "Triggers and fears clarity",
+            "definition": "User can name triggers (separation/responsibility) and the fear of abandonment or failure.",
+        },
+        {
+            "id": "gradual_autonomy",
+            "name": "Gradual autonomy",
+            "definition": "User can practice one small independent decision while still feeling supported.",
+        },
+    ],
+    "excessive_gamer": [
+        {
+            "id": "unblending",
+            "name": "Unblending (Self vs Part)",
+            "definition": "User can notice the pull to escape into gaming as a part strategy.",
+        },
+        {
+            "id": "stabilization",
+            "name": "Stabilization skill",
+            "definition": "User can pause the escape impulse long enough to choose a safer regulation step.",
+        },
+        {
+            "id": "triggers_fears",
+            "name": "Triggers and fears clarity",
+            "definition": "User can name what reality-feelings trigger escape and what the part fears if it stops.",
+        },
+        {
+            "id": "balance_routines",
+            "name": "Balance and routines",
+            "definition": "User can create a realistic limit (time boundary) and add one nourishing offline alternative.",
+        },
+    ],
+    "neglected": [
+        {
+            "id": "unblending",
+            "name": "Unblending (Self vs Part)",
+            "definition": "User can be with the Neglected Part without shutting down or going numb.",
+        },
+        {
+            "id": "stabilization",
+            "name": "Stabilization skill",
+            "definition": "User can stay present with the pain of being unseen, safely and gently.",
+        },
+        {
+            "id": "triggers_fears",
+            "name": "Triggers and fears clarity",
+            "definition": "User can name what situations activate neglect pain and what it fears (permanent invisibility).",
+        },
+        {
+            "id": "validation_requests",
+            "name": "Validation and care requests",
+            "definition": "User can ask for attention/validation in a direct, non-shaming way and also offer internal validation.",
+        },
+    ],
+    # Fallback template (used when characterId has no custom list).
+    "__default__": [
+        {
+            "id": "unblending",
+            "name": "Unblending (Self vs Part)",
+            "definition": "User can notice the part without fully becoming it.",
+        },
+        {
+            "id": "protective_intent",
+            "name": "Protective intent clarity",
+            "definition": "User can understand what this part is trying to protect them from.",
+        },
+        {
+            "id": "triggers_fears",
+            "name": "Triggers and fears clarity",
+            "definition": "User can name triggers and underlying fears/beliefs.",
+        },
+        {
+            "id": "stabilization",
+            "name": "Stabilization skill",
+            "definition": "User can reduce intensity and keep the conversation safe and steady.",
+        },
+    ],
+}
+
+
+def ensure_character_checklist(uid: str, character_id: str) -> None:
+    """
+    ensures a per-character plan doc exists at:
+      users/{uid}/character_plans/{characterId}
+    with a checklist structure (non-linear progress)
+    """
+    doc_ref = _character_plan_ref(uid, character_id)
+    snap = doc_ref.get()
+    if snap.exists:
+        return
+
+    template = CHARACTER_CHECKLIST_TEMPLATES.get(
+        character_id, CHARACTER_CHECKLIST_TEMPLATES["__default__"]
+    )
+
+    doc_ref.set(
+        {
+            "status": "active",
+            "characterId": character_id,
+            "checklistItems": [
+                {
+                    **item,
+                    "status": "unknown",
+                    "confidence": 0.0,
+                    "evidence": [],
+                    "notes": "",
+                    "lastUpdatedAt": _now_dt(),
+                }
+                for item in template
+            ],
+            "focus": {"itemId": None, "reason": "", "updatedAt": _now_dt()},
+            "metrics": {
+                "sessionsCount": 0,
+                "lastSessionAt": None,
+                "intensityBaseline": None,
+                "lastIntensityEnd": None,
+                "rollingDelta": None,
+            },
+            "memorySummary": "",
+            "createdAt": firestore.SERVER_TIMESTAMP,
+            "updatedAt": firestore.SERVER_TIMESTAMP,
+        },
+        merge=True,
+    )
+
+    logger.info(
+        json.dumps(
+            {
+                "event": "character_plan_created",
+                "ts": _now_iso(),
+                "uid": uid,
+                "characterId": character_id,
+            },
+            ensure_ascii=False,
+        )
+    )
+
+
+# -----------------------------------------------------------------------------
+# Intensity scoring (OpenAI JSON; stored + logged)
+# -----------------------------------------------------------------------------
+def _extract_recent_user_text(messages: List[Dict[str, str]], max_chars: int = 1200) -> str:
+    """
+    Build a compact text blob for scoring:
+    - prioritize user messages
+    - include last few assistant lines for context
+    """
+    if not messages:
+        return ""
+    tail = messages[-12:]
+    lines = []
+    for m in tail:
+        role = m.get("role", "")
+        content = (m.get("content") or "").strip()
+        if not content:
+            continue
+        if role == "user":
+            lines.append(f"USER: {content}")
+        elif role == "assistant":
+            lines.append(f"ASSISTANT: {content}")
+    text = "\n".join(lines)
+    return text[-max_chars:]
+
+
+def score_intensity_with_llm(
+    character_id: str,
+    messages: List[Dict[str, str]],
+) -> Dict[str, Any]:
+    """
+    Returns structured JSON:
+      intensity: float (0..1)
+      blend: bool
+      signals: list[str]
+      rationale: str (1-2 lines)
+    """
+    context = _extract_recent_user_text(messages)
+
+    prompt = (
+        "You are a scoring function for an IFS-style chat session.\n"
+        "Score the USER's current emotional intensity and blending.\n"
+        "Return ONLY JSON with keys:\n"
+        '- intensity: number between 0 and 1\n'
+        '- blend: boolean (true if user seems merged with the part / \"I am\" statements / flooded)\n'
+        '- signals: array of short strings (e.g. \"shame\", \"panic\", \"self-criticism\", \"avoidance\")\n'
+        '- rationale: 1-2 short sentences explaining why\n'
+        "Be language-agnostic: the user may speak Arabic or English.\n"
+        f"CharacterId: {character_id}\n"
+        "Conversation tail:\n"
+        f"{context}\n"
+    )
+
+    resp = openai_client.chat.completions.create(
+        model=OPENAI_MODEL,
+        messages=[
+            {"role": "system", "content": "Return JSON only (no markdown)."},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.2,
+        response_format={"type": "json_object"},
+    )
+
+    raw = resp.choices[0].message.content or "{}"
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        parsed = {}
+
+    # Harden output (never crash the pipeline)
+    intensity = parsed.get("intensity")
+    try:
+        intensity = float(intensity)
+    except Exception:
+        intensity = 0.5
+    intensity = max(0.0, min(1.0, intensity))
+
+    return {
+        "intensity": intensity,
+        "blend": parsed.get("blend") is True,
+        "signals": parsed.get("signals") or [],
+        "rationale": (parsed.get("rationale") or "").strip(),
+        "_raw": parsed,
+    }
+
+
+def summarize_session_with_llm(
+    character_id: str,
+    messages: List[Dict[str, str]],
+) -> Dict[str, Any]:
+    """
+    End-of-session summarizer.
+    Returns JSON with keys:
+      highlights: list[str]
+      ifsSignals: dict
+      progressSignals: list[str]
+      nextStepSuggestion: str
+    """
+    context = _extract_recent_user_text(messages, max_chars=2200)
+    prompt = (
+        "Summarize this IFS-style chat session in a structured way.\n"
+        "Return ONLY JSON with keys:\n"
+        "- highlights: array of 3-6 short bullet strings\n"
+        "- ifsSignals: object with keys like blend, protectorTone, exileHints, selfEnergy (optional)\n"
+        "- progressSignals: array of short strings (e.g. 'more curiosity', 'less shame language')\n"
+        "- nextStepSuggestion: one short sentence guiding next session focus\n"
+        f"CharacterId: {character_id}\n"
+        "Conversation tail:\n"
+        f"{context}\n"
+    )
+    resp = openai_client.chat.completions.create(
+        model=OPENAI_SUMMARY_MODEL,
+        messages=[
+            {"role": "system", "content": "Return JSON only (no markdown)."},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.2,
+        response_format={"type": "json_object"},
+    )
+    raw = resp.choices[0].message.content or "{}"
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        parsed = {}
+
+    return {
+        "highlights": parsed.get("highlights") or [],
+        "ifsSignals": parsed.get("ifsSignals") or {},
+        "progressSignals": parsed.get("progressSignals") or [],
+        "nextStepSuggestion": (parsed.get("nextStepSuggestion") or "").strip(),
+        "_raw": parsed,
+    }
+
+
+def _pick_focus_item_from_score(score: Dict[str, Any]) -> Dict[str, str]:
+    """
+    deterministic focus selection policy (keeps the system understandable):
+    - If intensity is high -> stabilization
+    - Else if blended -> unblending
+    - Else -> triggers_fears by default
+    """
+    intensity = float(score.get("intensity") or 0.0)
+    blend = score.get("blend") is True
+    if intensity >= 0.75:
+        return {"itemId": "stabilization", "reason": "high_intensity"}
+    if blend:
+        return {"itemId": "unblending", "reason": "blended"}
+    return {"itemId": "triggers_fears", "reason": "default_focus"}
+
+
+def _update_character_plan_from_score(
+    uid: str,
+    character_id: str,
+    score: Dict[str, Any],
+    evidence: str,
+) -> Dict[str, Any]:
+    """
+    Applies simple, understandable rules to update checklist item statuses.
+    Returns a small diff object for logging/agent_runs.
+    """
+    ensure_character_checklist(uid, character_id)
+    plan_ref = _character_plan_ref(uid, character_id)
+    snap = plan_ref.get()
+    plan = snap.to_dict() or {}
+    items = plan.get("checklistItems") or []
+
+    focus = _pick_focus_item_from_score(score)
+    intensity = float(score.get("intensity") or 0.0)
+    blend = score.get("blend") is True
+
+    changed = []
+
+    def set_item(item_id: str, status: str, confidence: float):
+        nonlocal changed
+        for it in items:
+            if it.get("id") == item_id:
+                before = (it.get("status"), it.get("confidence"))
+                it["status"] = status
+                it["confidence"] = float(confidence)
+                it["lastUpdatedAt"] = _now_dt()
+                if evidence:
+                    it.setdefault("evidence", [])
+                    # keep evidence small
+                    it["evidence"] = (it["evidence"] + [evidence])[-5:]
+                after = (it.get("status"), it.get("confidence"))
+                if before != after:
+                    changed.append({"id": item_id, "from": before, "to": after})
+                return
+
+    # Rules
+    if intensity >= 0.75:
+        set_item("stabilization", "needs_work", 0.7)
+    if blend:
+        set_item("unblending", "needs_work", 0.7)
+    if intensity < 0.55 and not blend:
+        # gentle signal that user can probably explore triggers/fears
+        set_item("triggers_fears", "in_progress", 0.6)
+
+    plan_ref.set(
+        {
+            "checklistItems": items,
+            "focus": {**focus, "updatedAt": _now_dt()},
+            "updatedAt": firestore.SERVER_TIMESTAMP,
+        },
+        merge=True,
+    )
+
+    return {"focus": focus, "changedItems": changed}
+
+
+def _log_agent_run(ref, payload: Dict[str, Any]) -> None:
+    """writes an agent run doc (and never throws)"""
+    try:
+        ref.document().set({**payload, "createdAt": firestore.SERVER_TIMESTAMP}, merge=True)
+    except Exception as e:
+        logger.info(json.dumps({"event": "agent_run_write_failed", "ts": _now_iso(), "error": str(e)}, ensure_ascii=False))
+
+
+def _get_session_user_turn_count(uid: str, session_id: str) -> int:
+    """
+    reads `userTurnCount` from the session doc
+    falls back to 0 if missing
+    """
+    try:
+        snap = _session_ref(uid, session_id).get()
+        if not snap.exists:
+            return 0
+        data = snap.to_dict() or {}
+        return int(data.get("userTurnCount") or 0)
+    except Exception:
+        return 0
+
+
+def _should_run_periodic_update(uid: str, session_id: str) -> bool:
+    """
+    every 3 user turns: 3,6,9,...
+    """
+    n = _get_session_user_turn_count(uid, session_id)
+    return n > 0 and (n % 3) == 0
+
+
+def _try_acquire_periodic_update(uid: str, session_id: str) -> int:
+    """
+    prevents duplicate/overlapping periodic updates for the same session turn
+
+    - return the current user turn (int) if a periodic update should run and we acquired
+      the right to run it for this turn
+    - return 0 otherwise (skip)
+    """
+    turn = _get_session_user_turn_count(uid, session_id)
+    if turn <= 0 or (turn % 3) != 0:
+        return 0
+
+    sref = _session_ref(uid, session_id)
+    transaction = db.transaction()
+
+    @firestore.transactional
+    def _txn(txn):
+        snap = sref.get(transaction=txn)
+        data = (snap.to_dict() or {}) if snap.exists else {}
+        periodic = data.get("periodic") or {}
+        last_turn = int(periodic.get("lastTurn") or 0)
+
+        # Only allow one periodic update per turn, ever.
+        if turn <= last_turn:
+            return 0
+
+        txn.set(
+            sref,
+            {
+                "periodic": {
+                    "lastTurn": turn,
+                    "lastAt": firestore.SERVER_TIMESTAMP,
+                },
+                "updatedAt": firestore.SERVER_TIMESTAMP,
+            },
+            merge=True,
+        )
+        return turn
+
+    try:
+        return int(_txn(transaction) or 0)
+    except Exception:
+        # If the guard fails for any reason, be conservative: skip.
+        return 0
+
+
+def _write_session_intensity(uid: str, session_id: str, score: Dict[str, Any], turn: int) -> None:
+    """
+    persist intensity signals to the session document
+    - set intensity.start once (first time we ever write intensity)
+    - update intensity.latest each time periodic updates run
+    """
+    try:
+        sref = _session_ref(uid, session_id)
+
+        # Use a transaction to ensure "start" is set only once, even when
+        # overlapping requests happen.
+        transaction = db.transaction()
+
+        @firestore.transactional
+        def _txn(txn):
+            snap = sref.get(transaction=txn)
+            start_val = None
+            if snap.exists:
+                try:
+                    # Prefer field-path access (works regardless of map shape).
+                    start_val = snap.get("intensity.start")
+                except Exception:
+                    data = snap.to_dict() or {}
+                    start_val = (data.get("intensity") or {}).get("start")
+                    if start_val is None:
+                        start_val = data.get("intensity.start")
+
+            updates = {
+                "intensity.latest": score["intensity"],
+                "intensity.latestTurn": int(turn),
+                "intensity.signals": score.get("signals") or [],
+                "intensity.blend": score.get("blend") is True,
+                # store real datetime (safe for prompt embedding)
+                "intensity.updatedAt": _now_dt(),
+                "updatedAt": firestore.SERVER_TIMESTAMP,
+            }
+            if start_val is None:
+                updates["intensity.start"] = score["intensity"]
+                updates["intensity.startTurn"] = int(turn)
+
+
+            # transaction.update() so dotted keys are treated as field paths
+            if snap.exists:
+                txn.update(sref, updates)
+            else:
+                txn.set(sref, updates, merge=True)
+
+        _txn(transaction)
+    except Exception as e:
+        logger.info(json.dumps({"event": "session_intensity_write_failed", "ts": _now_iso(), "uid": uid, "sessionId": session_id, "error": str(e)}, ensure_ascii=False))
+
 
 
 #Update the progress summary for the inner character.
@@ -216,6 +1130,7 @@ def generate_updated_summary(
 @app.route('/chat', methods=['POST'])
 def chat():
     try:
+        t0 = time.time()
         if not os.getenv('OPENAI_API_KEY'):
             return jsonify({
                 'success': False,
@@ -231,6 +1146,9 @@ def chat():
             }), 400
         character_profile = data.get('characterProfile') or {}
         character_id = data.get('characterId', 'inner_critic')
+        # session identifiers (sent by flutter) used for metrics + logs
+        session_id = data.get('sessionId')
+        thread_id = data.get('threadId')
         messages = data.get('messages') or []
         check_intervention = data.get('checkIntervention', True)  # Enable by default
 
@@ -261,12 +1179,140 @@ def chat():
         save_agent_memory_summary(uid, character_id, updated_summary)
         print(f"[agent] memory_summary_updated: {bool(updated_summary)}")
 
+        # ---------------------------------------------------------------------
+        # Periodic intensity + checklist updates (every 3 user turns)
+        # ---------------------------------------------------------------------
+        turn_for_update = _try_acquire_periodic_update(uid, session_id) if session_id else 0
+        if session_id and thread_id and turn_for_update:
+            try:
+                score = score_intensity_with_llm(character_id, messages + [{'role': 'assistant', 'content': assistant_message}])
+                evidence = (messages[-1].get('content') if messages else '')[:200]
+
+                # Write intensity to session doc (start set once, latest updated)
+                _write_session_intensity(uid, session_id, score, turn_for_update)
+
+                # Update per-character checklist (deterministic policy)
+                plan_diff = _update_character_plan_from_score(uid, character_id, score, evidence=evidence)
+
+                # Logs (Firestore + terminal)
+                _log_agent_run(
+                    _session_runs_ref(uid, session_id),
+                    {
+                        "trigger": "user_message",
+                        "inputs": {"threadId": thread_id, "characterId": character_id},
+                        "outputs": {
+                            "intensity": score["intensity"],
+                            "blend": score.get("blend") is True,
+                            "signals": score.get("signals") or [],
+                            "focus": plan_diff.get("focus"),
+                            "changedItems": plan_diff.get("changedItems"),
+                        },
+                        "rawModelOutput": score.get("_raw") or {},
+                    },
+                )
+                _log_agent_run(
+                    _plan_runs_ref(uid, character_id),
+                    {
+                        "trigger": "user_message",
+                        "inputs": {"sessionId": session_id, "threadId": thread_id},
+                        "outputs": {"focus": plan_diff.get("focus"), "changedItems": plan_diff.get("changedItems")},
+                        "rawModelOutput": score.get("_raw") or {},
+                    },
+                )
+
+                logger.info(
+                    json.dumps(
+                        {
+                            "event": "periodic_update",
+                            "ts": _now_iso(),
+                            "uid": uid,
+                            "characterId": character_id,
+                            "sessionId": session_id,
+                            "turn": int(turn_for_update),
+                            "intensity": score["intensity"],
+                            "blend": score.get("blend") is True,
+                            "focus": plan_diff.get("focus"),
+                        },
+                        ensure_ascii=False,
+                    )
+                )
+            except Exception as e:
+                logger.info(
+                    json.dumps(
+                        {
+                            "event": "periodic_update_failed",
+                            "ts": _now_iso(),
+                            "uid": uid,
+                            "characterId": character_id,
+                            "sessionId": session_id,
+                            "error": str(e),
+                        },
+                        ensure_ascii=False,
+                    )
+                )
+
         # Check for Guider intervention if enabled
         intervention = None
         if check_intervention:
             full_messages = messages + [{'role': 'assistant', 'content': assistant_message}]
             analysis = analyze_intervention_need(full_messages, character_id)
             if analysis.get('shouldIntervene'):
+                # Force an intensity+checklist update on intervention so the Guider
+                # can be aware of the current stance.
+                focus_payload = None
+                intensity_payload = None
+                if session_id and thread_id:
+                    try:
+                        score = score_intensity_with_llm(character_id, full_messages)
+                        evidence = (messages[-1].get('content') if messages else '')[:200]
+                        plan_diff = _update_character_plan_from_score(uid, character_id, score, evidence=evidence)
+                        focus_payload = plan_diff.get("focus")
+                        intensity_payload = {"intensity": score["intensity"], "blend": score.get("blend") is True}
+
+                        _log_agent_run(
+                            _session_runs_ref(uid, session_id),
+                            {
+                                "trigger": "intervention_check",
+                                "inputs": {"threadId": thread_id, "characterId": character_id},
+                                "outputs": {
+                                    "intensity": score["intensity"],
+                                    "blend": score.get("blend") is True,
+                                    "signals": score.get("signals") or [],
+                                    "focus": focus_payload,
+                                },
+                                "rawModelOutput": score.get("_raw") or {},
+                            },
+                        )
+                        logger.info(
+                            json.dumps(
+                                {
+                                    "event": "intervention_update",
+                                    "ts": _now_iso(),
+                                    "uid": uid,
+                                    "characterId": character_id,
+                                    "sessionId": session_id,
+                                    "intensity": score["intensity"],
+                                    "focus": focus_payload,
+                                    "reason": analysis.get("reason"),
+                                },
+                                ensure_ascii=False,
+                            )
+                        )
+                    except Exception as e:
+                        logger.info(
+                            json.dumps(
+                                {
+                                    "event": "intervention_update_failed",
+                                    "ts": _now_iso(),
+                                    "uid": uid,
+                                    "characterId": character_id,
+                                    "sessionId": session_id,
+                                    "error": str(e),
+                                },
+                                ensure_ascii=False,
+                            )
+                        )
+
                 intervention_message = generate_guider_intervention_message(
                     uid=uid,
                     character_id=character_id,
@@ -278,6 +1324,11 @@ def chat():
                     'reason': analysis.get('reason'),
                     'severity': analysis.get('severity'),
                     'guiderMessage': intervention_message,
+                    # Extra debug fields (Flutter ignores; visible in logs/Firestore)
+                    'focusItemId': (focus_payload or {}).get("itemId") if focus_payload else None,
+                    'focusReason': (focus_payload or {}).get("reason") if focus_payload else None,
+                    'intensityNow': (intensity_payload or {}).get("intensity") if intensity_payload else None,
+                    'blendNow': (intensity_payload or {}).get("blend") if intensity_payload else None,
                 }
                 print(f"[intervention] Triggered: {analysis.get('reason')} for {character_id}")
 
@@ -292,6 +1343,180 @@ def chat():
             'success': False,
             'error': f'Chat error: {str(e)}'
         }), 500
+    finally:
+        try:
+            logger.info(
+                json.dumps(
+                    {
+                        "event": "request_timing",
+                        "route": "/chat",
+                        "ts": _now_iso(),
+                        "ms": int((time.time() - t0) * 1000),
+                    },
+                    ensure_ascii=False,
+                )
+            )
+        except Exception:
+            pass
+
+
+# -----------------------------------------------------------------------------
+# Session end analysis (called from Flutter when ending a session)
+# -----------------------------------------------------------------------------
+@app.route('/sessions/end_analyze', methods=['POST'])
+def end_analyze_session():
+    """
+    Compute end-of-session intensity + summary and write them to:
+      users/{uid}/sessions/{sessionId}
+    Also logs an agent run and updates per-character checklist focus.
+    """
+    try:
+        if not os.getenv('OPENAI_API_KEY'):
+            return jsonify({'success': False, 'error': 'OPENAI_API_KEY is not set'}), 500
+
+        data = request.json or {}
+        uid = data.get("uid")
+        session_id = data.get("sessionId")
+        thread_id = data.get("threadId")
+        character_id = data.get("characterId", "inner_critic")
+
+        if not uid or not session_id or not thread_id:
+            return jsonify({'success': False, 'error': 'uid, sessionId, threadId are required'}), 400
+
+        # Read recent messages from Firestore for this thread
+        msgs = []
+        try:
+            stream = (
+                _messages_ref(uid, thread_id)
+                .order_by("createdAt")
+                .limit(200)
+                .stream()
+            )
+            for doc in stream:
+                d = doc.to_dict() or {}
+                msgs.append(
+                    {
+                        "role": d.get("role", "user"),
+                        "content": d.get("content", ""),
+                    }
+                )
+        except Exception as e:
+            logger.info(json.dumps({"event": "end_analyze_read_failed", "ts": _now_iso(), "uid": uid, "threadId": thread_id, "error": str(e)}, ensure_ascii=False))
+
+        # always produce some output, even if msgs is empty.
+        intensity_score = score_intensity_with_llm(character_id, msgs)
+        summary = summarize_session_with_llm(character_id, msgs)
+
+        # compute delta if we have start
+        sref = _session_ref(uid, session_id)
+        snap = sref.get()
+        existing = (snap.to_dict() or {}) if snap.exists else {}
+        start_val = None
+        try:
+            
+            start_val = snap.get("intensity.start")
+        except Exception:
+            try:
+                start_val = ((existing.get("intensity") or {}).get("start"))
+            except Exception:
+                start_val = None
+        if start_val is None:
+            start_val = intensity_score["intensity"]
+        try:
+            delta = float(intensity_score["intensity"]) - float(start_val)
+        except Exception:
+            delta = 0.0
+
+        sref.set(
+            {
+                "intensity": {
+                    "start": start_val,
+                    "end": intensity_score["intensity"],
+                    "delta": delta,
+                    "latest": intensity_score["intensity"],
+                    "signals": intensity_score.get("signals") or [],
+                    "blend": intensity_score.get("blend") is True,
+                    "updatedAt": firestore.SERVER_TIMESTAMP,
+                },
+                "sessionSummary": {
+                    "highlights": summary.get("highlights") or [],
+                    "ifsSignals": summary.get("ifsSignals") or {},
+                    "progressSignals": summary.get("progressSignals") or [],
+                    "nextStepSuggestion": summary.get("nextStepSuggestion") or "",
+                },
+                "updatedAt": firestore.SERVER_TIMESTAMP,
+                "endedAnalyzedAt": firestore.SERVER_TIMESTAMP,
+            },
+            merge=True,
+        )
+
+        # Update character plan metrics (very simple rolling baseline)
+        ensure_character_checklist(uid, character_id)
+        plan_ref = _character_plan_ref(uid, character_id)
+        plan_ref.set(
+            {
+                "metrics.lastSessionAt": firestore.SERVER_TIMESTAMP,
+                "metrics.sessionsCount": firestore.Increment(1),
+                "metrics.lastIntensityEnd": intensity_score["intensity"],
+                "updatedAt": firestore.SERVER_TIMESTAMP,
+            },
+            merge=True,
+        )
+
+        # Update focus/checklist based on end score
+        evidence = (msgs[-1].get("content") if msgs else "")[:200]
+        plan_diff = _update_character_plan_from_score(uid, character_id, intensity_score, evidence=evidence)
+
+        _log_agent_run(
+            _session_runs_ref(uid, session_id),
+            {
+                "trigger": "session_end",
+                "inputs": {"threadId": thread_id, "characterId": character_id},
+                "outputs": {
+                    "intensityEnd": intensity_score["intensity"],
+                    "delta": delta,
+                    "focus": plan_diff.get("focus"),
+                    "changedItems": plan_diff.get("changedItems"),
+                    "summary": summary.get("_raw") or {},
+                },
+                "rawModelOutput": {
+                    "intensity": intensity_score.get("_raw") or {},
+                    "summary": summary.get("_raw") or {},
+                },
+            },
+        )
+
+        logger.info(
+            json.dumps(
+                {
+                    "event": "session_end_analyzed",
+                    "ts": _now_iso(),
+                    "uid": uid,
+                    "sessionId": session_id,
+                    "characterId": character_id,
+                    "intensityEnd": intensity_score["intensity"],
+                    "delta": delta,
+                    "focus": plan_diff.get("focus"),
+                },
+                ensure_ascii=False,
+            )
+        )
+
+        return jsonify(
+            {
+                "success": True,
+                "intensityEnd": intensity_score["intensity"],
+                "delta": delta,
+                "focus": plan_diff.get("focus"),
+                "sessionSummary": {
+                    "highlights": summary.get("highlights") or [],
+                    "nextStepSuggestion": summary.get("nextStepSuggestion") or "",
+                },
+            }
+        )
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': f'end_analyze error: {str(e)}'}), 500
 
 
 # ============================================================================
@@ -372,9 +1597,29 @@ def decide_who_responds(messages: List[Dict], character_name: str) -> str:
         return 'character_only'
 
 
-def build_guider_in_chat_prompt(character_name: str, guider_memory: str) -> str:
-    """Build system prompt for Guider participating in character chat."""
+def build_guider_in_chat_prompt(
+    uid: str,
+    character_id: str,
+    character_name: str,
+    guider_memory: str,
+) -> str:
+    """
+    Build system prompt for Guider participating in character chat.
+    Includes per-character checklist + recent session summaries so Guider can
+    orient to "where the user stands" overall (without dumping it to the user).
+    """
     prompt = GUIDER_IN_CHAT_PROMPT.format(character_name=character_name)
+
+    # Internal context (not to be revealed verbatim)
+    plan_snapshot = _get_character_plan_snapshot(uid, character_id)
+    recent_summaries = _get_recent_session_summaries(uid, character_id, limit=4)
+    prompt += "\n\n(Internal) Checklist + recent session summaries:\n"
+    prompt += json.dumps(
+        {"plan": plan_snapshot, "recentSessionSummaries": recent_summaries},
+        ensure_ascii=False,
+        default=_json_default,
+    )
+
     if guider_memory:
         prompt += f"\n\nYour memory of this user:\n{guider_memory}"
     return prompt
@@ -382,12 +1627,19 @@ def build_guider_in_chat_prompt(character_name: str, guider_memory: str) -> str:
 
 def get_guider_response_in_chat(
     messages: List[Dict],
+    uid: str,
+    character_id: str,
     character_name: str,
     character_message: str,
     guider_memory: str,
 ) -> str:
     """Generate a natural Guider response for the guided chat."""
-    guider_system_prompt = build_guider_in_chat_prompt(character_name, guider_memory)
+    guider_system_prompt = build_guider_in_chat_prompt(
+        uid=uid,
+        character_id=character_id,
+        character_name=character_name,
+        guider_memory=guider_memory,
+    )
     
     # Build conversation context naturally (no weird labels)
     guider_messages = [{'role': 'system', 'content': guider_system_prompt}]
@@ -433,6 +1685,7 @@ def get_guider_response_in_chat(
 def chat_guided():
     """Handle a guided chat where character and/or Guider respond based on context."""
     try:
+        t0 = time.time()
         if not os.getenv('OPENAI_API_KEY'):
             return jsonify({
                 'success': False,
@@ -450,6 +1703,8 @@ def chat_guided():
         character_profile = data.get('characterProfile') or {}
         character_id = data.get('characterId', 'inner_critic')
         character_name = character_profile.get('displayName', 'Inner Part')
+        session_id = data.get('sessionId')
+        thread_id = data.get('threadId')
         messages = data.get('messages') or []
         
         # --- 1. Decide who should respond ---
@@ -486,6 +1741,8 @@ def chat_guided():
             guider_memory = load_agent_memory_summary(uid, 'guider')
             guider_message = get_guider_response_in_chat(
                 messages=messages,
+                uid=uid,
+                character_id=character_id,
                 character_name=character_name,
                 character_message=character_message,
                 guider_memory=guider_memory,
@@ -502,6 +1759,72 @@ def chat_guided():
             save_agent_memory_summary(uid, 'guider', updated_guider_summary)
         
         print(f"[guided_chat] {respondent}: char={bool(character_message)}, guider={bool(guider_message)}")
+
+        # Periodic intensity + checklist update (same cadence as /chat).
+        # We guard it so overlapping requests cannot clobber intensity/plan state.
+        turn_for_update = _try_acquire_periodic_update(uid, session_id) if session_id else 0
+        if session_id and thread_id and turn_for_update:
+            try:
+                scored_msgs = [
+                    {"role": m.get("role", "user"), "content": m.get("content", "")}
+                    for m in messages
+                    if m.get("content")
+                ]
+                if character_message:
+                    scored_msgs.append({"role": "assistant", "content": character_message})
+                if guider_message:
+                    scored_msgs.append({"role": "assistant", "content": guider_message})
+
+                score = score_intensity_with_llm(character_id, scored_msgs)
+                evidence = (scored_msgs[-1].get("content") if scored_msgs else "")[:200]
+                _write_session_intensity(uid, session_id, score, turn_for_update)
+                plan_diff = _update_character_plan_from_score(uid, character_id, score, evidence=evidence)
+
+                _log_agent_run(
+                    _session_runs_ref(uid, session_id),
+                    {
+                        "trigger": "user_message",
+                        "inputs": {"threadId": thread_id, "characterId": character_id},
+                        "outputs": {
+                            "intensity": score["intensity"],
+                            "blend": score.get("blend") is True,
+                            "signals": score.get("signals") or [],
+                            "focus": plan_diff.get("focus"),
+                        },
+                        "rawModelOutput": score.get("_raw") or {},
+                    },
+                )
+
+                logger.info(
+                    json.dumps(
+                        {
+                            "event": "periodic_update_guided",
+                            "ts": _now_iso(),
+                            "uid": uid,
+                            "characterId": character_id,
+                            "sessionId": session_id,
+                            "turn": int(turn_for_update),
+                            "intensity": score["intensity"],
+                            "focus": plan_diff.get("focus"),
+                            "respondent": respondent,
+                        },
+                        ensure_ascii=False,
+                    )
+                )
+            except Exception as e:
+                logger.info(
+                    json.dumps(
+                        {
+                            "event": "periodic_update_guided_failed",
+                            "ts": _now_iso(),
+                            "uid": uid,
+                            "characterId": character_id,
+                            "sessionId": session_id,
+                            "error": str(e),
+                        },
+                        ensure_ascii=False,
+                    )
+                )
         
         return jsonify({
             'success': True,
@@ -515,6 +1838,21 @@ def chat_guided():
             'success': False,
             'error': f'Guided chat error: {str(e)}'
         }), 500
+    finally:
+        try:
+            logger.info(
+                json.dumps(
+                    {
+                        "event": "request_timing",
+                        "route": "/chat_guided",
+                        "ts": _now_iso(),
+                        "ms": int((time.time() - t0) * 1000),
+                    },
+                    ensure_ascii=False,
+                )
+            )
+        except Exception:
+            pass
 
 
 # ============================================================================
@@ -863,6 +2201,32 @@ def get_active_plan():
         }), 500
 
 
+@app.route('/character_plans/active', methods=['GET'])
+def get_active_character_plan():
+    """
+    Get the per-character checklist plan for a specific characterId.
+    Query params:
+      uid, characterId
+    """
+    try:
+        uid = request.args.get('uid')
+        character_id = request.args.get('characterId')
+        if not uid or not character_id:
+            return jsonify({'success': False, 'error': 'uid and characterId are required'}), 400
+
+        ensure_character_checklist(uid, character_id)
+        snap = _character_plan_ref(uid, character_id).get()
+        if not snap.exists:
+            return jsonify({'success': False, 'error': 'No plan found'}), 404
+
+        data = snap.to_dict() or {}
+        data['id'] = snap.id
+        return jsonify({'success': True, 'plan': data})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': f'Error fetching character plan: {str(e)}'}), 500
+
+
 # ============================================================================
 # GUIDER INTERVENTION IN CHARACTER CHATS
 # ============================================================================
@@ -966,13 +2330,68 @@ def analyze_intervention_need(messages: List[Dict[str, str]], character_id: str)
     return {'shouldIntervene': False}
 
 
+def _get_recent_session_summaries(uid: str, character_id: str, limit: int = 5) -> List[Dict[str, Any]]:
+    """
+    fetches recent ended session summaries for a character
+    """
+    try:
+        snaps = (
+            _sessions_ref(uid)
+            .where("characterId", "==", character_id)
+            .limit(50)
+            .stream()
+        )
+        sessions = []
+        for s in snaps:
+            d = s.to_dict() or {}
+            if d.get("status") != "ended":
+                continue
+            summary = d.get("sessionSummary") or {}
+            if not summary:
+                continue
+            sessions.append(
+                {
+                    "sessionId": s.id,
+                    "endedAt": d.get("endedAt") or d.get("updatedAt"),
+                    "summary": summary,
+                }
+            )
+        # Sort newest first if endedAt is available
+        sessions.sort(key=lambda x: str(x.get("endedAt") or ""), reverse=True)
+        return sessions[:limit]
+    except Exception:
+        return []
+
+
+def _get_character_plan_snapshot(uid: str, character_id: str) -> Dict[str, Any]:
+    """returns a compact snapshot of the per-character checklist + focus"""
+    try:
+        ensure_character_checklist(uid, character_id)
+        snap = _character_plan_ref(uid, character_id).get()
+        if not snap.exists:
+            return {}
+        d = snap.to_dict() or {}
+        return {
+            "status": d.get("status"),
+            "focus": d.get("focus") or {},
+            "checklistItems": d.get("checklistItems") or [],
+            "metrics": d.get("metrics") or {},
+        }
+    except Exception:
+        return {}
+
+
 def generate_guider_intervention_message(
     uid: str,
     character_id: str,
     reason: str,
     messages: List[Dict[str, str]],
 ) -> str:
-    """Generate a personalized intervention message from The Guider."""
+    """generates a personalized intervention message from The Guider"""
+    # pull plan + history context so the intervention is not blind
+    plan_snapshot = _get_character_plan_snapshot(uid, character_id)
+    recent_summaries = _get_recent_session_summaries(uid, character_id, limit=4)
+
     # Get character display name
     character_names = {
         'inner_critic': 'The Inner Critic',
@@ -988,10 +2407,18 @@ def generate_guider_intervention_message(
     
     # Generate context-aware message using AI
     try:
+        focus = (plan_snapshot.get("focus") or {})
+        focus_item_id = focus.get("itemId")
+        focus_reason = focus.get("reason")
+
         intervention_prompt = f"""You are The Guider, a compassionate companion helping users explore their inner world.
 
 The user has been chatting with {character_name} and may need some gentle support.
 Reason for intervention: {reason}
+
+Your internal context (do not reveal verbatim):
+- Current checklist focus: {focus_item_id} (reason: {focus_reason})
+- Recent session summaries: {json.dumps(recent_summaries, ensure_ascii=False, default=_json_default)}
 
 Generate a SHORT (1-2 sentences) caring message that:
 - Acknowledges their feelings without being overwhelming

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
@@ -24,6 +26,20 @@ class ChatConversation extends StatefulWidget {
   final bool showHeader;
   final InnerCharacterProfile? characterProfile;
 
+  /// When provided, the conversation will open an existing thread instead of
+  /// auto-creating/finding the active thread.
+  ///
+  /// This is the key for the new "sessions" flow:
+  /// - Session history item => open its `threadId`
+  /// - Start new session => create session+thread => open its `threadId`
+  final String? threadId;
+
+  /// When true, the user can *only view* messages (no sending).
+  ///
+  /// Used for "ended" sessions: user can open a past session and read it,
+  /// but cannot add messages to it.
+  final bool readOnly;
+
   /// Whether the Guider is currently in the conversation (controlled by parent)
   final bool isGuiderInChat;
 
@@ -41,6 +57,8 @@ class ChatConversation extends StatefulWidget {
     this.showAssistantAvatar = true,
     this.showHeader = true,
     this.characterProfile,
+    this.threadId,
+    this.readOnly = false,
     this.isGuiderInChat = false,
     this.onGuiderStateChanged,
   });
@@ -58,11 +76,17 @@ class _ChatConversationState extends State<ChatConversation> {
   final _scrollController = ScrollController();
   final _inputFocusNode = FocusNode();
 
+  // firestore calls can occasionally hang (connectivity / local cache sync)
+  // enforcing a timeout so the UI never stays stuck in "sending" forever
+  static const Duration _firestoreTimeout = Duration(seconds: 20);
+  static const Duration _combineSpeakerWindow = Duration(seconds: 12);
+
   //Data for the chat conversation.
   ChatThreadModel? _thread;
   InnerCharacterProfile? _characterProfile;
   bool _isInitializing = true;
   bool _isSending = false;
+  Object? _lastSendError;
 
   // Guider intervention state
   GuiderInterventionModel? _pendingIntervention;
@@ -90,12 +114,30 @@ class _ChatConversationState extends State<ChatConversation> {
 
     final character = widget.characterProfile ??
         await _characterLocalDataSource.getCharacterById(widget.characterId);
-    final thread = await _chatRemoteDataSource.ensureChatThread(
-      uid: user.uid,
-      characterId: widget.characterId,
-      characterType: widget.characterType,
-      title: character?.displayName ?? widget.fallbackTitle,
-    );
+
+    // If the caller gave us a threadId, we open that thread directly.
+    // Otherwise we fall back to the legacy behavior (ensure active thread).
+    final existingThreadId = widget.threadId;
+    final thread = (existingThreadId != null && existingThreadId.isNotEmpty)
+        ? await _chatRemoteDataSource.getThreadById(
+            uid: user.uid,
+            threadId: existingThreadId,
+          )
+        : await _chatRemoteDataSource.ensureChatThread(
+            uid: user.uid,
+            characterId: widget.characterId,
+            characterType: widget.characterType,
+            title: character?.displayName ?? widget.fallbackTitle,
+          );
+
+    if (thread == null) {
+      // Thread not found (deleted or permission issue). We keep UI stable.
+      if (!mounted) return;
+      setState(() {
+        _isInitializing = false;
+      });
+      return;
+    }
 
     if (!mounted) return;
     setState(() {
@@ -110,6 +152,23 @@ class _ChatConversationState extends State<ChatConversation> {
     final user = FirebaseAuth.instance.currentUser;
     final thread = _thread;
     if (user == null || thread == null) return;
+
+    // Hard stop for ended sessions / read-only viewers.
+    if (widget.readOnly || thread.status != 'active') {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            tr(
+              context,
+              'This session has ended. You can view it, but you can’t send new messages.',
+              'انتهت هذه الجلسة. يمكنك عرضها، لكن لا يمكنك إرسال رسائل جديدة.',
+            ),
+          ),
+        ),
+      );
+      return;
+    }
 
     final text = _messageController.text.trim();
     if (text.isEmpty || _isSending) return;
@@ -132,14 +191,14 @@ class _ChatConversationState extends State<ChatConversation> {
           'sessionId': thread.sessionId,
           'sender': 'user',
         },
-      );
+      ).timeout(_firestoreTimeout);
 
       // Get recent messages from the chat server
       final recentMessages = await _chatRemoteDataSource.getRecentMessages(
         uid: user.uid,
         threadId: thread.id,
         limit: 20,
-      );
+      ).timeout(_firestoreTimeout);
 
       // Build a message payload for the chat server
       final messagePayload = recentMessages.map((message) {
@@ -164,11 +223,29 @@ class _ChatConversationState extends State<ChatConversation> {
         await _sendRegularMessage(user.uid, thread, messagePayload);
       }
 
+      _lastSendError = null;
       _scrollToBottom();
     } catch (error) {
       if (!mounted) return;
+      _lastSendError = error;
+
+      final isTimeout = error is TimeoutException;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Chat error: $error')),
+        SnackBar(
+          content: Text(
+            isTimeout
+                ? tr(
+                    context,
+                    'This is taking too long. Please try again.',
+                    'الرد يستغرق وقتًا طويلًا. حاول مرة أخرى.',
+                  )
+                : 'Chat error: $error',
+          ),
+          action: SnackBarAction(
+            label: tr(context, 'Retry', 'إعادة المحاولة'),
+            onPressed: _retryLastTurn,
+          ),
+        ),
       );
     } finally {
       if (mounted) {
@@ -177,6 +254,108 @@ class _ChatConversationState extends State<ChatConversation> {
         });
       }
     }
+  }
+
+  Future<void> _retryLastTurn() async {
+    final user = FirebaseAuth.instance.currentUser;
+    final thread = _thread;
+    if (user == null || thread == null) return;
+    if (_isSending) return;
+    if (widget.readOnly || thread.status != 'active') return;
+
+    setState(() {
+      _isSending = true;
+    });
+
+    try {
+      final recentMessages = await _chatRemoteDataSource.getRecentMessages(
+        uid: user.uid,
+        threadId: thread.id,
+        limit: 20,
+      ).timeout(_firestoreTimeout);
+
+      final messagePayload = recentMessages.map((message) {
+        final metadata = message.metadata ?? {};
+        return {
+          'role': message.role,
+          'content': message.content,
+          'sender': metadata['sender'] ??
+              (message.role == 'user' ? 'user' : 'character'),
+        };
+      }).toList();
+
+      if (widget.isGuiderInChat) {
+        await _sendGuidedMessage(user.uid, thread, messagePayload);
+      } else {
+        await _sendRegularMessage(user.uid, thread, messagePayload);
+      }
+
+      _lastSendError = null;
+      _scrollToBottom();
+    } catch (error) {
+      if (!mounted) return;
+      _lastSendError = error;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Retry failed: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSending = false;
+        });
+      }
+    }
+  }
+
+  String _senderOf(ChatMessageModel message) {
+    final metadata = message.metadata ?? {};
+    return (metadata['sender'] ??
+            (message.role == 'user' ? 'user' : 'character'))
+        .toString();
+  }
+
+  /// In Guider-in-chat (trio) mode, the backend can return both a character reply
+  /// and a Guider reply for a single user turn. Persisting both is useful, but
+  /// rendering them as two consecutive bubbles feels like "talking at the same time".
+  ///
+  /// We keep both messages in Firestore, but group the consecutive pair into one
+  /// UI item: character bubble + collapsible Guider note.
+  List<_ChatListItem> _groupMessagesForUi(List<ChatMessageModel> messages) {
+    final items = <_ChatListItem>[];
+
+    for (var i = 0; i < messages.length; i++) {
+      final current = messages[i];
+      final currentSender = _senderOf(current);
+
+      final canStartCombined =
+          current.role == 'assistant' && currentSender == 'character';
+      if (canStartCombined && i + 1 < messages.length) {
+        final next = messages[i + 1];
+        final nextSender = _senderOf(next);
+        final isGuiderNext =
+            next.role == 'assistant' && nextSender == 'guider';
+
+        if (isGuiderNext) {
+          final a = current.createdAt;
+          final b = next.createdAt;
+
+          // If timestamps are missing, still combine (same logical turn).
+          final withinWindow = (a == null || b == null)
+              ? true
+              : b.difference(a).abs() <= _combineSpeakerWindow;
+
+          if (withinWindow) {
+            items.add(_ChatListItem.combined(character: current, guider: next));
+            i++; // consume next too
+            continue;
+          }
+        }
+      }
+
+      items.add(_ChatListItem.single(current));
+    }
+
+    return items;
   }
 
   /// Send a regular message (character only)
@@ -212,7 +391,7 @@ class _ChatConversationState extends State<ChatConversation> {
           'sessionId': thread.sessionId,
           'sender': 'character',
         },
-      );
+      ).timeout(_firestoreTimeout);
     }
 
     // Handle Guider intervention if triggered
@@ -250,7 +429,7 @@ class _ChatConversationState extends State<ChatConversation> {
           'sessionId': thread.sessionId,
           'sender': 'character',
         },
-      );
+      ).timeout(_firestoreTimeout);
     }
 
     // Save Guider response to Firestore
@@ -265,7 +444,7 @@ class _ChatConversationState extends State<ChatConversation> {
           'sessionId': thread.sessionId,
           'sender': 'guider',
         },
-      );
+      ).timeout(_firestoreTimeout);
     }
   }
 
@@ -342,10 +521,19 @@ class _ChatConversationState extends State<ChatConversation> {
       return const Center(child: Text('Please sign in to chat.'));
     }
 
-    final headerTitle =
-        _characterProfile?.displayName ?? widget.fallbackTitle;
-    final headerSubtitle =
-        _characterProfile?.shortDescription ?? widget.fallbackSubtitle;
+
+    // Use AppLanguageProvider for in-app language toggles.
+    final useArabic = isArabic(context);
+
+    // The character name shown in chat come from firestore (the caller
+    // passes it through `fallbackTitle`)
+
+    final headerTitle = widget.fallbackTitle;
+    final headerSubtitle = useArabic
+        ? (_characterProfile?.shortDescriptionAr.isNotEmpty == true
+            ? _characterProfile!.shortDescriptionAr
+            : widget.fallbackSubtitle)
+        : (_characterProfile?.shortDescription ?? widget.fallbackSubtitle);
 
     return Column(
       children: [
@@ -354,14 +542,14 @@ class _ChatConversationState extends State<ChatConversation> {
             title: headerTitle,
             subtitle: headerSubtitle,
           ),
-        // Show Guider intervention card if pending
+        // show Guider intervention card if pending
         if (_pendingIntervention != null)
           _GuiderInterventionCard(
             intervention: _pendingIntervention!,
             onContinueAlone: _dismissIntervention,
             onLetGuiderIn: _letGuiderIn,
           ),
-        // Show Guider joined banner
+        // show Guider joined banner
         if (widget.isGuiderInChat && _pendingIntervention == null)
           _GuiderJoinedBanner(),
         Expanded(
@@ -381,6 +569,8 @@ class _ChatConversationState extends State<ChatConversation> {
                 );
               }
 
+              final items = _groupMessagesForUi(messages);
+
               return ListView.builder(
                 controller: _scrollController,
                 padding: EdgeInsets.fromLTRB(
@@ -389,19 +579,30 @@ class _ChatConversationState extends State<ChatConversation> {
                   16,
                   12 + MediaQuery.of(context).padding.bottom,
                 ),
-                itemCount: messages.length + (_isSending ? 1 : 0),
+                itemCount: items.length + (_isSending ? 1 : 0),
                 itemBuilder: (context, index) {
-                  if (_isSending && index == messages.length) {
+                  if (_isSending && index == items.length) {
                     return _TypingBubble(
                       label: widget.isGuiderInChat
                           ? tr(context, 'Thinking', 'يفكرون')
                           : headerTitle,
                     );
                   }
-                  final message = messages[index];
-                  final metadata = message.metadata ?? {};
-                  final sender = metadata['sender'] ?? 
-                      (message.role == 'user' ? 'user' : 'character');
+                  final item = items[index];
+                  if (item.isCombined) {
+                    final characterMessage = item.character!;
+                    final guiderMessage = item.guider!;
+                    return _CombinedAssistantTurn(
+                      characterText: characterMessage.content,
+                      guiderText: guiderMessage.content,
+                      characterAvatarPath: widget.showAssistantAvatar
+                          ? widget.assistantAvatarPath
+                          : null,
+                    );
+                  }
+
+                  final message = item.message!;
+                  final sender = _senderOf(message);
 
                   return _ChatBubble(
                     isUser: message.role == 'user',
@@ -418,13 +619,57 @@ class _ChatConversationState extends State<ChatConversation> {
             },
           ),
         ),
-        _ChatInput(
-          controller: _messageController,
-          isSending: _isSending,
-          focusNode: _inputFocusNode,
-          onSend: _sendMessage,
-        ),
+        if (widget.readOnly)
+          _ReadOnlyFooter(
+            message: tr(
+              context,
+              'Session ended • read-only',
+              'انتهت الجلسة • للقراءة فقط',
+            ),
+          )
+        else
+          _ChatInput(
+            controller: _messageController,
+            isSending: _isSending,
+            focusNode: _inputFocusNode,
+            onSend: _sendMessage,
+          ),
       ],
+    );
+  }
+}
+
+/// Simple footer used in ended sessions to set user expectations.
+class _ReadOnlyFooter extends StatelessWidget {
+  final String message;
+
+  const _ReadOnlyFooter({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.fromLTRB(
+        16,
+        10,
+        16,
+        10 + MediaQuery.of(context).padding.bottom,
+      ),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(
+          top: BorderSide(color: Color(0xFFEDE7FF)),
+        ),
+      ),
+      child: Text(
+        message,
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: Color(0xFF6B5C82),
+        ),
+      ),
     );
   }
 }
@@ -643,6 +888,124 @@ class _ChatBubble extends StatelessWidget {
     return Align(
       alignment: alignment,
       child: bubble,
+    );
+  }
+}
+
+class _ChatListItem {
+  final ChatMessageModel? message;
+  final ChatMessageModel? character;
+  final ChatMessageModel? guider;
+
+  _ChatListItem.single(this.message)
+      : character = null,
+        guider = null;
+
+  _ChatListItem.combined({required this.character, required this.guider})
+      : message = null;
+
+  bool get isCombined => character != null && guider != null;
+}
+
+class _CombinedAssistantTurn extends StatelessWidget {
+  final String characterText;
+  final String guiderText;
+  final String? characterAvatarPath;
+
+  const _CombinedAssistantTurn({
+    required this.characterText,
+    required this.guiderText,
+    this.characterAvatarPath,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _ChatBubble(
+          isUser: false,
+          isGuider: false,
+          text: characterText,
+          characterAvatarPath: characterAvatarPath,
+        ),
+        _GuiderNoteBubble(text: guiderText),
+      ],
+    );
+  }
+}
+
+class _GuiderNoteBubble extends StatefulWidget {
+  final String text;
+
+  const _GuiderNoteBubble({required this.text});
+
+  @override
+  State<_GuiderNoteBubble> createState() => _GuiderNoteBubbleState();
+}
+
+class _GuiderNoteBubbleState extends State<_GuiderNoteBubble> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.only(left: 52, top: 4, bottom: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.of(context).size.width * 0.75,
+        ),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8F6FF),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFFB79CFF)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: () => setState(() => _expanded = !_expanded),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.auto_awesome_rounded,
+                    size: 16,
+                    color: Color(0xFF6B5C82),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      tr(context, 'Guider note', 'ملاحظة المُرشد'),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF6B5C82),
+                      ),
+                    ),
+                  ),
+                  Icon(
+                    _expanded ? Icons.expand_less : Icons.expand_more,
+                    color: const Color(0xFF6B5C82),
+                  ),
+                ],
+              ),
+            ),
+            if (_expanded) ...[
+              const SizedBox(height: 10),
+              Text(
+                widget.text,
+                style: const TextStyle(
+                  color: Color(0xFF2A1E3B),
+                  height: 1.4,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }
