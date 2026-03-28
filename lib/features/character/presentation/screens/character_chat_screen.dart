@@ -4,6 +4,7 @@ import 'package:ana_ifs_app/l10n/app_strings.dart';
 import 'package:ana_ifs_app/features/character/domain/entities/user_character.dart';
 import 'package:ana_ifs_app/features/chat/data/datasources/inner_character_local_data_source.dart';
 import 'package:ana_ifs_app/features/chat/data/models/inner_character_profile.dart';
+import 'package:ana_ifs_app/features/chat/presentation/widgets/guider_avatar.dart';
 import 'package:ana_ifs_app/features/chat/presentation/widgets/chat_conversation.dart';
 
 class CharacterChatScreen extends StatefulWidget {
@@ -186,6 +187,7 @@ class _CharacterChatScreenState extends State<CharacterChatScreen> {
                     return ChatConversation(
                       characterId: characterId,
                       characterType: 'inner_character',
+                      // IMPORTANT (requested): displayed names come from Firestore.
                       fallbackTitle: widget.character.getDisplayName(
                         isArabic(context) ? 'ar' : 'en',
                       ),
@@ -291,17 +293,12 @@ class _GuiderIconButton extends StatelessWidget {
               : null,
         ),
         child: ClipOval(
-          child: Image.asset(
-            guiderAvatarPath,
-            width: 44,
-            height: 44,
-            fit: BoxFit.cover,
-            alignment: Alignment.topCenter,
-            errorBuilder: (_, __, ___) => Icon(
-              Icons.auto_awesome_rounded,
-              color: isGuiderInChat ? Colors.white : const Color(0xFF2A1E3B),
-              size: 22,
-            ),
+          child: GuiderAvatar(
+            size: 44,
+            backgroundColor: Colors.transparent,
+            fallbackIconColor:
+                isGuiderInChat ? Colors.white : const Color(0xFF2A1E3B),
+            fallbackIconSize: 22,
           ),
         ),
       ),
@@ -354,23 +351,10 @@ class _GuiderModal extends StatelessWidget {
             ),
             const SizedBox(height: 20),
             // Guider avatar
-            CircleAvatar(
-              radius: 40,
+            const GuiderAvatar(
+              size: 80,
               backgroundColor: const Color(0xFFB79CFF),
-              child: ClipOval(
-                child: Image.asset(
-                  guiderAvatarPath,
-                  width: 80,
-                  height: 80,
-                  fit: BoxFit.cover,
-                  alignment: Alignment.topCenter,
-                  errorBuilder: (_, __, ___) => const Icon(
-                    Icons.auto_awesome_rounded,
-                    color: Colors.white,
-                    size: 36,
-                  ),
-                ),
-              ),
+              fallbackIconSize: 36,
             ),
             const SizedBox(height: 16),
             Text(

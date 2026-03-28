@@ -8,6 +8,7 @@ import 'package:ana_ifs_app/features/chat/data/datasources/chat_remote_data_sour
 import 'package:ana_ifs_app/features/chat/data/datasources/guider_ai_remote_data_source.dart';
 import 'package:ana_ifs_app/features/chat/data/models/chat_message_model.dart';
 import 'package:ana_ifs_app/features/chat/data/models/chat_thread_model.dart';
+import 'package:ana_ifs_app/features/chat/presentation/widgets/guider_avatar.dart';
 
 /// Screen for chatting with The Guider.
 /// The Guider has access to all character conversations and can create healing plans.
@@ -24,9 +25,6 @@ class _GuiderChatScreenState extends State<GuiderChatScreen> {
   final _messageController = TextEditingController();
   final _scrollController = ScrollController();
   final _inputFocusNode = FocusNode();
-
-  // Guider avatar image path
-  static const String _guiderAvatarPath = 'assets/images/characters_full_body/guider.png';
 
   ChatThreadModel? _thread;
   bool _isInitializing = true;
@@ -292,7 +290,8 @@ class _GuiderChatScreenState extends State<GuiderChatScreen> {
                   return _ChatBubble(
                     isUser: message.role == 'user',
                     text: message.content,
-                    avatarPath: message.role == 'assistant' ? _guiderAvatarPath : null,
+                    avatarPath:
+                        message.role == 'assistant' ? guiderAvatarPath : null,
                   );
                 },
               );
@@ -325,28 +324,10 @@ class _GuiderChatScreenState extends State<GuiderChatScreen> {
                 color: const Color(0xFFEDE7FF),
                 shape: BoxShape.circle,
               ),
-              child: ClipOval(
-                child: Image.asset(
-                  _guiderAvatarPath,
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Container(
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFFB4A3FF), Color(0xFFA78BFA)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.auto_awesome_rounded,
-                        color: Colors.white,
-                        size: 40,
-                      ),
-                    );
-                  },
-                ),
+              child: const GuiderAvatar(
+                size: 100,
+                backgroundColor: Colors.transparent,
+                fallbackIconSize: 40,
               ),
             ),
             const SizedBox(height: 24),
@@ -450,36 +431,10 @@ class _ChatBubble extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            CircleAvatar(
-              radius: 20,
+            const GuiderAvatar(
+              size: 40,
               backgroundColor: const Color(0xFFEDE7FF),
-              child: ClipOval(
-                child: Image.asset(
-                  avatarPath!,
-                  width: 40,
-                  height: 40,
-                  fit: BoxFit.contain,
-                  alignment: Alignment.topCenter,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Container(
-                      width: 40,
-                      height: 40,
-                      decoration: const BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [Color(0xFFB4A3FF), Color(0xFFA78BFA)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                      ),
-                      child: const Icon(
-                        Icons.auto_awesome_rounded,
-                        color: Colors.white,
-                        size: 20,
-                      ),
-                    );
-                  },
-                ),
-              ),
+              fallbackIconSize: 20,
             ),
             const SizedBox(width: 12),
             Flexible(child: bubble),

@@ -11,9 +11,7 @@ import 'package:ana_ifs_app/features/chat/data/models/chat_message_model.dart';
 import 'package:ana_ifs_app/features/chat/data/models/chat_thread_model.dart';
 import 'package:ana_ifs_app/features/chat/data/models/guider_intervention_model.dart';
 import 'package:ana_ifs_app/features/chat/data/models/inner_character_profile.dart';
-
-/// Guider avatar path constant
-const String guiderAvatarPath = 'assets/images/characters_full_body/guider.png';
+import 'package:ana_ifs_app/features/chat/presentation/widgets/guider_avatar.dart';
 
 class ChatConversation extends StatefulWidget {
   final String characterId;
@@ -619,15 +617,7 @@ class _ChatConversationState extends State<ChatConversation> {
             },
           ),
         ),
-        if (widget.readOnly)
-          _ReadOnlyFooter(
-            message: tr(
-              context,
-              'Session ended • read-only',
-              'انتهت الجلسة • للقراءة فقط',
-            ),
-          )
-        else
+        if (!widget.readOnly)
           _ChatInput(
             controller: _messageController,
             isSending: _isSending,
@@ -635,41 +625,6 @@ class _ChatConversationState extends State<ChatConversation> {
             onSend: _sendMessage,
           ),
       ],
-    );
-  }
-}
-
-/// Simple footer used in ended sessions to set user expectations.
-class _ReadOnlyFooter extends StatelessWidget {
-  final String message;
-
-  const _ReadOnlyFooter({required this.message});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.fromLTRB(
-        16,
-        10,
-        16,
-        10 + MediaQuery.of(context).padding.bottom,
-      ),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(
-          top: BorderSide(color: Color(0xFFEDE7FF)),
-        ),
-      ),
-      child: Text(
-        message,
-        textAlign: TextAlign.center,
-        style: const TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-          color: Color(0xFF6B5C82),
-        ),
-      ),
     );
   }
 }
@@ -747,23 +702,10 @@ class _GuiderJoinedBanner extends StatelessWidget {
       ),
       child: Row(
         children: [
-          CircleAvatar(
-            radius: 14,
+          const GuiderAvatar(
+            size: 28,
             backgroundColor: const Color(0xFFB79CFF),
-            child: ClipOval(
-              child: Image.asset(
-                guiderAvatarPath,
-                width: 28,
-                height: 28,
-                fit: BoxFit.cover,
-                alignment: Alignment.topCenter,
-                errorBuilder: (_, __, ___) => const Icon(
-                  Icons.auto_awesome_rounded,
-                  color: Colors.white,
-                  size: 14,
-                ),
-              ),
-            ),
+            fallbackIconSize: 14,
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -834,23 +776,10 @@ class _ChatBubble extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            CircleAvatar(
-              radius: 20,
+            const GuiderAvatar(
+              size: 40,
               backgroundColor: const Color(0xFFB79CFF),
-              child: ClipOval(
-                child: Image.asset(
-                  guiderAvatarPath,
-                  width: 40,
-                  height: 40,
-                  fit: BoxFit.cover,
-                  alignment: Alignment.topCenter,
-                  errorBuilder: (_, __, ___) => const Icon(
-                    Icons.auto_awesome_rounded,
-                    color: Colors.white,
-                    size: 20,
-                  ),
-                ),
-              ),
+              fallbackIconSize: 20,
             ),
             const SizedBox(width: 12),
             Flexible(child: bubble),
@@ -1143,23 +1072,13 @@ class _GuiderInterventionCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              CircleAvatar(
-                radius: 18,
+              GuiderAvatar(
+                size: 36,
                 backgroundColor: borderColor,
-                child: ClipOval(
-                  child: Image.asset(
-                    guiderAvatarPath,
-                    width: 36,
-                    height: 36,
-                    fit: BoxFit.cover,
-                    alignment: Alignment.topCenter,
-                    errorBuilder: (_, __, ___) => Icon(
-                      isCrisis ? Icons.favorite_rounded : Icons.auto_awesome_rounded,
-                      color: Colors.white,
-                      size: 18,
-                    ),
-                  ),
-                ),
+                fallbackIcon: isCrisis
+                    ? Icons.favorite_rounded
+                    : Icons.auto_awesome_rounded,
+                fallbackIconSize: 18,
               ),
               const SizedBox(width: 12),
               Expanded(

@@ -9,12 +9,15 @@ import 'package:ana_ifs_app/features/chat/data/models/chat_session_model.dart';
 import 'package:ana_ifs_app/features/chat/data/models/inner_character_profile.dart';
 import 'package:ana_ifs_app/features/chat/presentation/screens/character_chat_sessions_screen.dart';
 import 'package:ana_ifs_app/features/chat/presentation/widgets/chat_conversation.dart';
-
-/// guider avatar path constant (kept identical to chat_conversation.dart)
-const String guiderAvatarPath = 'assets/images/characters_full_body/guider.png';
+import 'package:ana_ifs_app/features/chat/presentation/widgets/guider_avatar.dart';
 
 /// The "normal" chat screen for an ACTIVE session.
-
+///
+/// key requirement:
+/// - when the user tries to exit, we show a popup asking if they want to end
+///   the session (cannot be undone)
+/// - if they confirm, we end the session (firestore status becomes ended)
+///   and then navigate back to the session history screen
 class ChatSessionScreen extends StatefulWidget {
   final UserCharacter character;
   final InnerCharacterProfile? profile;
@@ -41,13 +44,15 @@ class _ChatSessionScreenState extends State<ChatSessionScreen> {
   final _chatRemoteDataSource = ChatRemoteDataSource();
   final _chatAiRemoteDataSource = ChatAiRemoteDataSource();
 
-  // guider state is supported
+  // Guider state is still supported (same as the existing character chat screen).
   bool _isGuiderInChat = false;
 
   bool _ending = false;
 
-  /// show modal to invite or remove the Guider
-
+  /// Show modal to invite or remove the Guider.
+  ///
+  /// This is copied to match `CharacterChatScreen` behavior exactly, because the
+  /// Guider intervention / join flow depends on this UX.
   void _showGuiderModal() {
     showModalBottomSheet(
       context: context,
@@ -72,7 +77,7 @@ class _ChatSessionScreenState extends State<ChatSessionScreen> {
   }
 
   Future<bool> _confirmEndSession() async {
-    // this dialog is the contract: leaving this screen = ending the session
+    // This dialog is the contract: leaving this screen = ending the session.
     final result = await showDialog<bool>(
       context: context,
       barrierDismissible: true,
@@ -108,7 +113,7 @@ class _ChatSessionScreenState extends State<ChatSessionScreen> {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
 
-      // backend analysis (intensity end + summary + logs).
+      // backend analysis (intensity end + summary + logs)
       // if it fails, we still allow ending the session (we don't block the user)
       try {
         await _chatAiRemoteDataSource.endAnalyzeSession(
@@ -149,7 +154,7 @@ class _ChatSessionScreenState extends State<ChatSessionScreen> {
   @override
   Widget build(BuildContext context) {
 
-    // display the character name directly from firestore UserCharacter
+    // display the character name directly from firestore (`UserCharacter`)
     final title =
         widget.character.getDisplayName(isArabic(context) ? 'ar' : 'en');
 
@@ -197,12 +202,17 @@ class _ChatSessionScreenState extends State<ChatSessionScreen> {
                           ),
                         ),
                       ),
+                      _GuiderIconButton(
+                        isGuiderInChat: _isGuiderInChat,
+                        onTap: _showGuiderModal,
+                      ),
+                      const SizedBox(width: 10),
                       _CircleIconButton(
                         icon: Icons.history_rounded,
                         onTap: () {
                           // this allows the user to view session history WHILE the
                           // current session is still active, without triggering the
-                          // "end session" confirmation (which only happens on back)
+                          // "end session" confirmation (which only happens on back).
                           Navigator.of(context).push(
                             MaterialPageRoute(
                               builder: (_) => CharacterChatSessionsScreen(
@@ -212,11 +222,6 @@ class _ChatSessionScreenState extends State<ChatSessionScreen> {
                             ),
                           );
                         },
-                      ),
-                      const SizedBox(width: 10),
-                      _GuiderIconButton(
-                        isGuiderInChat: _isGuiderInChat,
-                        onTap: _showGuiderModal,
                       ),
                     ],
                   ),
@@ -244,11 +249,11 @@ class _ChatSessionScreenState extends State<ChatSessionScreen> {
                   ),
                 Expanded(
                   child: ChatConversation(
-                    // we open an existing thread directly (session flow)
+                    // We open an existing thread directly (session flow).
                     threadId: widget.session.threadId,
                     characterId: widget.characterId,
                     characterType: widget.characterType,
-                    // pass the Firebase-based display name down (for typing label, etc.)
+                    // Pass the Firebase-based display name down (for typing label, etc.)
                     fallbackTitle: title,
                     fallbackSubtitle: tr(
                       context,
@@ -304,9 +309,9 @@ class _CircleIconButton extends StatelessWidget {
   }
 }
 
-/// Guider icon button that shows the Guider avatar
+/// Guider icon button that shows the Guider avatar.
 ///
-/// matches CharacterChatScreen
+/// Copied to match `CharacterChatScreen` exactly.
 class _GuiderIconButton extends StatelessWidget {
   final bool isGuiderInChat;
   final VoidCallback onTap;
@@ -340,17 +345,12 @@ class _GuiderIconButton extends StatelessWidget {
               : null,
         ),
         child: ClipOval(
-          child: Image.asset(
-            guiderAvatarPath,
-            width: 44,
-            height: 44,
-            fit: BoxFit.cover,
-            alignment: Alignment.topCenter,
-            errorBuilder: (_, __, ___) => Icon(
-              Icons.auto_awesome_rounded,
-              color: isGuiderInChat ? Colors.white : const Color(0xFF2A1E3B),
-              size: 22,
-            ),
+          child: GuiderAvatar(
+            size: 44,
+            backgroundColor: Colors.transparent,
+            fallbackIconColor:
+                isGuiderInChat ? Colors.white : const Color(0xFF2A1E3B),
+            fallbackIconSize: 22,
           ),
         ),
       ),
@@ -358,9 +358,9 @@ class _GuiderIconButton extends StatelessWidget {
   }
 }
 
-/// modal for inviting or removing the Guider
+/// Modal for inviting or removing the Guider.
 ///
-/// matches CharacterChatScreen
+/// Copied to match `CharacterChatScreen` exactly.
 class _GuiderModal extends StatelessWidget {
   final bool isGuiderInChat;
   final String characterName;
@@ -405,23 +405,10 @@ class _GuiderModal extends StatelessWidget {
             ),
             const SizedBox(height: 20),
             // Guider avatar
-            CircleAvatar(
-              radius: 40,
+            const GuiderAvatar(
+              size: 80,
               backgroundColor: const Color(0xFFB79CFF),
-              child: ClipOval(
-                child: Image.asset(
-                  guiderAvatarPath,
-                  width: 80,
-                  height: 80,
-                  fit: BoxFit.cover,
-                  alignment: Alignment.topCenter,
-                  errorBuilder: (_, __, ___) => const Icon(
-                    Icons.auto_awesome_rounded,
-                    color: Colors.white,
-                    size: 36,
-                  ),
-                ),
-              ),
+              fallbackIconSize: 36,
             ),
             const SizedBox(height: 16),
             Text(

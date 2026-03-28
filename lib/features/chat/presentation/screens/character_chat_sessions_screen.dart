@@ -14,15 +14,21 @@ import 'package:ana_ifs_app/features/chat/presentation/screens/chat_session_view
 
 /// Session history screen for ONE character.
 
-/// - Each session is clickable:
+/// - when user taps Chat from character profile:
+///   - show all previous sessions with this character
+///   - allow "Start a new session"
+/// - each session is clickable:
 ///   - active session => open normal chat (editable)
 ///   - ended session  => open read-only viewer
 class CharacterChatSessionsScreen extends StatefulWidget {
   final UserCharacter character;
 
-  /// If this screen was opened from an already-active session, pass the session id
+  /// if this screen was opened from an already-active session, pass the session id
   /// here so we can avoid pushing a duplicate chat screen when the user taps it
-
+  
+  /// - user is chatting (active session)
+  /// - user opens "history" to view previous sessions
+  /// - If they tap the same active session, we just go back to the chat screen.
   final String? currentlyOpenSessionId;
 
   const CharacterChatSessionsScreen({
@@ -51,7 +57,7 @@ class _CharacterChatSessionsScreenState extends State<CharacterChatSessionsScree
   }
 
   Future<InnerCharacterProfile?> _loadCharacterProfile() {
-    // we try to map the user's character name to the canonical JSON character id
+    // mapping the user's character name to the canonical JSON character id.
     // that id is what the backend expects (and what we store in sessions.characterId)
     final primaryName = widget.character.displayNameEn;
     final secondaryName = widget.character.characterName;
@@ -75,7 +81,7 @@ class _CharacterChatSessionsScreenState extends State<CharacterChatSessionsScree
   }
 
   String _getImagePathForCharacter(String characterName) {
-    // Copied from the existing character chat screen so the UI stays consistent.
+    // copied from the existing character chat screen so the UI stays consistent
     final imageMap = {
       'Inner Critic': 'inner_critic.png',
       'People Pleaser': 'people_pleaser.png',
@@ -133,9 +139,8 @@ class _CharacterChatSessionsScreenState extends State<CharacterChatSessionsScree
     required String title,
     required InnerCharacterProfile? profile,
   }) async {
-    // we enforce "one active session per character":
-    // - Either resume the active one
-    // - Or end it first, then start a new one
+    // enforcing one active session per character to keep the UX simple
+    // - either resume the active one, or end it first, then start a new one
     final active = await _chatRemoteDataSource.getActiveChatSessionForCharacter(
       uid: uid,
       characterId: characterId,
@@ -207,17 +212,17 @@ class _CharacterChatSessionsScreenState extends State<CharacterChatSessionsScree
   }) async {
     if (!mounted) return;
 
-    // if the user taps the session that's already open behind this screen,
-    // simply pop back to it (do not push a duplicate screen)
+    // If the user taps the session that's already open behind this screen,
+    // simply pop back to it (do not push a duplicate screen).
     if (widget.currentlyOpenSessionId != null &&
         widget.currentlyOpenSessionId == session.id) {
       Navigator.of(context).pop();
       return;
     }
 
-    // migration safety
-    // older session docs may exist without `threadId`. If so, we recover the
-    // thread by sessionId and write the link back for next time
+    // Migration safety:
+    // Older session docs may exist without `threadId`. If so, we recover the
+    // thread by `sessionId` and write the link back for next time.
     var resolved = session;
     if (resolved.threadId.isEmpty) {
       final user = FirebaseAuth.instance.currentUser;
@@ -528,9 +533,9 @@ class _CharacterHeaderCard extends StatelessWidget {
             child: ClipOval(
               child: Image.asset(
                 avatarPath,
-                width: 44,
-                height: 44,
-                fit: BoxFit.cover,
+                width: 54,
+                height: 54,
+                fit: BoxFit.contain,
                 errorBuilder: (_, __, ___) => const Icon(
                   Icons.psychology_alt_rounded,
                   color: Color(0xFF8E7CFF),
