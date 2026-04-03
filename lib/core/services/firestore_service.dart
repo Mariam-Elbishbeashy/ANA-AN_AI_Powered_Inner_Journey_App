@@ -15,6 +15,7 @@ class FirestoreService {
   static String? _stableCharactersRealtimeSyncUserId;
   static final Map<String, String> _lastKnownCharacterStates = <String, String>{};
   static final Map<String, String> _lastKnownCharacterStableAt = <String, String>{};
+  static final Map<String, String> _pendingStableHistoryStableAt = <String, String>{};
 
   // Questions Collection
   CollectionReference get questionsCollection =>
@@ -422,6 +423,8 @@ class FirestoreService {
     }
   }
 
+  static final Set<String> _stableHistoryWriteInProgress = <String>{};
+
   String _buildStableHistoryDocId(String userId, String characterId, DateTime stableAt) {
     return '${userId}_${characterId}_${stableAt.millisecondsSinceEpoch}';
   }
@@ -437,6 +440,21 @@ class FirestoreService {
     if (value is Timestamp) return value.toDate();
     if (value is DateTime) return value;
     return DateTime.tryParse(value.toString());
+  }
+
+  DateTime _currentStableTimestamp() {
+    return DateTime.now();
+  }
+
+  DateTime _resolveStableDate(
+      Map<String, dynamic> data, {
+        DateTime? preferredStableAt,
+      }) {
+    return preferredStableAt ??
+        _parseFlexibleDate(data['stableAt']) ??
+        _parseFlexibleDate(data['updatedAt']) ??
+        _parseFlexibleDate(data['predictedAt']) ??
+        DateTime.now();
   }
 
   Future<bool> _historyEntryExists(
@@ -458,11 +476,11 @@ class FirestoreService {
       return true;
     }
 
-    final iso = stableAt.toIso8601String();
+    final stableIso = stableAt.toIso8601String();
     final query = await stableCharacterHistoryCollection
         .where('userId', isEqualTo: userId)
         .where('sourceCharacterId', isEqualTo: characterId)
-        .where('stableAt', isEqualTo: iso)
+        .where('stableAt', isEqualTo: stableIso)
         .limit(1)
         .get();
 
@@ -473,43 +491,57 @@ class FirestoreService {
       String characterId,
       Map<String, dynamic> data, {
         DateTime? preferredStableAt,
+        bool forceNewDate = false,
       }) async {
-    final stableDate =
-        preferredStableAt ??
-            _parseFlexibleDate(data['stableAt']) ??
-            _parseFlexibleDate(data['updatedAt']) ??
-            _parseFlexibleDate(data['predictedAt']) ??
-            DateTime.now();
-
-    final currentStableAt = data['stableAt']?.toString();
-    if (currentStableAt == null || currentStableAt.isEmpty) {
-      await userCharactersCollection.doc(characterId).set({
-        'stableAt': stableDate.toIso8601String(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+    final existingStableAt = _parseFlexibleDate(data['stableAt']);
+    if (!forceNewDate && existingStableAt != null) {
+      return existingStableAt;
     }
+
+    final stableDate = forceNewDate
+        ? _currentStableTimestamp()
+        : _resolveStableDate(
+      data,
+      preferredStableAt: preferredStableAt,
+    );
+
+    await userCharactersCollection.doc(characterId).set({
+      'stableAt': stableDate.toIso8601String(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
 
     return stableDate;
   }
 
-  Future<void> saveStableCharacterHistory(UserCharacter character, {DateTime? stableAt}) async {
+  Map<String, dynamic> _mergeCharacterSnapshotData(
+      Map<String, dynamic> data,
+      UserCharacter character,
+      ) {
+    return <String, dynamic>{
+      ...data,
+      'characterName': data['characterName'] ?? character.characterName,
+      'displayNameEn': data['displayNameEn'] ?? character.displayNameEn,
+      'displayNameAr': data['displayNameAr'] ?? character.displayNameAr,
+      'archetype': data['archetype'] ?? character.archetype,
+      'glbFileName': data['glbFileName'] ?? character.glbFileName,
+    };
+  }
+
+  Future<void> saveStableCharacterHistory(
+      UserCharacter character, {
+        DateTime? stableAt,
+      }) async {
     final userId = currentUserId;
     if (userId == null) return;
 
     try {
       final characterDoc = await userCharactersCollection.doc(character.id).get();
-      final latestData = characterDoc.data() as Map<String, dynamic>? ?? <String, dynamic>{};
+      final latestData =
+          characterDoc.data() as Map<String, dynamic>? ?? <String, dynamic>{};
 
       await _saveStableCharacterHistoryFromData(
         character.id,
-        <String, dynamic>{
-          ...latestData,
-          'characterName': latestData['characterName'] ?? character.characterName,
-          'displayNameEn': latestData['displayNameEn'] ?? character.displayNameEn,
-          'displayNameAr': latestData['displayNameAr'] ?? character.displayNameAr,
-          'archetype': latestData['archetype'] ?? character.archetype,
-          'glbFileName': latestData['glbFileName'] ?? character.glbFileName,
-        },
+        _mergeCharacterSnapshotData(latestData, character),
         stableAt: stableAt,
         userIdOverride: userId,
       );
@@ -519,43 +551,49 @@ class FirestoreService {
     }
   }
 
-  Future<void> _saveStableCharacterHistoryFromData(
+  Future<bool> _saveStableCharacterHistoryFromData(
       String characterId,
       Map<String, dynamic> data, {
         DateTime? stableAt,
         String? userIdOverride,
+        bool forceNewStableAtOnCharacter = false,
       }) async {
     final userId = userIdOverride ?? currentUserId;
-    if (userId == null) return;
+    if (userId == null) return false;
 
     try {
       final stableDate = await _ensureStableAtOnCharacterDoc(
         characterId,
         data,
         preferredStableAt: stableAt,
+        forceNewDate: forceNewStableAtOnCharacter,
       );
       final stableIso = stableDate.toIso8601String();
       final docId = _buildStableHistoryDocId(userId, characterId, stableDate);
       final historyRef = stableCharacterHistoryCollection.doc(docId);
 
-      await _firestore.runTransaction((transaction) async {
-        final existingDoc = await transaction.get(historyRef);
-        if (existingDoc.exists) {
-          return;
+      if (_stableHistoryWriteInProgress.contains(docId)) {
+        _lastKnownCharacterStates[characterId] = 'stable';
+        _lastKnownCharacterStableAt[characterId] = stableIso;
+        return false;
+      }
+
+      _stableHistoryWriteInProgress.add(docId);
+      try {
+        final alreadyExists = await _historyEntryExistsForExactStableAt(
+          userId,
+          characterId,
+          stableDate,
+        );
+
+        _lastKnownCharacterStates[characterId] = 'stable';
+        _lastKnownCharacterStableAt[characterId] = stableIso;
+
+        if (alreadyExists) {
+          return false;
         }
 
-        final sameCycleQuery = await stableCharacterHistoryCollection
-            .where('userId', isEqualTo: userId)
-            .where('sourceCharacterId', isEqualTo: characterId)
-            .where('stableAt', isEqualTo: stableIso)
-            .limit(1)
-            .get();
-
-        if (sameCycleQuery.docs.isNotEmpty) {
-          return;
-        }
-
-        transaction.set(historyRef, {
+        await historyRef.set({
           'userId': userId,
           'sourceCharacterId': characterId,
           'characterName': data['characterName'] ?? '',
@@ -567,13 +605,15 @@ class FirestoreService {
           'stateAtSave': 'stable',
           'createdAt': FieldValue.serverTimestamp(),
         });
-      });
 
-      _lastKnownCharacterStates[characterId] = 'stable';
-      _lastKnownCharacterStableAt[characterId] = stableIso;
-      print('✅ Stable history synced from character $characterId at $stableIso');
+        print('✅ Stable history saved once for character $characterId at $stableIso');
+        return true;
+      } finally {
+        _stableHistoryWriteInProgress.remove(docId);
+      }
     } catch (e) {
       print('Error syncing stable history from character data: $e');
+      return false;
     }
   }
 
@@ -595,15 +635,15 @@ class FirestoreService {
           final stableDate = await _ensureStableAtOnCharacterDoc(doc.id, data);
           _lastKnownCharacterStableAt[doc.id] = stableDate.toIso8601String();
 
-          final exists = await _historyEntryExistsForExactStableAt(userId, doc.id, stableDate);
-          if (!exists) {
-            await _saveStableCharacterHistoryFromData(
-              doc.id,
-              data,
-              stableAt: stableDate,
-              userIdOverride: userId,
-            );
-          }
+          await _saveStableCharacterHistoryFromData(
+            doc.id,
+            <String, dynamic>{
+              ...data,
+              'stableAt': stableDate.toIso8601String(),
+            },
+            stableAt: stableDate,
+            userIdOverride: userId,
+          );
         } else {
           _lastKnownCharacterStableAt.remove(doc.id);
         }
@@ -623,43 +663,50 @@ class FirestoreService {
     if (data == null) {
       _lastKnownCharacterStates.remove(characterId);
       _lastKnownCharacterStableAt.remove(characterId);
+      _pendingStableHistoryStableAt.remove(characterId);
       return;
     }
 
     final previousState = _lastKnownCharacterStates[characterId];
     final currentState = _normalizeState(data['currentState']) ?? 'active';
-    final existingStableAt = _parseFlexibleDate(data['stableAt']);
 
     if (currentState == 'stable') {
-      if (previousState == 'stable') {
-        final stableDate = existingStableAt ??
-            (_lastKnownCharacterStableAt[characterId] != null
-                ? DateTime.tryParse(_lastKnownCharacterStableAt[characterId]!)
-                : null) ??
-            await _ensureStableAtOnCharacterDoc(characterId, data);
+      final stableDate = await _ensureStableAtOnCharacterDoc(
+        characterId,
+        data,
+        preferredStableAt: _parseFlexibleDate(data['stableAt']),
+      );
+      final stableIso = stableDate.toIso8601String();
+      final wasAlreadyTrackedAsSameStable =
+          previousState == 'stable' &&
+              _lastKnownCharacterStableAt[characterId] == stableIso;
+      final pendingStableIso = _pendingStableHistoryStableAt[characterId];
 
-        _lastKnownCharacterStates[characterId] = 'stable';
-        _lastKnownCharacterStableAt[characterId] = stableDate.toIso8601String();
+      _lastKnownCharacterStates[characterId] = 'stable';
+      _lastKnownCharacterStableAt[characterId] = stableIso;
+
+      if (pendingStableIso == stableIso) {
+        _pendingStableHistoryStableAt.remove(characterId);
         return;
       }
 
-      final stableDate = existingStableAt ?? await _ensureStableAtOnCharacterDoc(
-        characterId,
-        data,
-        preferredStableAt: DateTime.now(),
-      );
-
-      await _saveStableCharacterHistoryFromData(
-        characterId,
-        data,
-        stableAt: stableDate,
-        userIdOverride: userId,
-      );
-
-      _lastKnownCharacterStates[characterId] = 'stable';
-      _lastKnownCharacterStableAt[characterId] = stableDate.toIso8601String();
+      if (!wasAlreadyTrackedAsSameStable) {
+        await _saveStableCharacterHistoryFromData(
+          characterId,
+          <String, dynamic>{
+            ...data,
+            'stableAt': stableIso,
+          },
+          stableAt: stableDate,
+          userIdOverride: userId,
+        );
+      }
       return;
     }
+
+    _lastKnownCharacterStates[characterId] = currentState;
+    _lastKnownCharacterStableAt.remove(characterId);
+    _pendingStableHistoryStableAt.remove(characterId);
 
     if (previousState == 'stable' && currentState == 'active') {
       await userCharactersCollection.doc(characterId).set({
@@ -668,9 +715,6 @@ class FirestoreService {
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
     }
-
-    _lastKnownCharacterStates[characterId] = currentState;
-    _lastKnownCharacterStableAt.remove(characterId);
   }
 
   Future<void> startStableCharactersRealtimeSync() async {
@@ -687,6 +731,8 @@ class FirestoreService {
     _stableCharactersRealtimeSyncUserId = userId;
     _lastKnownCharacterStates.clear();
     _lastKnownCharacterStableAt.clear();
+    _pendingStableHistoryStableAt.clear();
+    _stableHistoryWriteInProgress.clear();
 
     await syncStableCharactersToHistory();
 
@@ -710,15 +756,21 @@ class FirestoreService {
     _stableCharactersRealtimeSyncUserId = null;
     _lastKnownCharacterStates.clear();
     _lastKnownCharacterStableAt.clear();
+    _pendingStableHistoryStableAt.clear();
+    _stableHistoryWriteInProgress.clear();
   }
 
-  Future<void> markCharacterAsStable(UserCharacter character, {DateTime? stableAt}) async {
+  Future<void> markCharacterAsStable(
+      UserCharacter character, {
+        DateTime? stableAt,
+      }) async {
     try {
       final characterDoc = await userCharactersCollection.doc(character.id).get();
       final data = characterDoc.data() as Map<String, dynamic>? ?? <String, dynamic>{};
-      final currentState = _normalizeState(data['currentState']) ??
-          _normalizeState(character.currentState) ??
-          'active';
+      final currentState =
+          _normalizeState(data['currentState']) ??
+              _normalizeState(character.currentState) ??
+              'active';
 
       if (currentState == 'stable') {
         final preservedStableAt = await _ensureStableAtOnCharacterDoc(
@@ -726,33 +778,44 @@ class FirestoreService {
           data,
           preferredStableAt: stableAt,
         );
+
         _lastKnownCharacterStates[character.id] = 'stable';
-        _lastKnownCharacterStableAt[character.id] = preservedStableAt.toIso8601String();
-        print('ℹ️ Character ${character.id} is already stable. Keeping same stable date.');
+        _lastKnownCharacterStableAt[character.id] =
+            preservedStableAt.toIso8601String();
+
+        await _saveStableCharacterHistoryFromData(
+          character.id,
+          <String, dynamic>{
+            ..._mergeCharacterSnapshotData(data, character),
+            'stableAt': preservedStableAt.toIso8601String(),
+          },
+          stableAt: preservedStableAt,
+        );
+
+        print(
+          'ℹ️ Character ${character.id} is already stable. Kept existing stable date and ensured one history entry only.',
+        );
         return;
       }
 
-      final stableDate = stableAt ?? DateTime.now();
+      final stableDate = _currentStableTimestamp();
+      final stableIso = stableDate.toIso8601String();
 
-      await userCharactersCollection.doc(character.id).update({
+      await userCharactersCollection.doc(character.id).set({
         'currentState': 'stable',
-        'stableAt': stableDate.toIso8601String(),
+        'stableAt': stableIso,
         'updatedAt': FieldValue.serverTimestamp(),
-      });
+      }, SetOptions(merge: true));
 
       _lastKnownCharacterStates[character.id] = 'stable';
-      _lastKnownCharacterStableAt[character.id] = stableDate.toIso8601String();
+      _lastKnownCharacterStableAt[character.id] = stableIso;
+      _pendingStableHistoryStableAt[character.id] = stableIso;
 
       await _saveStableCharacterHistoryFromData(
         character.id,
         <String, dynamic>{
-          ...data,
-          'characterName': data['characterName'] ?? character.characterName,
-          'displayNameEn': data['displayNameEn'] ?? character.displayNameEn,
-          'displayNameAr': data['displayNameAr'] ?? character.displayNameAr,
-          'archetype': data['archetype'] ?? character.archetype,
-          'glbFileName': data['glbFileName'] ?? character.glbFileName,
-          'stableAt': stableDate.toIso8601String(),
+          ..._mergeCharacterSnapshotData(data, character),
+          'stableAt': stableIso,
         },
         stableAt: stableDate,
       );
@@ -768,19 +831,21 @@ class FirestoreService {
     try {
       _lastKnownCharacterStates[characterId] = 'active';
       _lastKnownCharacterStableAt.remove(characterId);
+      _pendingStableHistoryStableAt.remove(characterId);
+
       await userCharactersCollection.doc(characterId).update({
         'currentState': 'active',
         'stableAt': FieldValue.delete(),
         'reactivatedAt': DateTime.now().toIso8601String(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
+
       print('✅ Character $characterId marked as active');
     } catch (e) {
       print('Error marking character as active: $e');
       rethrow;
     }
   }
-
 
   Future<void> updateCharacterCurrentState(
       UserCharacter character,
@@ -802,6 +867,7 @@ class FirestoreService {
         payload['reactivatedAt'] = (changedAt ?? DateTime.now()).toIso8601String();
         payload['stableAt'] = FieldValue.delete();
         _lastKnownCharacterStableAt.remove(character.id);
+        _pendingStableHistoryStableAt.remove(character.id);
       }
 
       await userCharactersCollection.doc(character.id).update(payload);
@@ -815,7 +881,9 @@ class FirestoreService {
 
   Stream<List<StableCharacterHistory>> watchStableCharacterHistory({int? limit}) {
     final userId = currentUserId;
-    if (userId == null) return const Stream<List<StableCharacterHistory>>.empty();
+    if (userId == null) {
+      return const Stream<List<StableCharacterHistory>>.empty();
+    }
 
     startStableCharactersRealtimeSync();
 
