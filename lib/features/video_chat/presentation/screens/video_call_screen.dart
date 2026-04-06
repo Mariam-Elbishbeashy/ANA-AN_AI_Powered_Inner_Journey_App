@@ -120,8 +120,10 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   ];
 
   // Backend endpoints
-  static const String _agentsBaseUrl = "http://10.0.2.2:5001";
-  static const String _voiceAppBaseUrl = "http://10.0.2.2:5003";
+  // static const String _agentsBaseUrl = "http://10.0.2.2:5001";
+  // static const String _voiceAppBaseUrl = "http://10.0.2.2:5003";
+  static const String _agentsBaseUrl = "http://192.168.0.145:5001";
+  static const String _voiceAppBaseUrl = "http://192.168.0.145:5003";
   static const String _chatEndpoint = "/chat";
   static const String _chatGuidedEndpoint = "/chat_guided";
   static const String _transcribeEndpoint = "/video/transcribe";
