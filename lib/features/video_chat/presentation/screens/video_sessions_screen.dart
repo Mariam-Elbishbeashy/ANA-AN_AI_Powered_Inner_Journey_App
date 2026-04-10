@@ -1,4 +1,3 @@
-// lib/features/video_chat/presentation/screens/video_sessions_screen.dart
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:ana_ifs_app/l10n/app_strings.dart';
@@ -28,6 +27,8 @@ class _VideoSessionsScreenState extends State<VideoSessionsScreen> {
 
   late final String _characterIdForBackend;
   late final String _assistantAvatarPath;
+
+  final _refreshIndicatorKey = GlobalKey<RefreshIndicatorState>();
 
   @override
   void initState() {
@@ -129,7 +130,6 @@ class _VideoSessionsScreenState extends State<VideoSessionsScreen> {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    // Check for active session
     final active = await _sessionRepository.getActiveVideoSession(
       uid: user.uid,
       characterId: _characterIdForBackend,
@@ -170,7 +170,6 @@ class _VideoSessionsScreenState extends State<VideoSessionsScreen> {
       );
     }
 
-    // Navigate to video call screen
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => VideoCallScreen(
@@ -178,13 +177,17 @@ class _VideoSessionsScreenState extends State<VideoSessionsScreen> {
         ),
       ),
     );
+
+    // Refresh after returning from call
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   Future<void> _openSession(VideoSession session) async {
     if (!mounted) return;
 
     if (session.isActive) {
-      // Resume active session
       await Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) => VideoCallScreen(
@@ -193,8 +196,11 @@ class _VideoSessionsScreenState extends State<VideoSessionsScreen> {
           ),
         ),
       );
+      // Refresh after returning from active session
+      if (mounted) {
+        setState(() {});
+      }
     } else {
-      // View ended session (read-only)
       await Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) => VideoSessionViewerScreen(
@@ -274,66 +280,115 @@ class _VideoSessionsScreenState extends State<VideoSessionsScreen> {
                 ),
               ),
               Expanded(
-                child: StreamBuilder<List<VideoSession>>(
-                  stream: _sessionRepository.streamVideoSessionsForCharacter(
-                    uid: user.uid,
-                    characterId: _characterIdForBackend,
-                  ),
-                  builder: (context, snapshot) {
-                    final sessions = snapshot.data ?? const <VideoSession>[];
-
-                    if (sessions.isEmpty) {
-                      return Center(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 28),
-                          child: Text(
-                            tr(
-                              context,
-                              'No video sessions yet. Start your first session to begin.',
-                              'لا توجد جلسات فيديو بعد. ابدأ أول جلسة لتبدأ.',
-                            ),
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              color: Color(0xFF4B3A66),
-                              height: 1.5,
-                            ),
-                          ),
-                        ),
-                      );
-                    }
-
-                    return ListView.separated(
-                      padding: const EdgeInsets.fromLTRB(18, 8, 18, 100),
-                      itemCount: sessions.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 10),
-                      itemBuilder: (context, index) {
-                        final s = sessions[index];
-                        final when = _formatWhen(s.startedAt);
-                        final duration = _formatDuration(s.duration);
-
-                        final statusLabel = s.isActive
-                            ? tr(context, 'Active', 'نشطة')
-                            : tr(context, 'Ended', 'منتهية');
-
-                        final subtitle = s.isActive
-                            ? tr(context, 'Started: $when', 'بدأت: $when')
-                            : tr(context, '$when • $duration', '$when • $duration');
-
-                        return _SessionTile(
-                          title: tr(
-                            context,
-                            'Session ${sessions.length - index}',
-                            'الجلسة ${sessions.length - index}',
-                          ),
-                          subtitle: subtitle,
-                          statusLabel: statusLabel,
-                          isActive: s.isActive,
-                          guiderJoined: s.guiderJoined,
-                          onTap: () => _openSession(s),
-                        );
-                      },
-                    );
+                child: RefreshIndicator(
+                  key: _refreshIndicatorKey,
+                  onRefresh: () async {
+                    // Force refresh by rebuilding the stream
+                    setState(() {});
+                    await Future.delayed(const Duration(milliseconds: 500));
                   },
+                  child: StreamBuilder<List<VideoSession>>(
+                    stream: _sessionRepository.streamVideoSessionsForCharacter(
+                      uid: user.uid,
+                      characterId: _characterIdForBackend,
+                    ),
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Center(
+                          child: CircularProgressIndicator(
+                            valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF8E7CFF)),
+                          ),
+                        );
+                      }
+
+                      if (snapshot.hasError) {
+                        return Center(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 28),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(Icons.error_outline, color: Color(0xFFE57373), size: 48),
+                                const SizedBox(height: 16),
+                                Text(
+                                  tr(context, 'Error loading sessions', 'خطأ في تحميل الجلسات'),
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(color: Color(0xFF6B5C82)),
+                                ),
+                                const SizedBox(height: 12),
+                                TextButton(
+                                  onPressed: () {
+                                    setState(() {});
+                                  },
+                                  child: Text(tr(context, 'Retry', 'إعادة المحاولة')),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }
+
+                      final allSessions = snapshot.data ?? const <VideoSession>[];
+
+                      // Filter sessions: show active sessions AND completed sessions with duration > 0
+                      final sessions = allSessions.where((session) {
+                        if (session.isActive) return true;
+                        return session.duration > 0;
+                      }).toList();
+
+                      if (sessions.isEmpty) {
+                        return Center(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 28),
+                            child: Text(
+                              tr(
+                                context,
+                                'No video sessions yet. Start your first session to begin.',
+                                'لا توجد جلسات فيديو بعد. ابدأ أول جلسة لتبدأ.',
+                              ),
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                color: Color(0xFF4B3A66),
+                                height: 1.5,
+                              ),
+                            ),
+                          ),
+                        );
+                      }
+
+                      return ListView.separated(
+                        padding: const EdgeInsets.fromLTRB(18, 8, 18, 100),
+                        itemCount: sessions.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 10),
+                        itemBuilder: (context, index) {
+                          final s = sessions[index];
+                          final when = _formatWhen(s.startedAt);
+                          final duration = _formatDuration(s.duration);
+
+                          final statusLabel = s.isActive
+                              ? tr(context, 'Active', 'نشطة')
+                              : tr(context, 'Ended', 'منتهية');
+
+                          final subtitle = s.isActive
+                              ? tr(context, 'Started: $when', 'بدأت: $when')
+                              : tr(context, '$when • $duration', '$when • $duration');
+
+                          return _SessionTile(
+                            title: tr(
+                              context,
+                              'Session ${sessions.length - index}',
+                              'الجلسة ${sessions.length - index}',
+                            ),
+                            subtitle: subtitle,
+                            statusLabel: statusLabel,
+                            isActive: s.isActive,
+                            guiderJoined: s.guiderJoined,
+                            onTap: () => _openSession(s),
+                          );
+                        },
+                      );
+                    },
+                  ),
                 ),
               ),
               Padding(

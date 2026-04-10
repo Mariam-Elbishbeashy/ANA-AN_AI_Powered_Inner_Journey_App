@@ -24,6 +24,20 @@ class VideoSessionModel extends VideoSession {
   factory VideoSessionModel.fromMap(Map<String, dynamic> data, String id) {
     final intensity = data['intensity'] as Map<String, dynamic>?;
 
+    // CRITICAL: Ensure duration is properly parsed
+    int duration = 0;
+    if (data['duration'] != null) {
+      if (data['duration'] is int) {
+        duration = data['duration'];
+      } else if (data['duration'] is double) {
+        duration = (data['duration'] as double).toInt();
+      } else if (data['duration'] is String) {
+        duration = int.tryParse(data['duration'] as String) ?? 0;
+      } else if (data['duration'] is num) {
+        duration = (data['duration'] as num).toInt();
+      }
+    }
+
     return VideoSessionModel(
       id: id,
       characterId: data['characterId']?.toString() ?? '',
@@ -32,7 +46,7 @@ class VideoSessionModel extends VideoSession {
       startedAt: _parseTimestamp(data['startedAt']),
       endedAt: _parseTimestamp(data['endedAt']),
       updatedAt: _parseTimestamp(data['updatedAt']),
-      duration: (data['duration'] as num?)?.toInt() ?? 0,
+      duration: duration,
       emotionsTracked: data['emotionsTracked'] != null
           ? List<String>.from(data['emotionsTracked'])
           : null,

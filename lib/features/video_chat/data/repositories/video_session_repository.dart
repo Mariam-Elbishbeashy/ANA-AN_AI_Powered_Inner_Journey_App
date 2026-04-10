@@ -1,5 +1,8 @@
 // lib/features/video_chat/data/repositories/video_session_repository.dart
 import 'dart:async';
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+import '../../domain/entities/video_message.dart';
 import '../datasources/video_session_remote_data_source.dart';
 import '../../domain/entities/video_session.dart';
 import '../../domain/repositories/video_session_repository_interface.dart';
@@ -133,5 +136,55 @@ class VideoSessionRepository implements VideoSessionRepositoryInterface {
       characterId: characterId,
       sessionId: sessionId,
     );
+  }
+
+  /// Get messages from Firestore (READ ONLY)
+  Future<List<VideoMessage>> getMessages({
+    required String uid,
+    required String threadId,
+  }) async {
+    if (threadId.isEmpty) {
+      print('❌ getMessages: threadId is empty');
+      return [];
+    }
+
+    try {
+      print('📖 Getting messages for threadId: $threadId');
+
+      final messagesRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .collection('chat_threads')
+          .doc(threadId)
+          .collection('messages');
+
+      final snapshot = await messagesRef
+          .orderBy('createdAt', descending: false)
+          .get();
+
+      print('✅ Found ${snapshot.docs.length} messages');
+
+      return snapshot.docs.map((doc) {
+        final data = doc.data();
+        final createdAt = data['createdAt'];
+        DateTime? dateTime;
+        if (createdAt is Timestamp) {
+          dateTime = createdAt.toDate();
+        } else if (createdAt is DateTime) {
+          dateTime = createdAt;
+        }
+
+        return VideoMessage(
+          id: doc.id,
+          role: data['role'] ?? 'user',
+          content: data['content'] ?? '',
+          sender: data['sender'],
+          createdAt: dateTime,
+        );
+      }).toList();
+    } catch (e) {
+      print('❌ Error getting messages: $e');
+      return [];
+    }
   }
 }

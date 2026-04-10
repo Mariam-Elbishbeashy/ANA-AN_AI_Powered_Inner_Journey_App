@@ -1,5 +1,3 @@
-// lib/features/video_chat/presentation/screens/video_call_screen.dart
-// COMPLETE WORKING VERSION WITH FULL SESSION TRACKING & BILINGUAL SUPPORT
 
 import 'dart:async';
 import 'dart:convert';
@@ -38,9 +36,7 @@ class VideoCallScreen extends StatefulWidget {
 }
 
 class _VideoCallScreenState extends State<VideoCallScreen> {
-  // ==========================
-  // SESSION MANAGEMENT
-  // ==========================
+
   late final VideoSessionRepository _sessionRepository;
   VideoSession? _currentVideoSession;
   Timer? _durationTimer;
@@ -48,9 +44,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   String? _currentSessionId;
   String? _currentThreadId;
 
-  // ==========================
-  // UI VARIABLES
-  // ==========================
+
   bool _isMuted = false;
   bool _isVideoEnabled = true;
   late final String _characterModelPath;
@@ -63,15 +57,12 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   bool _showingIntervention = false;
   static const String _guiderGifPath = 'assets/animations/guider.gif';
 
-  // Camera
   CameraController? _cameraController;
   List<CameraDescription>? _cameras;
   bool _isCameraInitialized = false;
   bool _isCameraDisposed = false;
 
-  // ==========================
-  // EMOTION TRACKING
-  // ==========================
+
   String _emotionSessionId = "";
   static const String _emotionServerUrl = "http://192.168.100.7:5002";
   Timer? _emotionFrameTimer;
@@ -84,9 +75,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   Timer? _emotionSendTimer;
   bool _hasPendingEmotionUpdate = false;
 
-  // ==========================
-  // VOICE & AGENT
-  // ==========================
   final FlutterSoundRecorder _recorder = FlutterSoundRecorder();
   final FlutterTts _tts = FlutterTts();
   final _chatRemoteDataSource = ChatRemoteDataSource();
@@ -100,7 +88,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   bool _isSpeaking = false;
 
   late String _characterIdForBackend;
-  String _detectedLanguage = 'en'; // 'en' for English, 'ar' for Egyptian Arabic
+  String _detectedLanguage = 'en';
   bool _languageDetected = false;
 
   String _status = "LIVE";
@@ -129,9 +117,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   double _currentDbLevel = -100.0;
   bool _stopping = false;
 
-  // ==========================================================================
-  // BACKEND ENDPOINTS
-  // ==========================================================================
   static const String _agentServerUrl = "http://192.168.100.7:5001";
   static const String _videoServerUrl = "http://192.168.100.7:5003";
   static const String _guiderUpdateEmotionsEndpoint = "/guider/update_emotions";
@@ -142,9 +127,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   static const String _sessionSummaryEndpoint = "/video/session_summary";
   static const String _endSessionEndpoint = "/video/end_session";
 
-  // ==========================================================================
-  // BILINGUAL UI TEXT (Egyptian Arabic & English)
-  // ==========================================================================
 
   String _getStatusText() {
     if (_detectedLanguage == 'ar') {
@@ -262,10 +244,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     return _detectedLanguage == 'ar' ? 'مطفية' : 'OFF';
   }
 
-  // ==========================================================================
-  // INITIALIZATION
-  // ==========================================================================
-
   @override
   void initState() {
     super.initState();
@@ -376,10 +354,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     );
   }
 
-  // ==========================
-  // EMOTION METHODS
-  // ==========================
-
   Future<void> _initializeEmotionSession() async {
     try {
       final response = await http.post(
@@ -452,7 +426,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         }
       }
     } catch (e) {
-      // Silent fail
     }
   }
 
@@ -550,20 +523,16 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     }
   }
 
-  // ==========================
-  // LANGUAGE DETECTION (English or Egyptian Arabic)
-  // ==========================
+
 
   String _detectLanguageFromText(String text) {
     if (text.isEmpty) return _detectedLanguage;
 
-    // Arabic Unicode range (includes Egyptian Arabic characters)
     final arabicRegex = RegExp(r'[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]');
     final hasArabic = arabicRegex.hasMatch(text);
     final arabicCount = arabicRegex.allMatches(text).length;
     final englishCount = RegExp(r'[a-zA-Z]').allMatches(text).length;
 
-    // Egyptian Arabic specific words/phrases (common in Masri)
     final egyptianWords = ['ايه', 'ازيك', 'عايز', 'عاوز', 'بتاع', 'دي', 'ده', 'دول', 'احنا', 'انتي', 'انتا', 'بتعمل', 'عشان', 'لأ', 'ايوه', 'اه'];
     bool hasEgyptianArabic = false;
     for (var word in egyptianWords) {
@@ -574,20 +543,17 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     }
 
     if ((hasArabic && arabicCount > englishCount) || hasEgyptianArabic) {
-      return 'ar'; // Egyptian Arabic
+      return 'ar';
     } else {
-      return 'en'; // English
+      return 'en';
     }
   }
 
   Future<void> _updateTtsLanguage(String language) async {
     try {
       if (language == 'ar') {
-        // Egyptian Arabic voice
         await _tts.setLanguage("ar-EG");
         await _tts.setSpeechRate(0.45);
-        // Optional: Set Egyptian Arabic specific voice if available
-        // await _tts.setVoice("ar-EG-standard-A");
       } else {
         await _tts.setLanguage("en-US");
         await _tts.setSpeechRate(0.5);
@@ -595,7 +561,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       print("🎤 TTS language updated to: ${language == 'ar' ? 'Egyptian Arabic' : 'English'}");
     } catch (e) {
       print("❌ Error updating TTS language: $e");
-      // Fallback to standard Arabic if Egyptian Arabic not available
       if (language == 'ar') {
         try {
           await _tts.setLanguage("ar-SA");
@@ -607,9 +572,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     }
   }
 
-  // ==========================
-  // AGENT COMMUNICATION
-  // ==========================
+
 
   Future<Map<String, dynamic>> _sendToAgent({
     required String uid,
@@ -647,7 +610,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       'sessionId': _currentSessionId,
       'threadId': _currentThreadId,
       'checkIntervention': checkIntervention,
-      'language': _detectedLanguage, // Pass language to backend
+      'language': _detectedLanguage,
     };
 
     print("📤 Sending to agent at ${uri.toString()}");
@@ -710,7 +673,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       'messages': guidedMessages,
       'sessionId': _currentSessionId,
       'threadId': _currentThreadId,
-      'language': _detectedLanguage, // Pass language to backend
+      'language': _detectedLanguage,
     };
 
     print("📤 Sending to guided agent at ${uri.toString()}");
@@ -731,9 +694,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     throw Exception("HTTP ${response.statusCode}");
   }
 
-  // ==========================
-  // INTERVENTION
-  // ==========================
 
   Future<Map<String, dynamic>?> _checkGuiderIntervention(
       String uid,
@@ -749,8 +709,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
           'role': m['role'],
           'content': m['content'],
         }).toList(),
-        'language': _detectedLanguage, // Pass language for intervention response
-      };
+        'language': _detectedLanguage,   };
 
       final response = await http.post(
         uri,
@@ -899,9 +858,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     }
   }
 
-  // ==========================
-  // VOICE PROCESSING
-  // ==========================
 
   Future<void> _processUserMessage(String transcript) async {
     final user = FirebaseAuth.instance.currentUser;
@@ -1013,9 +969,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     }
   }
 
-  // ==========================
-  // AUDIO RECORDING METHODS
-  // ==========================
 
   Future<void> _initAudio() async {
     try {
@@ -1262,9 +1215,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     _stopping = false;
   }
 
-  // ==========================
-  // TTS METHODS
-  // ==========================
 
   Future<void> _initTts() async {
     try {
@@ -1364,9 +1314,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     });
   }
 
-  // ==========================
-  // CAMERA METHODS
-  // ==========================
 
   Future<void> _initializeCamera() async {
     try {
@@ -1413,9 +1360,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     _isCameraInitialized = false;
   }
 
-  // ==========================
-  // HELPER METHODS
-  // ==========================
 
   Future<void> _loadCharacterProfile() async {
     try {
@@ -1594,9 +1538,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     }
   }
 
-  // ==========================
-  // UI BUILDERS
-  // ==========================
 
   @override
   void dispose() {

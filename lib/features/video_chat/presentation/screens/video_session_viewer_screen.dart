@@ -1,8 +1,8 @@
-// lib/features/video_chat/presentation/screens/video_session_viewer_screen.dart
 import 'package:flutter/material.dart';
 import 'package:ana_ifs_app/l10n/app_strings.dart';
 import 'package:ana_ifs_app/features/character/domain/entities/user_character.dart';
 import 'package:ana_ifs_app/features/video_chat/domain/entities/video_session.dart';
+import 'package:ana_ifs_app/features/video_chat/presentation/screens/video_chat_history_screen.dart';
 
 class VideoSessionViewerScreen extends StatelessWidget {
   final UserCharacter character;
@@ -30,10 +30,21 @@ class VideoSessionViewerScreen extends StatelessWidget {
         '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
   }
 
+  void _viewChatHistory(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => VideoChatHistoryScreen(
+          character: character,
+          session: session,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final title = character.getDisplayName(isArabic(context) ? 'ar' : 'en');
-    final isArabicValue = isArabic(context); // Fix: declare variable before using
+    final isArabicValue = isArabic(context);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF9F6FF),
@@ -167,7 +178,7 @@ class VideoSessionViewerScreen extends StatelessWidget {
                                   ? (isArabicValue ? 'نعم' : 'Yes')
                                   : (isArabicValue ? 'لا' : 'No'),
                             ),
-                            if (session.emotionsTracked != null && session.emotionsTracked!.isNotEmpty) ...[
+                            if (session.emotionsTracked!.isNotEmpty) ...[
                               const SizedBox(height: 12),
                               _InfoRow(
                                 label: tr(context, 'Emotions Tracked', 'المشاعر المسجلة'),
@@ -181,6 +192,24 @@ class VideoSessionViewerScreen extends StatelessWidget {
                                 value: '${(session.intensityStart! * 100).toInt()}% → ${(session.intensityEnd! * 100).toInt()}%',
                               ),
                             ],
+                            const SizedBox(height: 20),
+                            ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFFEDE7FF),
+                                foregroundColor: const Color(0xFF8E7CFF),
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                minimumSize: const Size(double.infinity, 48),
+                              ),
+                              onPressed: () => _viewChatHistory(context),
+                              icon: const Icon(Icons.chat_bubble_outline, size: 20),
+                              label: Text(
+                                tr(context, 'View Chat History', 'عرض سجل المحادثة'),
+                                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -300,7 +329,7 @@ class _CircleIconButton extends StatelessWidget {
           shape: BoxShape.circle,
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.06), // Fixed: use withValues instead of withOpacity
+              color: Colors.black.withValues(alpha: 0.06),
               blurRadius: 12,
               offset: const Offset(0, 6),
             ),
