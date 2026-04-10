@@ -584,6 +584,28 @@ CHARACTER_CHECKLIST_TEMPLATES: Dict[str, List[Dict[str, str]]] = {
             "definition": "User can ask for attention/validation in a direct, non-shaming way and also offer internal validation.",
         },
     ],
+    "guider": [
+        {
+            "id": "unblending",
+            "name": "Unblending (Self vs Part)",
+            "definition": "User can identify a part from Self-energy language (e.g., 'a part of me...').",
+        },
+        {
+            "id": "stabilization",
+            "name": "Stabilization skill",
+            "definition": "User can regulate activation in-session and remain within a safe emotional window.",
+        },
+        {
+            "id": "parts_clarity",
+            "name": "Parts mapping clarity",
+            "definition": "User can name which parts are present and what each one is trying to do.",
+        },
+        {
+            "id": "next_step_clarity",
+            "name": "Next-step clarity",
+            "definition": "User can choose one concrete, compassionate next step after reflection.",
+        },
+    ],
     # Fallback template (used when characterId has no custom list).
     "__default__": [
         {
@@ -2116,6 +2138,7 @@ def update_plan_step(uid: str, args: Dict[str, Any]) -> None:
 def chat_guider():
     """Handle a chat request for The Guider agent."""
     try:
+        t0 = time.time()
         if not os.getenv('OPENAI_API_KEY'):
             return jsonify({
                 'success': False,
@@ -2130,7 +2153,11 @@ def chat_guider():
                 'error': 'uid is required'
             }), 400
         
+        # Keep guider-only chat inside session tracking as well.
+        session_id = data.get('sessionId')
+        thread_id = data.get('threadId')
         messages = data.get('messages') or []
+        character_id = 'guider'
         
         # Load guider's memory of this user
         guider_memory = load_agent_memory_summary(uid, 'guider')
@@ -2154,6 +2181,91 @@ def chat_guider():
             )
         save_agent_memory_summary(uid, 'guider', updated_summary)
         print(f"[guider] memory_summary_updated: {bool(updated_summary)}")
+
+        # ---------------------------------------------------------------------
+        # Periodic intensity + checklist updates for guider-only sessions.
+        # Cadence: every 3 user turns of this guider session.
+        # Writes:
+        # - users/{uid}/sessions/{sessionId}.intensity.*
+        # - users/{uid}/character_plans/guider
+        # - agent_runs under session + character_plan
+        # ---------------------------------------------------------------------
+        turn_for_update = _try_acquire_periodic_update(uid, session_id) if session_id else 0
+        if session_id and thread_id and turn_for_update:
+            try:
+                scored_msgs = [
+                    {"role": m.get("role", "user"), "content": m.get("content", "")}
+                    for m in messages
+                    if m.get("content")
+                ]
+                if assistant_message:
+                    scored_msgs.append({"role": "assistant", "content": assistant_message})
+
+                score = score_intensity_with_llm(character_id, scored_msgs)
+                evidence = (scored_msgs[-1].get("content") if scored_msgs else "")[:200]
+
+                _write_session_intensity(uid, session_id, score, turn_for_update)
+                plan_diff = _update_character_plan_from_score(uid, character_id, score, evidence=evidence)
+
+                _log_agent_run(
+                    _session_runs_ref(uid, session_id),
+                    {
+                        "trigger": "user_message_guider",
+                        "inputs": {"threadId": thread_id, "characterId": character_id},
+                        "outputs": {
+                            "intensity": score["intensity"],
+                            "blend": score.get("blend") is True,
+                            "signals": score.get("signals") or [],
+                            "focus": plan_diff.get("focus"),
+                            "changedItems": plan_diff.get("changedItems"),
+                        },
+                        "rawModelOutput": score.get("_raw") or {},
+                    },
+                )
+
+                _log_agent_run(
+                    _plan_runs_ref(uid, character_id),
+                    {
+                        "trigger": "user_message_guider",
+                        "inputs": {"sessionId": session_id, "threadId": thread_id},
+                        "outputs": {
+                            "focus": plan_diff.get("focus"),
+                            "changedItems": plan_diff.get("changedItems"),
+                        },
+                        "rawModelOutput": score.get("_raw") or {},
+                    },
+                )
+
+                logger.info(
+                    json.dumps(
+                        {
+                            "event": "periodic_update_guider",
+                            "ts": _now_iso(),
+                            "uid": uid,
+                            "characterId": character_id,
+                            "sessionId": session_id,
+                            "turn": int(turn_for_update),
+                            "intensity": score["intensity"],
+                            "blend": score.get("blend") is True,
+                            "focus": plan_diff.get("focus"),
+                        },
+                        ensure_ascii=False,
+                    )
+                )
+            except Exception as e:
+                logger.info(
+                    json.dumps(
+                        {
+                            "event": "periodic_update_guider_failed",
+                            "ts": _now_iso(),
+                            "uid": uid,
+                            "characterId": character_id,
+                            "sessionId": session_id,
+                            "error": str(e),
+                        },
+                        ensure_ascii=False,
+                    )
+                )
         
         return jsonify({
             'success': True,
@@ -2166,6 +2278,21 @@ def chat_guider():
             'success': False,
             'error': f'Guider error: {str(e)}'
         }), 500
+    finally:
+        try:
+            logger.info(
+                json.dumps(
+                    {
+                        "event": "request_timing",
+                        "route": "/chat_guider",
+                        "ts": _now_iso(),
+                        "ms": int((time.time() - t0) * 1000),
+                    },
+                    ensure_ascii=False,
+                )
+            )
+        except Exception:
+            pass
 
 
 @app.route('/plans/active', methods=['GET'])
