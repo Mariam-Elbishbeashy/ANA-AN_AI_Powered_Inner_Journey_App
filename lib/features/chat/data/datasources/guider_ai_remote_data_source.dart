@@ -20,6 +20,8 @@ class GuiderAiRemoteDataSource {
   /// The Guider sees all character conversations and can create healing plans.
   Future<String> fetchGuiderResponse({
     required String uid,
+    required String sessionId,
+    required String threadId,
     required List<Map<String, dynamic>> messages,
   }) async {
     final uri = Uri.parse('$_baseUrl/chat_guider');
@@ -29,6 +31,8 @@ class GuiderAiRemoteDataSource {
           headers: {'Content-Type': 'application/json'},
           body: json.encode({
             'uid': uid,
+            'sessionId': sessionId,
+            'threadId': threadId,
             'messages': messages,
           }),
         )

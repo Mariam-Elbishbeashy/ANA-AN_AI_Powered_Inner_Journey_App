@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'package:ana_ifs_app/l10n/app_strings.dart';
 import 'package:ana_ifs_app/core/widgets/shared_widgets.dart';
-import 'package:ana_ifs_app/features/chat/presentation/screens/guider_chat_screen.dart';
+import 'package:ana_ifs_app/features/chat/presentation/screens/guider_chat_sessions_screen.dart';
 import 'package:ana_ifs_app/features/video_chat/presentation/screens/guider_video_call_screen.dart'; // Add this import
 import 'package:ana_ifs_app/features/voice_analysis/presentation/screens/voice_analysis_screen.dart';
 import 'package:ana_ifs_app/features/character/domain/entities/user_character.dart';
@@ -180,7 +180,7 @@ class ChatScreen extends StatelessWidget {
                   onChat: () {
                     Navigator.of(context).push(
                       MaterialPageRoute(
-                        builder: (_) => const GuiderChatScreen(),
+                        builder: (_) => const GuiderChatSessionsScreen(),
                       ),
                     );
                   },
