@@ -1795,3 +1795,259 @@ def debug_messages():
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+@video_bp.route('/stability', methods=['GET'])
+def get_user_stability():
+    """
+    Get user's stability status based on MULTIPLE SESSIONS
+    From "No Bad Parts" - stability is about patterns over time
+    """
+    try:
+        uid = request.args.get('uid')
+        character_id = request.args.get('characterId')
+
+        if not uid or not character_id:
+            return jsonify({
+                'success': False,
+                'error': 'uid and characterId required'
+            }), 400
+
+        # ============================================================
+        # 1. Get character plan (stabilization confidence + history)
+        # ============================================================
+        ensure_character_checklist(uid, character_id)
+        plan_ref = _character_plan_ref(uid, character_id)
+        plan_snap = plan_ref.get()
+        plan = plan_snap.to_dict() if plan_snap.exists else {}
+
+        checklist_items = plan.get('checklistItems', [])
+
+        stabilization_conf = 0.0
+        unblending_conf = 0.0
+        for item in checklist_items:
+            if item.get('id') == 'stabilization':
+                stabilization_conf = item.get('confidence', 0.0)
+            elif item.get('id') == 'unblending':
+                unblending_conf = item.get('confidence', 0.0)
+
+        # ============================================================
+        # 2. Get LAST 5 SESSIONS for pattern analysis
+        # ============================================================
+        sessions_ref = _sessions_ref(uid)
+        recent_sessions = sessions_ref.where('characterId', '==', character_id).order_by('startedAt', direction=firestore.Query.DESCENDING).limit(5).stream()
+
+        sessions_data = []
+        for s in recent_sessions:
+            s_data = s.to_dict() or {}
+            intensity_data = s_data.get('intensity', {})
+            sessions_data.append({
+                'id': s.id,
+                'startedAt': s_data.get('startedAt'),
+                'intensity_end': intensity_data.get('end', 0.5),
+                'intensity_start': intensity_data.get('start', 0.5),
+                'blend': intensity_data.get('blend', False),
+                'signals': intensity_data.get('signals', [])
+            })
+
+        # Reverse to get chronological order (oldest first)
+        sessions_data.reverse()
+
+        if not sessions_data:
+            return jsonify({
+                'success': True,
+                'stability': {'level': 'INSUFFICIENT_DATA', 'score': 0},
+                'message': 'Not enough sessions to determine stability. Complete at least 3 sessions.'
+            })
+
+        # ============================================================
+        # 3. Analyze PATTERNS across sessions (not just one)
+        # ============================================================
+
+        num_sessions = len(sessions_data)
+
+        # Check 1: All recent sessions have low intensity AND no blending
+        all_low_intensity = all(s['intensity_end'] < 0.4 for s in sessions_data[-3:])
+        all_unblended = all(not s['blend'] for s in sessions_data[-3:])
+
+        # Check 2: Intensity trend (is it decreasing or stable?)
+        if num_sessions >= 3:
+            first_intensity = sessions_data[0]['intensity_end']
+            last_intensity = sessions_data[-1]['intensity_end']
+            if last_intensity < first_intensity - 0.1:
+                intensity_trend = "DECREASING"  # Good - becoming more stable
+            elif last_intensity > first_intensity + 0.1:
+                intensity_trend = "INCREASING"  # Bad - becoming less stable
+            else:
+                intensity_trend = "STABLE"
+        else:
+            intensity_trend = "INSUFFICIENT_DATA"
+
+        # Check 3: Backlash detection (from Chapter 5 - Mona session)
+        # Backlash = intensity spikes after a low session
+        backlash_detected = False
+        for i in range(1, len(sessions_data)):
+            prev_intensity = sessions_data[i-1]['intensity_end']
+            curr_intensity = sessions_data[i]['intensity_end']
+            if prev_intensity < 0.4 and curr_intensity > 0.7:
+                backlash_detected = True
+                break
+
+        # Check 4: Consistency of stabilization (is confidence improving?)
+        # We need to check if stabilization confidence has increased over time
+        # This requires looking at historical confidence values from the plan
+        metrics = plan.get('metrics', {})
+        sessions_count = metrics.get('sessionsCount', 0)
+        last_intensity_end = metrics.get('lastIntensityEnd', 0.5)
+
+        # Check 5: Emotional volatility (from emotion_detector data if available)
+        # High volatility = unstable, low volatility = stable
+        emotional_volatility = 0.0
+        if sessions_data and len(sessions_data) >= 2:
+            intensity_changes = []
+            for i in range(1, len(sessions_data)):
+                change = abs(sessions_data[i]['intensity_end'] - sessions_data[i-1]['intensity_end'])
+                intensity_changes.append(change)
+            emotional_volatility = sum(intensity_changes) / len(intensity_changes) if intensity_changes else 0
+
+        # ============================================================
+        # 4. Determine Stability Level (based on patterns, not single session)
+        # ============================================================
+
+        # TRUE STABLE: All of these must be true
+        if (all_low_intensity and
+            all_unblended and
+            stabilization_conf > 0.6 and
+            intensity_trend != "INCREASING" and
+            not backlash_detected and
+            emotional_volatility < 0.2):
+
+            stability_level = "STABLE"
+            stability_message = "User consistently shows low intensity, no blending, and good stabilization across multiple sessions. No backlash detected."
+
+        # UNSTABLE: Any of these triggers instability
+        elif (any(s['intensity_end'] > 0.7 for s in sessions_data[-3:]) or
+              any(s['blend'] for s in sessions_data[-3:]) or
+              stabilization_conf < 0.4 or
+              intensity_trend == "INCREASING" or
+              backlash_detected or
+              emotional_volatility > 0.5):
+
+            stability_level = "UNSTABLE"
+            stability_message = "User shows signs of instability: "
+            issues = []
+            if any(s['intensity_end'] > 0.7 for s in sessions_data[-3:]):
+                issues.append("high intensity in recent sessions")
+            if any(s['blend'] for s in sessions_data[-3:]):
+                issues.append("blending with parts")
+            if stabilization_conf < 0.4:
+                issues.append("poor stabilization skills")
+            if intensity_trend == "INCREASING":
+                issues.append("intensity is increasing over time")
+            if backlash_detected:
+                issues.append("protector backlash detected")
+            if emotional_volatility > 0.5:
+                issues.append("high emotional volatility")
+            stability_message += ", ".join(issues)
+
+        else:
+            stability_level = "MODERATE"
+            stability_message = "Partial stability. Some sessions show good signs, but consistency is still developing."
+
+        # ============================================================
+        # 5. Calculate Overall Stability Score (0-100)
+        # ============================================================
+
+        # Factor 1: Recent session quality (40 points)
+        recent_count = min(3, len(sessions_data))
+        if recent_count > 0:
+            recent_sessions_quality = 0
+            for s in sessions_data[-recent_count:]:
+                session_score = 0
+                if s['intensity_end'] < 0.4:
+                    session_score += 20
+                elif s['intensity_end'] < 0.6:
+                    session_score += 10
+                if not s['blend']:
+                    session_score += 20
+                elif s['blend']:
+                    session_score += 5
+                recent_sessions_quality += session_score
+            recent_score = (recent_sessions_quality / (recent_count * 40)) * 40
+        else:
+            recent_score = 0
+
+        # Factor 2: Trend (30 points)
+        if intensity_trend == "DECREASING":
+            trend_score = 30
+        elif intensity_trend == "STABLE":
+            trend_score = 20
+        elif intensity_trend == "INCREASING":
+            trend_score = 5
+        else:
+            trend_score = 15
+
+        # Factor 3: Stabilization confidence (20 points)
+        stabilization_score = stabilization_conf * 20
+
+        # Factor 4: No backlash (10 points)
+        backlash_score = 10 if not backlash_detected else 0
+
+        overall_score = recent_score + trend_score + stabilization_score + backlash_score
+        overall_score = round(overall_score, 1)
+
+        # ============================================================
+        # 6. Generate Actionable Next Step
+        # ============================================================
+
+        if stability_level == "STABLE":
+            next_step = "User is stable. Continue maintenance: daily IFS meditation and regular check-ins with parts."
+        elif stability_level == "UNSTABLE":
+            if any(s['intensity_end'] > 0.7 for s in sessions_data[-3:]):
+                next_step = "Focus on stabilization skills first. Practice grounding and breath work before deeper exploration."
+            elif any(s['blend'] for s in sessions_data[-3:]):
+                next_step = "Practice unblending: 'A part of me feels X' instead of 'I am X'. Do the Unblending meditation daily."
+            elif backlash_detected:
+                next_step = "Protector backlash detected. Work with the protector that reacted before doing more exile work."
+            elif intensity_trend == "INCREASING":
+                next_step = "Intensity is increasing over sessions. Reduce session frequency and focus on stabilization."
+            else:
+                next_step = "Focus on building stabilization skills. Practice the 'Working with a Challenging Protector' exercise."
+        else:  # MODERATE
+            next_step = "Continue building consistency. Focus on the 'stabilization' checklist item."
+
+        return jsonify({
+            'success': True,
+            'stability': {
+                'level': stability_level,
+                'score': overall_score,
+                'message': stability_message
+            },
+            'patterns': {
+                'sessionsAnalyzed': num_sessions,
+                'allRecentLowIntensity': all_low_intensity,
+                'allRecentUnblended': all_unblended,
+                'intensityTrend': intensity_trend,
+                'backlashDetected': backlash_detected,
+                'emotionalVolatility': round(emotional_volatility, 2)
+            },
+            'indicators': {
+                'stabilizationConfidence': round(stabilization_conf, 2),
+                'unblendingConfidence': round(unblending_conf, 2),
+                'sessionsCount': sessions_count,
+                'latestIntensity': round(sessions_data[-1]['intensity_end'], 2) if sessions_data else 0,
+                'latestBlend': sessions_data[-1]['blend'] if sessions_data else False
+            },
+            'sessionHistory': [
+                {
+                    'index': i + 1,
+                    'intensity': round(s['intensity_end'], 2),
+                    'blend': s['blend']
+                }
+                for i, s in enumerate(sessions_data)
+            ],
+            'nextStepSuggestion': next_step,
+            'bookReference': 'Based on "No Bad Parts" by Richard Schwartz - Stability requires consistency across multiple sessions (Chapters 2, 3, 5, 6, 11)'
+        })
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500

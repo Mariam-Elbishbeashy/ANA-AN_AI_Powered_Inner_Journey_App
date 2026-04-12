@@ -154,14 +154,14 @@ class _GuiderVideoCallScreenState extends State<GuiderVideoCallScreen> {
         body: json.encode({
           'uid': user.uid,
           'sessionId': _sessionId,
-          'threadId': _threadId,
+          'threadId': _threadId,  // ✅ THIS IS THE ONLY CHANGE NEEDED
           'userName': widget.userName,
           'characterId': widget.characterId,
         }),
       ).timeout(const Duration(seconds: 5));
 
       if (response.statusCode == 200) {
-        print("✅ Video session started on server");
+        print("✅ Video session started on server with threadId: $_threadId");
       }
     } catch (e) {
       print("⚠️ Could not start video session: $e");

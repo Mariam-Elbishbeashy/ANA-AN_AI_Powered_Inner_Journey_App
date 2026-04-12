@@ -1,4 +1,3 @@
-
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -18,6 +17,7 @@ import 'package:ana_ifs_app/features/character/domain/entities/user_character.da
 import 'package:ana_ifs_app/features/chat/data/datasources/chat_remote_data_source.dart';
 import 'package:ana_ifs_app/features/chat/data/datasources/inner_character_local_data_source.dart';
 import 'package:ana_ifs_app/features/chat/data/models/inner_character_profile.dart';
+import 'package:ana_ifs_app/features/video_chat/data/models/guider_intervention_model.dart';
 import '../../data/repositories/video_session_repository.dart';
 import '../../domain/entities/video_session.dart';
 
@@ -36,7 +36,6 @@ class VideoCallScreen extends StatefulWidget {
 }
 
 class _VideoCallScreenState extends State<VideoCallScreen> {
-
   late final VideoSessionRepository _sessionRepository;
   VideoSession? _currentVideoSession;
   Timer? _durationTimer;
@@ -44,25 +43,28 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   String? _currentSessionId;
   String? _currentThreadId;
 
-
   bool _isMuted = false;
   bool _isVideoEnabled = true;
   late final String _characterModelPath;
   final O3DController _o3dController = O3DController();
 
+  // Guider participation
   bool _guiderActive = false;
   bool _guiderSpeaking = false;
   String _guiderMessage = "";
-  Map<String, dynamic>? _intervention;
+  GuiderInterventionModel _intervention = GuiderInterventionModel.none;
   bool _showingIntervention = false;
+
+  // Guider GIF animation
   static const String _guiderGifPath = 'assets/animations/guider.gif';
 
+  // Camera related variables
   CameraController? _cameraController;
   List<CameraDescription>? _cameras;
   bool _isCameraInitialized = false;
   bool _isCameraDisposed = false;
 
-
+  // Emotion detection variables
   String _emotionSessionId = "";
   static const String _emotionServerUrl = "http://192.168.100.7:5002";
   Timer? _emotionFrameTimer;
@@ -75,8 +77,25 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   Timer? _emotionSendTimer;
   bool _hasPendingEmotionUpdate = false;
 
+  // Emotion detection keywords for local intervention
+  final List<String> _harshEmotionKeywords = [
+    'hate', 'hate it', 'i hate', 'fucking', 'shit', 'damn',
+    'angry', 'mad', 'furious', 'rage', 'annoying', 'stressed',
+    'overwhelmed', 'too much', 'can\'t handle', 'i can\'t', 'i cant',
+    'depressed', 'hopeless', 'worthless', 'useless', 'stupid',
+    'sick of', 'tired of', 'done with', 'give up', 'giving up',
+    'scared', 'terrified', 'anxious', 'panic',
+  ];
+
+  final List<String> _crisisKeywords = [
+    'suicidal', 'suicide', 'kill myself', 'hurt myself', 'self-harm',
+    'end my life', 'don\'t want to live', 'better off dead',
+  ];
+
+  // Voice & agent variables
   final FlutterSoundRecorder _recorder = FlutterSoundRecorder();
   final FlutterTts _tts = FlutterTts();
+
   final _chatRemoteDataSource = ChatRemoteDataSource();
   final _localDataSource = InnerCharacterLocalDataSource();
 
@@ -86,6 +105,10 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   bool _isRecording = false;
   bool _isBusy = false;
   bool _isSpeaking = false;
+
+  // Store current TTS settings
+  double _currentSpeechRate = 0.5;
+  double _currentPitch = 1.0;
 
   late String _characterIdForBackend;
   String _detectedLanguage = 'en';
@@ -117,17 +140,18 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   double _currentDbLevel = -100.0;
   bool _stopping = false;
 
+  // Backend endpoints - CORRECT for agents.py (port 5001)
   static const String _agentServerUrl = "http://192.168.100.7:5001";
   static const String _videoServerUrl = "http://192.168.100.7:5003";
   static const String _guiderUpdateEmotionsEndpoint = "/guider/update_emotions";
-  static const String _chatEndpoint = "/chat";
-  static const String _chatGuidedEndpoint = "/chat_guided";
-  static const String _checkInterventionEndpoint = "/check_intervention";
+  static const String _chatEndpoint = "/chat";                    // ← CHANGE: remove /video/
+  static const String _chatGuidedEndpoint = "/chat_guided";       // ← CHANGE: remove /video/
   static const String _transcribeEndpoint = "/video/transcribe";
   static const String _sessionSummaryEndpoint = "/video/session_summary";
   static const String _endSessionEndpoint = "/video/end_session";
-
-
+  // ==========================
+  // LOCALIZATION HELPERS
+  // ==========================
   String _getStatusText() {
     if (_detectedLanguage == 'ar') {
       switch (_status) {
@@ -156,18 +180,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         default: return _status;
       }
     }
-  }
-
-  String _getMicButtonText() {
-    return _detectedLanguage == 'ar' ? "كتم" : "Mute";
-  }
-
-  String _getVideoButtonText() {
-    return _detectedLanguage == 'ar' ? "الكاميرا" : "Camera";
-  }
-
-  String _getEndCallText() {
-    return _detectedLanguage == 'ar' ? "إنهاء" : "End";
   }
 
   String _getGuiderActiveText() {
@@ -354,6 +366,9 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     );
   }
 
+  // ==========================
+  // EMOTION DETECTION & INTERVENTION (FROM OLD CODE)
+  // ==========================
   Future<void> _initializeEmotionSession() async {
     try {
       final response = await http.post(
@@ -523,8 +538,149 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     }
   }
 
+  // ==========================
+  // LOCAL EMOTION DETECTION & INTERVENTION (FROM OLD CODE)
+  // ==========================
+  void _checkEmotionAndIntervene(String transcript) {
+    if (_guiderActive || _showingIntervention) return;
 
+    final lowerText = transcript.toLowerCase();
 
+    // Check for crisis keywords
+    for (final keyword in _crisisKeywords) {
+      if (lowerText.contains(keyword)) {
+        _showGuiderInvitation('crisis', 'high',
+            "I notice you're expressing very difficult feelings. Would you like The Guider to join and help you through this?");
+        return;
+      }
+    }
+
+    // Count harsh emotion keywords
+    int harshCount = 0;
+    for (final keyword in _harshEmotionKeywords) {
+      if (lowerText.contains(keyword)) {
+        harshCount++;
+      }
+    }
+
+    // Trigger based on intensity
+    if (harshCount >= 3) {
+      _showGuiderInvitation('high_emotion', 'high',
+          "I can hear you're going through something intense. Would you like The Guider to join and provide support?");
+    } else if (harshCount >= 2) {
+      _showGuiderInvitation('emotional', 'medium',
+          "It sounds like you're feeling strong emotions. The Guider is here if you'd like someone to talk to.");
+    } else if (harshCount >= 1) {
+      _showGuiderInvitation('mild_emotion', 'low',
+          "I'm here for you. Would you like The Guider to join our conversation?");
+    }
+  }
+
+  void _showGuiderInvitation(String reason, String severity, String message) {
+    if (_showingIntervention || _guiderActive) return;
+
+    setState(() {
+      _intervention = GuiderInterventionModel(
+        shouldIntervene: true,
+        reason: reason,
+        severity: severity,
+        guiderMessage: message,
+      );
+      _showingIntervention = true;
+      _status = "INVITING_GUIDER";
+      _stopAll();
+    });
+  }
+
+  Future<void> _handleGuiderInvitation(bool accept) async {
+    if (!mounted) return;
+
+    setState(() {
+      _showingIntervention = false;
+    });
+
+    if (accept) {
+      setState(() {
+        _guiderActive = true;
+        _status = "GUIDED";
+        _intervention = GuiderInterventionModel.none;
+      });
+
+      if (_currentSessionId != null) {
+        final user = FirebaseAuth.instance.currentUser;
+        if (user != null) {
+          await _sessionRepository.setGuiderJoined(
+            uid: user.uid,
+            sessionId: _currentSessionId!,
+            guiderJoined: true,
+          );
+        }
+      }
+
+      final message = _getGuiderWelcomeMessage();
+      await _speakText(message, isGuider: true);
+      _guiderMessage = _getGuiderSupportMessage();
+
+      await Future.delayed(const Duration(milliseconds: 500));
+      _startVoiceLoop();
+    } else {
+      setState(() {
+        _status = "LIVE";
+        _intervention = GuiderInterventionModel.none;
+      });
+      _startVoiceLoop();
+    }
+  }
+
+  Future<void> _toggleGuider() async {
+    if (_guiderActive) {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(_getEndGuiderTitle()),
+          content: Text(_getEndGuiderContent()),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text(_getCancelText()),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: Text(_getEndText()),
+            ),
+          ],
+        ),
+      );
+
+      if (confirm == true && mounted) {
+        setState(() {
+          _guiderActive = false;
+          _guiderMessage = "";
+          _status = "LIVE";
+        });
+
+        if (_currentSessionId != null) {
+          final user = FirebaseAuth.instance.currentUser;
+          if (user != null) {
+            await _sessionRepository.setGuiderJoined(
+              uid: user.uid,
+              sessionId: _currentSessionId!,
+              guiderJoined: false,
+            );
+          }
+        }
+
+        final message = _getGuiderExitMessage();
+        await _speakText(message, isGuider: true);
+      }
+    } else {
+      _showGuiderInvitation('manual', 'low', _getManualInterventionMessage());
+    }
+  }
+
+  // ==========================
+  // LANGUAGE DETECTION
+  // ==========================
   String _detectLanguageFromText(String text) {
     if (text.isEmpty) return _detectedLanguage;
 
@@ -572,13 +728,69 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     }
   }
 
+  // ==========================
+  // CHARACTER-SPECIFIC VOICE SETTINGS (FROM OLD CODE)
+  // ==========================
+  Map<String, dynamic> _getCharacterVoiceSettings(String characterName) {
+    final Map<String, dynamic> settings = {
+      'rate': 0.45,
+      'pitch': 1.0,
+      'volume': 1.0,
+    };
 
+    final List<String> maleCharacters = [
+      'Dependent Part', 'Lonely Part', 'Excessive Gamer', 'Inner Critic',
+      'Workaholic', 'Controller', 'Controller Part',
+    ];
 
+    final List<String> femaleCharacters = [
+      'Jealous Part', 'Neglected Part', 'Stoic Part', 'Overeater',
+      'Binger', 'Overeater/Binger', 'Wounded Child', 'People Pleaser',
+      'Ashamed Part', 'Fearful Part', 'Overwhelmed Part', 'Perfectionist',
+      'Procrastinator', 'Confused Part',
+    ];
+
+    if (maleCharacters.contains(characterName)) {
+      settings['pitch'] = 0.85;
+      settings['rate'] = 0.48;
+    } else if (femaleCharacters.contains(characterName)) {
+      settings['pitch'] = 1.25;
+      settings['rate'] = 0.52;
+    }
+
+    switch (characterName) {
+      case 'Inner Critic':
+        settings['rate'] = 0.50;
+        settings['pitch'] = 0.75;
+        settings['volume'] = 1.1;
+        break;
+      case 'Wounded Child':
+        settings['rate'] = 0.32;
+        settings['pitch'] = 1.65;
+        settings['volume'] = 0.55;
+        break;
+      case 'Workaholic':
+        settings['rate'] = 0.65;
+        settings['pitch'] = 0.88;
+        settings['volume'] = 0.95;
+        break;
+      case 'People Pleaser':
+        settings['rate'] = 0.58;
+        settings['pitch'] = 1.35;
+        settings['volume'] = 1.0;
+        break;
+    }
+
+    return settings;
+  }
+
+  // ==========================
+  // AGENT METHODS
+  // ==========================
   Future<Map<String, dynamic>> _sendToAgent({
     required String uid,
     required String transcript,
     required List<Map<String, String>> conversationHistory,
-    required bool checkIntervention,
   }) async {
     final uri = Uri.parse("$_agentServerUrl$_chatEndpoint");
 
@@ -609,7 +821,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       'messages': messages,
       'sessionId': _currentSessionId,
       'threadId': _currentThreadId,
-      'checkIntervention': checkIntervention,
+      'checkIntervention': false, // We handle emotion detection locally
       'language': _detectedLanguage,
     };
 
@@ -694,171 +906,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     throw Exception("HTTP ${response.statusCode}");
   }
 
-
-  Future<Map<String, dynamic>?> _checkGuiderIntervention(
-      String uid,
-      String characterId,
-      List<Map<String, String>> messages,
-      ) async {
-    try {
-      final uri = Uri.parse("$_agentServerUrl$_checkInterventionEndpoint");
-      final requestBody = {
-        'uid': uid,
-        'characterId': characterId,
-        'messages': messages.map((m) => {
-          'role': m['role'],
-          'content': m['content'],
-        }).toList(),
-        'language': _detectedLanguage,   };
-
-      final response = await http.post(
-        uri,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(requestBody),
-      ).timeout(const Duration(seconds: 10));
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data['shouldIntervene'] == true) {
-          return {
-            'shouldIntervene': true,
-            'reason': data['reason'],
-            'severity': data['severity'],
-            'guiderMessage': data['guiderMessage'],
-          };
-        }
-      }
-      return null;
-    } catch (e) {
-      print("❌ Intervention check error: $e");
-      return null;
-    }
-  }
-
-  Future<void> _checkAndShowIntervention(String userMessage) async {
-    if (_guiderActive || _showingIntervention) return;
-
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-
-    final checkMessages = [
-      ..._conversationHistory,
-      {'role': 'user', 'content': userMessage},
-    ];
-
-    final intervention = await _checkGuiderIntervention(
-      user.uid,
-      _characterIdForBackend,
-      checkMessages,
-    );
-
-    if (intervention != null && mounted) {
-      setState(() {
-        _intervention = intervention;
-        _showingIntervention = true;
-        _status = "INVITING_GUIDER";
-      });
-      _stopAll();
-    }
-  }
-
-  Future<void> _handleGuiderInvitation(bool accept) async {
-    if (!mounted) return;
-
-    setState(() {
-      _showingIntervention = false;
-    });
-
-    if (accept) {
-      setState(() {
-        _guiderActive = true;
-        _status = "GUIDED";
-        _intervention = null;
-      });
-
-      if (_currentSessionId != null) {
-        final user = FirebaseAuth.instance.currentUser;
-        if (user != null) {
-          await _sessionRepository.setGuiderJoined(
-            uid: user.uid,
-            sessionId: _currentSessionId!,
-            guiderJoined: true,
-          );
-        }
-      }
-
-      final message = _getGuiderWelcomeMessage();
-      await _speakText(message, isGuider: true);
-      _guiderMessage = _getGuiderSupportMessage();
-
-      await Future.delayed(const Duration(milliseconds: 500));
-      _startVoiceLoop();
-    } else {
-      setState(() {
-        _status = "LIVE";
-        _intervention = null;
-      });
-      _startVoiceLoop();
-    }
-  }
-
-  Future<void> _toggleGuider() async {
-    if (_guiderActive) {
-      final confirm = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text(_getEndGuiderTitle()),
-          content: Text(_getEndGuiderContent()),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: Text(_getCancelText()),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: Text(_getEndText()),
-            ),
-          ],
-        ),
-      );
-
-      if (confirm == true && mounted) {
-        setState(() {
-          _guiderActive = false;
-          _guiderMessage = "";
-          _status = "LIVE";
-        });
-
-        if (_currentSessionId != null) {
-          final user = FirebaseAuth.instance.currentUser;
-          if (user != null) {
-            await _sessionRepository.setGuiderJoined(
-              uid: user.uid,
-              sessionId: _currentSessionId!,
-              guiderJoined: false,
-            );
-          }
-        }
-
-        final message = _getGuiderExitMessage();
-        await _speakText(message, isGuider: true);
-      }
-    } else {
-      setState(() {
-        _intervention = {
-          'shouldIntervene': true,
-          'reason': 'manual',
-          'severity': 'low',
-          'guiderMessage': _getManualInterventionMessage(),
-        };
-        _showingIntervention = true;
-        _status = "INVITING_GUIDER";
-      });
-      _stopAll();
-    }
-  }
-
-
   Future<void> _processUserMessage(String transcript) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) throw Exception("User not logged in");
@@ -882,14 +929,16 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
 
     await _saveMessage('user', transcript, sender: 'user');
 
+    // Check emotion and trigger intervention if needed (FROM OLD CODE)
     if (!_guiderActive && !_showingIntervention) {
-      await _checkAndShowIntervention(transcript);
+      _checkEmotionAndIntervene(transcript);
       if (_showingIntervention) {
         setState(() => _isBusy = false);
         return;
       }
     }
 
+    // Send to appropriate endpoint
     Map<String, dynamic> response;
     if (_guiderActive) {
       response = await _sendToGuidedAgent(
@@ -902,24 +951,10 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         uid: user.uid,
         transcript: transcript,
         conversationHistory: _conversationHistory,
-        checkIntervention: true,
       );
     }
 
     if (response['success'] == true) {
-      if (!_guiderActive && response['intervention'] != null) {
-        final intervention = response['intervention'];
-        if (intervention['shouldIntervene'] == true && mounted) {
-          setState(() {
-            _intervention = intervention;
-            _showingIntervention = true;
-            _status = "INVITING_GUIDER";
-            _isBusy = false;
-          });
-          return;
-        }
-      }
-
       String characterMessage = '';
       String guiderMessage = '';
 
@@ -969,7 +1004,9 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     }
   }
 
-
+  // ==========================
+  // AUDIO & VOICE METHODS
+  // ==========================
   Future<void> _initAudio() async {
     try {
       print("🎤 Initializing audio...");
@@ -1215,12 +1252,23 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     _stopping = false;
   }
 
-
+  // ==========================
+  // TTS METHODS (FROM OLD CODE)
+  // ==========================
   Future<void> _initTts() async {
     try {
+      final settings = _getCharacterVoiceSettings(widget.character.characterName);
+      _currentSpeechRate = settings['rate'];
+      _currentPitch = settings['pitch'];
+
       await _tts.setLanguage("en-US");
-      await _tts.setSpeechRate(0.5);
-      await _tts.setPitch(1.0);
+      await _tts.setSpeechRate(_currentSpeechRate);
+      await _tts.setPitch(_currentPitch);
+      try {
+        await _tts.setVolume(settings['volume']);
+      } catch (e) {
+        print("Volume control not supported");
+      }
 
       _tts.setCompletionHandler(() {
         setState(() {
@@ -1255,6 +1303,25 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   Future<void> _speakText(String text, {bool isGuider = false}) async {
     if (text.isEmpty) return;
 
+    // Save current settings
+    final previousRate = _currentSpeechRate;
+    final previousPitch = _currentPitch;
+
+    if (isGuider) {
+      // Guider voice settings
+      _currentSpeechRate = 0.52;
+      _currentPitch = 1.2;
+      await _tts.setSpeechRate(_currentSpeechRate);
+      await _tts.setPitch(_currentPitch);
+    } else {
+      // Character voice settings
+      final settings = _getCharacterVoiceSettings(widget.character.characterName);
+      _currentSpeechRate = settings['rate'];
+      _currentPitch = settings['pitch'];
+      await _tts.setSpeechRate(_currentSpeechRate);
+      await _tts.setPitch(_currentPitch);
+    }
+
     try {
       setState(() {
         if (isGuider) {
@@ -1284,6 +1351,12 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         _guiderSpeaking = false;
         _error = "TTS error: $e";
       });
+    } finally {
+      // Restore previous settings
+      _currentSpeechRate = previousRate;
+      _currentPitch = previousPitch;
+      await _tts.setSpeechRate(previousRate);
+      await _tts.setPitch(previousPitch);
     }
   }
 
@@ -1314,7 +1387,9 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     });
   }
 
-
+  // ==========================
+  // CAMERA METHODS
+  // ==========================
   Future<void> _initializeCamera() async {
     try {
       _cameras = await availableCameras();
@@ -1360,7 +1435,9 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     _isCameraInitialized = false;
   }
 
-
+  // ==========================
+  // CHARACTER METHODS
+  // ==========================
   Future<void> _loadCharacterProfile() async {
     try {
       final profile = await _localDataSource.findCharacterByName(
@@ -1452,6 +1529,9 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     }
   }
 
+  // ==========================
+  // UI ACTION METHODS
+  // ==========================
   void _toggleMute() {
     setState(() {
       _isMuted = !_isMuted;
@@ -1538,6 +1618,224 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     }
   }
 
+  // ==========================
+  // UI BUILDERS (FROM OLD CODE)
+  // ==========================
+  Widget _buildTopBar() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+            child: IconButton(icon: const Icon(Icons.arrow_back), onPressed: _endCall),
+          ),
+          Row(
+            children: [
+              GestureDetector(
+                onTap: _toggleGuider,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: _guiderActive ? const Color(0xFFB79CFF).withOpacity(0.2) : Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: _guiderActive ? const Color(0xFFB79CFF) : Colors.grey.withOpacity(0.3)),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 24,
+                        height: 24,
+                        child: ClipOval(
+                          child: Image.asset(_guiderGifPath, fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => Icon(Icons.assistant_navigation, size: 18, color: _guiderActive ? const Color(0xFFB79CFF) : Colors.grey)),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        _guiderActive ? _getGuiderActiveText() : _getInviteGuiderText(),
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: _guiderActive ? const Color(0xFFB79CFF) : const Color(0xFF4B3A66)),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
+                child: Row(
+                  children: [
+                    CircleAvatar(radius: 4,
+                        backgroundColor: _isRecording ? Colors.green : _isBusy ? Colors.orange : _isSpeaking ? Colors.purple : _guiderSpeaking ? const Color(0xFFB79CFF) : Colors.red),
+                    const SizedBox(width: 6),
+                    Text(_getStatusText(), style: const TextStyle(color: Colors.purple, fontWeight: FontWeight.bold, fontSize: 16)),
+                  ],
+                ),
+              )
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGuiderIndicator() {
+    if (!_guiderActive) return const SizedBox.shrink();
+    final screenWidth = MediaQuery.of(context).size.width;
+    return Positioned(
+      top: 80,
+      left: 16,
+      child: GestureDetector(
+        onTap: _toggleGuider,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.95),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: const Color(0xFFB79CFF), width: 2),
+            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 8)],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(shape: BoxShape.circle, boxShadow: [BoxShadow(color: const Color(0xFFB79CFF).withOpacity(0.5), blurRadius: 8)]),
+                child: ClipOval(
+                  child: Image.asset(_guiderGifPath, fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => Container(
+                        decoration: const BoxDecoration(gradient: LinearGradient(colors: [Color(0xFFB79CFF), Color(0xFF9B7BFF)]), shape: BoxShape.circle),
+                        child: const Icon(Icons.assistant_navigation, color: Colors.white, size: 18),
+                      )),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(_getGuiderName(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF2A1E3B))),
+                  if (_guiderMessage.isNotEmpty)
+                    Container(
+                      constraints: BoxConstraints(maxWidth: screenWidth * 0.5),
+                      child: Text(_guiderMessage,
+                          style: TextStyle(fontSize: 10, color: _guiderSpeaking ? const Color(0xFFB79CFF) : const Color(0xFF4B3A66), fontStyle: FontStyle.italic),
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                    ),
+                ],
+              ),
+              const SizedBox(width: 4),
+              if (_guiderSpeaking) Container(width: 8, height: 8, decoration: const BoxDecoration(shape: BoxShape.circle, color: Color(0xFFB79CFF))),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInterventionOverlay() {
+    if (!_showingIntervention) return const SizedBox.shrink();
+    final screenWidth = MediaQuery.of(context).size.width;
+    final guiderMessage = _intervention.guiderMessage ?? '';
+    return Positioned.fill(
+      child: Container(
+        color: Colors.black.withOpacity(0.85),
+        child: Center(
+          child: Container(
+            width: screenWidth * 0.85,
+            margin: const EdgeInsets.symmetric(horizontal: 20),
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(28), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 20, offset: const Offset(0, 10))]),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(shape: BoxShape.circle, boxShadow: [BoxShadow(color: const Color(0xFFB79CFF).withOpacity(0.6), blurRadius: 20)]),
+                  child: ClipOval(
+                    child: Image.asset(_guiderGifPath, fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Container(
+                          decoration: const BoxDecoration(gradient: LinearGradient(colors: [Color(0xFFB79CFF), Color(0xFF9B7BFF)]), shape: BoxShape.circle),
+                          child: const Icon(Icons.assistant_navigation, color: Colors.white, size: 40),
+                        )),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Text(_getGuiderName(), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF2A1E3B))),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(color: const Color(0xFFF5F0FF), borderRadius: BorderRadius.circular(20)),
+                  child: Text(guiderMessage, textAlign: TextAlign.center, style: const TextStyle(fontSize: 16, color: Color(0xFF4B3A66), height: 1.5)),
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => _handleGuiderInvitation(false),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFF6A5CFF),
+                          side: const BorderSide(color: Color(0xFFB79CFF), width: 1.5),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        ),
+                        child: Text(_getContinueAloneText(), style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () => _handleGuiderInvitation(true),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFB79CFF),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          elevation: 4,
+                        ),
+                        child: Text(_getInviteGuiderButtonText(), style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Text(_getGuiderSupportText(), style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _circleButton(IconData icon, {bool isActive = true, bool isEndCall = false}) {
+    if (isEndCall) {
+      return Container(
+        width: 70, height: 70,
+        decoration: BoxDecoration(shape: BoxShape.circle, gradient: const LinearGradient(colors: [Color(0xFF7B61FF), Color(0xFF9C8CFF)]), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 8)]),
+        child: Icon(icon, color: Colors.white, size: 30),
+      );
+    }
+    if (!isActive) {
+      return Container(
+        width: 70, height: 70,
+        decoration: BoxDecoration(shape: BoxShape.circle, color: const Color(0xFF4A2B7A), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 8)]),
+        child: Icon(icon, color: Colors.white, size: 30),
+      );
+    }
+    return Container(
+      width: 70, height: 70,
+      decoration: BoxDecoration(shape: BoxShape.circle, gradient: const LinearGradient(colors: [Color(0xFF7B61FF), Color(0xFF9C8CFF)]), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 8)]),
+      child: Icon(icon, color: Colors.white, size: 30),
+    );
+  }
 
   @override
   void dispose() {
@@ -1565,7 +1863,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   Widget build(BuildContext context) {
     final screenHeight = MediaQuery.of(context).size.height;
     final screenWidth = MediaQuery.of(context).size.width;
-    final isArabic = _detectedLanguage == 'ar';
 
     return Scaffold(
       body: Stack(
@@ -1749,7 +2046,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(
-                              widget.character.getDisplayName(isArabic ? 'ar' : 'en'),
+                              widget.character.getDisplayName(_detectedLanguage == 'ar' ? 'ar' : 'en'),
                               style: const TextStyle(
                                 fontSize: 26,
                                 fontWeight: FontWeight.bold,
@@ -1835,225 +2132,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
           _buildInterventionOverlay(),
         ],
       ),
-    );
-  }
-
-  Widget _buildTopBar() {
-    final isArabic = _detectedLanguage == 'ar';
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
-            child: IconButton(icon: const Icon(Icons.arrow_back), onPressed: _endCall),
-          ),
-          Row(
-            children: [
-              GestureDetector(
-                onTap: _toggleGuider,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: _guiderActive ? const Color(0xFFB79CFF).withOpacity(0.2) : Colors.white,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: _guiderActive ? const Color(0xFFB79CFF) : Colors.grey.withOpacity(0.3)),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 24,
-                        height: 24,
-                        child: ClipOval(
-                          child: Image.asset(_guiderGifPath, fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => Icon(Icons.assistant_navigation, size: 18, color: _guiderActive ? const Color(0xFFB79CFF) : Colors.grey)),
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        _guiderActive ? _getGuiderActiveText() : _getInviteGuiderText(),
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: _guiderActive ? const Color(0xFFB79CFF) : const Color(0xFF4B3A66)),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
-                child: Row(
-                  children: [
-                    CircleAvatar(radius: 4,
-                        backgroundColor: _isRecording ? Colors.green : _isBusy ? Colors.orange : _isSpeaking ? Colors.purple : _guiderSpeaking ? const Color(0xFFB79CFF) : Colors.red),
-                    const SizedBox(width: 6),
-                    Text(_getStatusText(), style: const TextStyle(color: Colors.purple, fontWeight: FontWeight.bold, fontSize: 16)),
-                  ],
-                ),
-              )
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildGuiderIndicator() {
-    if (!_guiderActive) return const SizedBox.shrink();
-    final screenWidth = MediaQuery.of(context).size.width;
-    final isArabic = _detectedLanguage == 'ar';
-    return Positioned(
-      top: 80,
-      left: 16,
-      child: GestureDetector(
-        onTap: _toggleGuider,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.95),
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: const Color(0xFFB79CFF), width: 2),
-            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 8)],
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 32,
-                height: 32,
-                decoration: BoxDecoration(shape: BoxShape.circle, boxShadow: [BoxShadow(color: const Color(0xFFB79CFF).withOpacity(0.5), blurRadius: 8)]),
-                child: ClipOval(
-                  child: Image.asset(_guiderGifPath, fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => Container(
-                        decoration: const BoxDecoration(gradient: LinearGradient(colors: [Color(0xFFB79CFF), Color(0xFF9B7BFF)]), shape: BoxShape.circle),
-                        child: const Icon(Icons.assistant_navigation, color: Colors.white, size: 18),
-                      )),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(_getGuiderName(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF2A1E3B))),
-                  if (_guiderMessage.isNotEmpty)
-                    Container(
-                      constraints: BoxConstraints(maxWidth: screenWidth * 0.5),
-                      child: Text(_guiderMessage,
-                          style: TextStyle(fontSize: 10, color: _guiderSpeaking ? const Color(0xFFB79CFF) : const Color(0xFF4B3A66), fontStyle: FontStyle.italic),
-                          maxLines: 1, overflow: TextOverflow.ellipsis),
-                    ),
-                ],
-              ),
-              const SizedBox(width: 4),
-              if (_guiderSpeaking) Container(width: 8, height: 8, decoration: const BoxDecoration(shape: BoxShape.circle, color: Color(0xFFB79CFF))),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildInterventionOverlay() {
-    if (!_showingIntervention || _intervention == null) return const SizedBox.shrink();
-    final isArabic = _detectedLanguage == 'ar';
-    final screenWidth = MediaQuery.of(context).size.width;
-    final guiderMessage = _intervention!['guiderMessage'] ?? '';
-    return Positioned.fill(
-      child: Container(
-        color: Colors.black.withOpacity(0.85),
-        child: Center(
-          child: Container(
-            width: screenWidth * 0.85,
-            margin: const EdgeInsets.symmetric(horizontal: 20),
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(28), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 20, offset: const Offset(0, 10))]),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 80,
-                  height: 80,
-                  decoration: BoxDecoration(shape: BoxShape.circle, boxShadow: [BoxShadow(color: const Color(0xFFB79CFF).withOpacity(0.6), blurRadius: 20)]),
-                  child: ClipOval(
-                    child: Image.asset(_guiderGifPath, fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => Container(
-                          decoration: const BoxDecoration(gradient: LinearGradient(colors: [Color(0xFFB79CFF), Color(0xFF9B7BFF)]), shape: BoxShape.circle),
-                          child: const Icon(Icons.assistant_navigation, color: Colors.white, size: 40),
-                        )),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                Text(_getGuiderName(), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF2A1E3B))),
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(color: const Color(0xFFF5F0FF), borderRadius: BorderRadius.circular(20)),
-                  child: Text(guiderMessage, textAlign: TextAlign.center, style: const TextStyle(fontSize: 16, color: Color(0xFF4B3A66), height: 1.5)),
-                ),
-                const SizedBox(height: 24),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => _handleGuiderInvitation(false),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: const Color(0xFF6A5CFF),
-                          side: const BorderSide(color: Color(0xFFB79CFF), width: 1.5),
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                        ),
-                        child: Text(_getContinueAloneText(), style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () => _handleGuiderInvitation(true),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFB79CFF),
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                          elevation: 4,
-                        ),
-                        child: Text(_getInviteGuiderButtonText(), style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Text(_getGuiderSupportText(), style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _circleButton(IconData icon, {bool isActive = true, bool isEndCall = false}) {
-    if (isEndCall) {
-      return Container(
-        width: 70, height: 70,
-        decoration: BoxDecoration(shape: BoxShape.circle, gradient: const LinearGradient(colors: [Color(0xFF7B61FF), Color(0xFF9C8CFF)]), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 8)]),
-        child: Icon(icon, color: Colors.white, size: 30),
-      );
-    }
-    if (!isActive) {
-      return Container(
-        width: 70, height: 70,
-        decoration: BoxDecoration(shape: BoxShape.circle, color: const Color(0xFF4A2B7A), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 8)]),
-        child: Icon(icon, color: Colors.white, size: 30),
-      );
-    }
-    return Container(
-      width: 70, height: 70,
-      decoration: BoxDecoration(shape: BoxShape.circle, gradient: const LinearGradient(colors: [Color(0xFF7B61FF), Color(0xFF9C8CFF)]), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 8)]),
-      child: Icon(icon, color: Colors.white, size: 30),
     );
   }
 }

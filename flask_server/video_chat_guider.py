@@ -1439,7 +1439,103 @@ def health():
         ]
     })
 
+# Add this new endpoint to video_chat_guider.py
 
+@guider_video_bp.route('/migrate_sessions', methods=['POST'])
+def migrate_sessions():
+    """Migrate old sessions to have proper characterType field."""
+    try:
+        data = request.json or {}
+        uid = data.get('uid')
+
+        if not uid:
+            return jsonify({'success': False, 'error': 'uid required'}), 400
+
+        sessions_ref = db.collection('users').document(uid).collection('sessions')
+        sessions = sessions_ref.where('type', '==', 'video').stream()
+
+        updated_count = 0
+        for session in sessions:
+            session_data = session.to_dict() or {}
+            if session_data.get('characterType') != 'guider':
+                # Update old sessions to have guider characterType
+                session.reference.update({
+                    'characterType': 'guider',
+                    'updatedAt': firestore.SERVER_TIMESTAMP
+                })
+                updated_count += 1
+                logger.info(json.dumps({
+                    "event": "session_migrated",
+                    "session_id": session.id,
+                    "uid": uid
+                }, ensure_ascii=False))
+
+        return jsonify({
+            'success': True,
+            'updated_count': updated_count,
+            'message': f'Migrated {updated_count} sessions'
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# Also update _ensure_session_doc to always set characterType
+def _ensure_session_doc(uid: str, session_id: str, character_id: str = 'guider') -> None:
+    """Ensure session document exists with proper fields."""
+    try:
+        sref = _session_ref(uid, session_id)
+        snap = sref.get()
+        if not snap.exists:
+            sref.set({
+                "id": session_id,
+                "characterId": character_id,
+                "characterType": "guider",  # Always set this
+                "status": "active",
+                "type": "video",
+                "title": "Video call with The Guider",
+                "startedAt": firestore.SERVER_TIMESTAMP,
+                "updatedAt": firestore.SERVER_TIMESTAMP,
+                "userTurnCount": 0,
+                "intensity": {},
+                "sessionSummary": {},
+                "periodic": {},
+                "faceEmotion": {
+                    "dominant": None,
+                    "averageConfidence": 0.0,
+                    "startEmotion": None,
+                    "startConfidence": 0.0,
+                    "endEmotion": None,
+                    "endConfidence": 0.0,
+                    "allDetections": []
+                },
+                "voiceTone": {
+                    "dominant": None,
+                    "averageConfidence": 0.0,
+                    "startEmotion": None,
+                    "startConfidence": 0.0,
+                    "endEmotion": None,
+                    "endConfidence": 0.0,
+                    "allDetections": []
+                }
+            }, merge=True)
+            logger.info(json.dumps({
+                "event": "session_created",
+                "ts": _now_iso(),
+                "uid": uid,
+                "sessionId": session_id
+            }, ensure_ascii=False))
+        else:
+            # Also update existing sessions that might be missing these fields
+            sref.set({
+                "characterType": "guider",
+                "type": "video",
+            }, merge=True)
+    except Exception as e:
+        logger.info(json.dumps({
+            "event": "session_creation_failed",
+            "ts": _now_iso(),
+            "error": str(e)
+        }, ensure_ascii=False))
 # For direct execution
 if __name__ == '__main__':
     app = Flask(__name__)
