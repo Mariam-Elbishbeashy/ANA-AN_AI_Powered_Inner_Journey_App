@@ -8,7 +8,7 @@ import 'package:ana_ifs_app/features/chat/presentation/screens/guider_chat_scree
 import 'package:ana_ifs_app/features/video_chat/presentation/screens/guider_video_call_screen.dart'; // Add this import
 import 'package:ana_ifs_app/features/voice_analysis/presentation/screens/voice_analysis_screen.dart';
 import 'package:ana_ifs_app/features/character/domain/entities/user_character.dart';
-
+import 'package:ana_ifs_app/features/voice_analysis/presentation/screens/voice_sessions_screen.dart';
 class ChatScreen extends StatelessWidget {
   final String name;
   final VoidCallback onLogout;
@@ -187,7 +187,7 @@ class ChatScreen extends StatelessWidget {
                   onVoice: () {
                     Navigator.of(context).push(
                       MaterialPageRoute(
-                        builder: (_) => VoiceAnalysisScreen(
+                        builder: (_) => VoiceSessionsScreen(
                           character: character,
                         ),
                       ),
