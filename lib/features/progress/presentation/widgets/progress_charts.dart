@@ -36,35 +36,9 @@ class ProgressCharts extends StatelessWidget {
           children: [
             _buildIntensitySection(context),
             const SizedBox(height: 20),
-            _buildChartCard(
-              context,
-              title: tr(context, 'Emotion Distribution', 'توزيع المشاعر'),
-              subtitle: tr(context, 'How your emotions are balanced', 'كيف تتوازن مشاعرك'),
-              icon: Icons.pie_chart_rounded,
-              iconColor: const Color(0xFFFF6B6B),
-              chart: _buildEmotionDistributionChart(context, provider),
-              insight: _getEmotionInsight(context, provider),
-            ),
+            _buildVideoEmotionSection(context),
             const SizedBox(height: 20),
-            _buildChartCard(
-              context,
-              title: tr(context, 'Character Interaction', 'تفاعل الشخصيات'),
-              subtitle: tr(context, 'Which inner parts appear most', 'أي الأجزاء الداخلية تظهر أكثر'),
-              icon: Icons.people_rounded,
-              iconColor: const Color(0xFF2196F3),
-              chart: _buildCharacterInteractionChart(context, provider),
-              insight: _getCharacterInsight(context, provider),
-            ),
-            const SizedBox(height: 20),
-            _buildChartCard(
-              context,
-              title: tr(context, 'Healing Progress', 'تقدم الشفاء'),
-              subtitle: tr(context, 'Your growth in the healing journey', 'نموك في رحلة الشفاء'),
-              icon: Icons.healing_rounded,
-              iconColor: const Color(0xFF4CAF50),
-              chart: _buildHealingProgressChart(context, provider),
-              insight: _getHealingInsight(context, provider),
-            ),
+            _buildVideoToneSection(context),
           ],
         );
       },
@@ -73,11 +47,11 @@ class ProgressCharts extends StatelessWidget {
 
   Widget _buildIntensitySection(BuildContext context) {
     return _ChartSectionShell(
-      title: tr(context, 'Chat Session Intensity', 'شدة جلسات الدردشة'),
+      title: tr(context, 'Session Intensity', 'شدة جلسات '),
       subtitle: tr(
         context,
-        'Track how each chat session starts and ends over time',
-        'تابعي كيف تبدأ وتنتهي شدة كل جلسة دردشة مع الوقت',
+        'Track how each session starts and ends over time',
+        'تابعي كيف تبدأ وتنتهي شدة كل جلسة مع الوقت',
       ),
       child: _buildIntensityOverviewCard(context),
     );
@@ -111,6 +85,156 @@ class ProgressCharts extends StatelessWidget {
       },
     );
   }
+
+
+
+  Widget _buildVideoEmotionSection(BuildContext context) {
+    return _ChartSectionShell(
+      title: tr(context, 'Video Call Emotions', 'مشاعر مكالمات الفيديو'),
+      subtitle: tr(
+        context,
+        'Track how session emotions move from one feeling to another',
+        'تابعي كيف تنتقل مشاعر الجلسات من شعور إلى آخر',
+      ),
+      child: _buildVideoFlowOverviewCard(
+        context,
+        type: _VideoFlowCardType.emotion,
+      ),
+    );
+  }
+
+  Widget _buildVideoToneSection(BuildContext context) {
+    return _ChartSectionShell(
+      title: tr(context, 'Call Tone', 'نبرة مكالمات'),
+      subtitle: tr(
+        context,
+        'Track the tone flow across your sessions',
+        'تابعي تغيّر النبرة عبر جلسات',
+      ),
+      child: _buildVideoFlowOverviewCard(
+        context,
+        type: _VideoFlowCardType.tone,
+      ),
+    );
+  }
+
+  Widget _buildVideoFlowOverviewCard(
+      BuildContext context, {
+        required _VideoFlowCardType type,
+      }) {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final isArabicLanguage = isArabic(context);
+
+    if (uid == null) {
+      return _buildEmptyVideoFlowCard(context, type: type);
+    }
+
+    return StreamBuilder<List<VideoSessionFlowPoint>>(
+      stream: _chartsProvider.streamVideoSessionFlow(
+        uid,
+        isArabic: isArabicLanguage,
+      ),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return _buildIntensityLoadingCard(context);
+        }
+
+        final points = snapshot.data ?? [];
+        if (points.isEmpty) {
+          return _buildEmptyVideoFlowCard(context, type: type);
+        }
+
+        return _VideoFlowHabitLandCard(
+          allPoints: points,
+          type: type,
+        );
+      },
+    );
+  }
+
+  Widget _buildEmptyVideoFlowCard(
+      BuildContext context, {
+        required _VideoFlowCardType type,
+      }) {
+    final title = type == _VideoFlowCardType.emotion
+        ? tr(context, 'No emotion flow yet', 'لا يوجد تدفق للمشاعر بعد')
+        : tr(context, 'No tone flow yet', 'لا يوجد تدفق للنبرة بعد');
+
+    final subtitle = type == _VideoFlowCardType.emotion
+        ? tr(
+      context,
+      'Complete a video session to show emotion words like happy, sad, angry, and more.',
+      'أكملي جلسة فيديو لعرض كلمات المشاعر مثل سعيد وحزين وغاضب وغيرها.',
+    )
+        : tr(
+      context,
+      'Complete a video session to show tone words like calm, supportive, anxious, and more.',
+      'أكملي جلسة فيديو لعرض كلمات النبرة مثل هادئ وداعم وقلق وغيرها.',
+    );
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(28),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF8E7CFF).withOpacity(0.12),
+            blurRadius: 22,
+            offset: const Offset(0, 10),
+          ),
+        ],
+        border: Border.all(color: const Color(0xFFE7E1FF)),
+      ),
+      child: Column(
+        children: [
+          Icon(
+            type == _VideoFlowCardType.emotion
+                ? Icons.mood_rounded
+                : Icons.record_voice_over_rounded,
+            size: 36,
+            color: const Color(0xFF8E7CFF),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF2A1E3B),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            subtitle,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 13,
+              color: Color(0xFF8D84A6),
+              height: 1.45,
+            ),
+          ),
+          const SizedBox(height: 24),
+          Container(
+            height: 150,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8F6FF),
+              borderRadius: BorderRadius.circular(22),
+            ),
+            child: const Center(
+              child: Icon(
+                Icons.show_chart_rounded,
+                size: 40,
+                color: Color(0xFFC4B5F5),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
 
   Widget _buildIntensityLoadingCard(BuildContext context) {
     return Container(
@@ -889,7 +1013,6 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
   int _selectedCharacterIndex = 0;
   int _pageOffset = 0;
   bool _isWeekView = true;
-  int? _selectedWeekDayIndex;
 
   static const Color _tabIndicatorPurple = Color(0xFF8E7CFF);
   static const Color _dayLinePurple = Color(0xFF8E7CFF);
@@ -926,10 +1049,6 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
         ? 0.0
         : visibleSessions.map((e) => e.averagePercent).reduce((a, b) => a + b) / visibleSessions.length;
 
-    final WeeklyDayIntensitySummary? selectedWeeklySummary =
-    _isWeekView && _selectedWeekDayIndex != null
-        ? periodData.dayItems[_selectedWeekDayIndex!]
-        : null;
 
     return Container(
       width: double.infinity,
@@ -954,7 +1073,7 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
           const SizedBox(height: 16),
           _buildPeriodHeader(periodData),
           const SizedBox(height: 14),
-          _buildTopStats(context, avgIntensity, sessionCount, selectedWeeklySummary),
+          _buildTopStats(context, avgIntensity, sessionCount, visibleSessions),
           const SizedBox(height: 18),
           SizedBox(
             height: 240,
@@ -1016,14 +1135,12 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
           setState(() {
             _isWeekView = false;
             _pageOffset = 0;
-            _selectedWeekDayIndex = null;
           });
         }),
         tab(tr(context, 'Week', 'الأسبوع'), _isWeekView, () {
           setState(() {
             _isWeekView = true;
             _pageOffset = 0;
-            _selectedWeekDayIndex = null;
           });
         }),
       ],
@@ -1050,7 +1167,6 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
               setState(() {
                 _selectedCharacterIndex = index;
                 _pageOffset = 0;
-                _selectedWeekDayIndex = null;
               });
             },
             child: AnimatedContainer(
@@ -1111,7 +1227,6 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
               : () {
             setState(() {
               _pageOffset += 1;
-              _selectedWeekDayIndex = null;
             });
           },
         ),
@@ -1149,7 +1264,6 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
               : () {
             setState(() {
               _pageOffset -= 1;
-              _selectedWeekDayIndex = null;
             });
           },
         ),
@@ -1161,8 +1275,10 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
       BuildContext context,
       double avgIntensity,
       int sessionCount,
-      WeeklyDayIntensitySummary? selectedWeeklySummary,
+      List<CharacterSessionIntensity> visibleSessions,
       ) {
+    final intensityLabel = _intensityLabel(context, visibleSessions);
+
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
@@ -1171,7 +1287,7 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                tr(context, 'Intensity', 'الشدة'),
+                intensityLabel,
                 style: const TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
@@ -1189,28 +1305,7 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
               ),
             ],
           ),
-        ),
-        if (_isWeekView)
-          Expanded(
-            flex: 2,
-            child: Center(
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 180),
-                child: selectedWeeklySummary == null
-                    ? const SizedBox(
-                  key: ValueKey('empty_week_summary'),
-                  height: 40,
-                )
-                    : _buildSelectedSummaryPill(
-                  key: ValueKey(
-                    'summary_${selectedWeeklySummary.date.toIso8601String()}',
-                  ),
-                  summary: selectedWeeklySummary,
-                ),
-              ),
-            ),
-          ),
-        Expanded(
+        ),        Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
@@ -1236,6 +1331,28 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
         ),
       ],
     );
+  }
+
+  String _intensityLabel(
+      BuildContext context,
+      List<CharacterSessionIntensity> visibleSessions,
+      ) {
+    if (visibleSessions.isEmpty) {
+      return tr(context, 'Intensity', 'الشدة');
+    }
+
+    final hasChat = visibleSessions.any((session) => session.sessionType == 'chat');
+    final hasVideo = visibleSessions.any((session) => session.sessionType == 'video');
+
+    if (hasChat && !hasVideo) {
+      return tr(context, 'Chat Intensity', 'شدة الدردشة');
+    }
+
+    if (hasVideo && !hasChat) {
+      return tr(context, 'Video Intensity', 'شدة الفيديو');
+    }
+
+    return tr(context, 'Chat & Video Intensity', 'شدة الدردشة والفيديو');
   }
 
   Widget _buildSelectedSummaryPill({
@@ -1305,54 +1422,7 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
         groupsSpace: 12,
         borderData: FlBorderData(show: false),
         barTouchData: BarTouchData(
-          enabled: true,
-          handleBuiltInTouches: true,
-          touchCallback: (event, response) {
-            if (!event.isInterestedForInteractions) return;
-
-            final index = response?.spot?.touchedBarGroupIndex;
-            if (index == null) return;
-
-            if (!mounted) return;
-            setState(() {
-              _selectedWeekDayIndex =
-              periodData.dayItems.containsKey(index) ? index : null;
-            });
-          },
-          touchTooltipData: BarTouchTooltipData(
-            tooltipRoundedRadius: 14,
-            tooltipPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            tooltipBgColor: const Color(0xFF6B5BC7),
-            fitInsideHorizontally: true,
-            fitInsideVertically: true,
-            direction: TooltipDirection.top,
-            getTooltipItem: (group, groupIndex, rod, rodIndex) {
-              final item = periodData.dayItems[group.x.toInt()];
-              if (item == null) {
-                return BarTooltipItem(
-                  tr(context, 'No session', 'لا جلسة'),
-                  const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 11,
-                  ),
-                );
-              }
-
-              return BarTooltipItem(
-                '${_formatMonthDay(context, item.date)}\n'
-                    '${tr(context, 'Start', 'البداية')}: ${item.startPercent.round()}%   '
-                    '${tr(context, 'End', 'النهاية')}: ${item.endPercent.round()}%\n'
-                    '${tr(context, 'Sessions', 'الجلسات')}: ${item.sessionCount}',
-                const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 11,
-                  height: 1.4,
-                ),
-              );
-            },
-          ),
+          enabled: false,
         ),
         gridData: FlGridData(
           show: true,
@@ -1420,18 +1490,14 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
                   return const SizedBox.shrink();
                 }
 
-                final isSelected = _selectedWeekDayIndex == index;
-
                 return Padding(
                   padding: const EdgeInsets.only(top: 10),
                   child: Text(
                     _weekdayShortLabel(context, index),
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontSize: 12,
-                      fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
-                      color: isSelected
-                          ? _daySelectedPurple
-                          : const Color(0xFF9CA3AF),
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF9CA3AF),
                     ),
                   ),
                 );
@@ -1443,21 +1509,16 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
           final item = periodData.dayItems[dayIndex];
           final overallY = item?.averagePercent ?? 0;
           final hasData = item != null && overallY > 0;
-          final isSelected = _selectedWeekDayIndex == dayIndex;
-
           return BarChartGroupData(
             x: dayIndex,
             barsSpace: 0,
-            showingTooltipIndicators: isSelected && hasData ? [0] : [],
             barRods: [
               BarChartRodData(
                 fromY: 0,
                 toY: hasData ? overallY : 0,
-                width: isSelected ? 18 : 14,
+                width: 14,
                 borderRadius: BorderRadius.circular(12),
-                color: hasData
-                    ? (isSelected ? _daySelectedPurple : _dayLinePurple)
-                    : Colors.transparent,
+                color: hasData ? _dayLinePurple : Colors.transparent,
                 backDrawRodData: BackgroundBarChartRodData(
                   show: true,
                   toY: 100,
@@ -1570,61 +1631,7 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
           ),
         ),
         lineTouchData: LineTouchData(
-          handleBuiltInTouches: true,
-          touchSpotThreshold: 28,
-          getTouchedSpotIndicator: (barData, spotIndexes) {
-            return spotIndexes.map((_) {
-              return TouchedSpotIndicatorData(
-                FlLine(color: Colors.transparent, strokeWidth: 0),
-                FlDotData(
-                  show: true,
-                  getDotPainter: (spot, percent, bar, index) {
-                    return FlDotCirclePainter(
-                      radius: 6,
-                      color: Colors.white,
-                      strokeWidth: 2,
-                      strokeColor: _dayLinePurple,
-                    );
-                  },
-                ),
-              );
-            }).toList();
-          },
-          touchTooltipData: LineTouchTooltipData(
-            tooltipRoundedRadius: 14,
-            tooltipPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            tooltipBgColor: const Color(0xFF6B5BC7),
-            fitInsideHorizontally: true,
-            fitInsideVertically: true,
-            showOnTopOfTheChartBoxArea: true,
-            getTooltipItems: (touchedSpots) {
-              return touchedSpots.map((lineBarSpot) {
-                final sessionIndex = lineBarSpot.barIndex;
-                if (sessionIndex < 0 || sessionIndex >= sessions.length) {
-                  return null;
-                }
-
-                final sessionLabel = _sessionLabel(context, sessionIndex + 1);
-                final isStartPoint = lineBarSpot.spotIndex == 0;
-                final pointLabel = tr(
-                  context,
-                  isStartPoint ? 'Start intensity' : 'End intensity',
-                  isStartPoint ? 'شدة البداية' : 'شدة النهاية',
-                );
-                final intensityValue = lineBarSpot.y.round();
-
-                return LineTooltipItem(
-                  '$sessionLabel\n$pointLabel: $intensityValue%',
-                  const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 11,
-                    height: 1.4,
-                  ),
-                );
-              }).toList();
-            },
-          ),
+          enabled: false,
         ),
         lineBarsData: List.generate(sessions.length, (i) {
           final s = sessions[i];
@@ -1930,4 +1937,741 @@ class _PeriodNavArrow extends StatelessWidget {
       ),
     );
   }
+}
+
+enum _VideoFlowCardType { emotion, tone }
+
+class _VideoFlowHabitLandCard extends StatefulWidget {
+  final List<VideoSessionFlowPoint> allPoints;
+  final _VideoFlowCardType type;
+
+  const _VideoFlowHabitLandCard({
+    required this.allPoints,
+    required this.type,
+  });
+
+  @override
+  State<_VideoFlowHabitLandCard> createState() => _VideoFlowHabitLandCardState();
+}
+
+class _VideoFlowHabitLandCardState extends State<_VideoFlowHabitLandCard> {
+  int _selectedCharacterIndex = 0;
+  int _pageOffset = 0;
+  bool _isWeekView = true;
+
+  static const Color _purple = Color(0xFF8E7CFF);
+  static const Color _purpleDark = Color(0xFF6F5BFF);
+
+  static const List<_FlowAxisItem> _emotionAxis = [
+    _FlowAxisItem('happy', 'Happy', 'سعيد'),
+    _FlowAxisItem('neutral', 'Neutral', 'محايد'),
+    _FlowAxisItem('surprise', 'Surprise', 'مفاجأة'),
+    _FlowAxisItem('fear', 'Fear', 'خوف'),
+    _FlowAxisItem('sad', 'Sad', 'حزين'),
+    _FlowAxisItem('angry', 'Angry', 'غاضب'),
+  ];
+
+  static const List<_FlowAxisItem> _toneAxis = _emotionAxis;
+
+  @override
+  Widget build(BuildContext context) {
+    final grouped = _groupByCharacter(widget.allPoints);
+    final characterIds = grouped.keys.toList();
+    if (characterIds.isEmpty) return const SizedBox.shrink();
+
+    if (_selectedCharacterIndex >= characterIds.length) {
+      _selectedCharacterIndex = 0;
+    }
+
+    final selectedId = characterIds[_selectedCharacterIndex];
+    final points = grouped[selectedId]!..sort((a, b) => a.date.compareTo(b.date));
+    final periodData = _isWeekView ? _buildWeekData(points) : _buildDayData(points);
+    final latestLabel = periodData.points.isEmpty
+        ? '—'
+        : widget.type == _VideoFlowCardType.emotion ? periodData.points.last.emotionLabel(isArabic(context)) : periodData.points.last.toneLabel(isArabic(context));
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(30),
+        border: Border.all(color: const Color(0xFFE9E4FF)),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF8E7CFF).withOpacity(0.14),
+            blurRadius: 26,
+            offset: const Offset(0, 14),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          _buildTopSegment(context),
+          const SizedBox(height: 18),
+          _buildCharacterSelector(context, characterIds, grouped),
+          const SizedBox(height: 16),
+          _buildHeader(context, periodData),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: _buildStatBlock(
+                  context,
+                  widget.type == _VideoFlowCardType.emotion
+                      ? tr(context, 'Latest emotion', 'آخر شعور')
+                      : tr(context, 'Latest tone', 'آخر نبرة'),
+                  latestLabel,
+                ),
+              ),
+              Expanded(
+                child: _buildStatBlock(
+                  context,
+                  tr(context, 'Sessions', 'الجلسات'),
+                  _localizedNumber(context, periodData.sessionCount),
+                  alignEnd: true,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          SizedBox(
+            height: 260,
+            child: Padding(
+              padding: const EdgeInsets.only(left: 8, right: 6, top: 8, bottom: 2),
+              child: _buildFlowChart(context, periodData),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+
+  List<_FlowAxisItem> get _axisItems =>
+      widget.type == _VideoFlowCardType.emotion ? _emotionAxis : _toneAxis;
+
+  Widget _buildTopSegment(BuildContext context) {
+    const activeColor = Color(0xFF2A1E3B);
+    const inactiveColor = Color(0xFF9CA3AF);
+
+    Widget tab(String label, bool selected, VoidCallback onTap) {
+      return Expanded(
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(8),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                    color: selected ? activeColor : inactiveColor,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeOutCubic,
+                  height: 3,
+                  width: selected ? 28 : 0,
+                  decoration: BoxDecoration(
+                    color: selected ? _purple : Colors.transparent,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Row(
+      children: [
+        tab(tr(context, 'Day', 'اليوم'), !_isWeekView, () {
+          setState(() {
+            _isWeekView = false;
+            _pageOffset = 0;
+          });
+        }),
+        tab(tr(context, 'Week', 'الأسبوع'), _isWeekView, () {
+          setState(() {
+            _isWeekView = true;
+            _pageOffset = 0;
+          });
+        }),
+      ],
+    );
+  }
+
+  Widget _buildCharacterSelector(
+      BuildContext context,
+      List<String> characterIds,
+      Map<String, List<VideoSessionFlowPoint>> grouped,
+      ) {
+    return SizedBox(
+      height: 38,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: characterIds.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final id = characterIds[index];
+          final name = grouped[id]!.first.characterName;
+          final selected = index == _selectedCharacterIndex;
+
+          return GestureDetector(
+            onTap: () {
+              setState(() {
+                _selectedCharacterIndex = index;
+                _pageOffset = 0;
+              });
+            },
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 220),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(18),
+                gradient: selected
+                    ? const LinearGradient(
+                  colors: [Color(0xFF8E7CFF), Color(0xFFA797FF)],
+                )
+                    : null,
+                color: selected ? null : const Color(0xFFF7F5FF),
+                border: Border.all(
+                  color: selected ? Colors.transparent : const Color(0xFFE7E1FF),
+                ),
+              ),
+              child: Center(
+                child: Text(
+                  name,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: selected ? Colors.white : const Color(0xFF6D6486),
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildHeader(BuildContext context, _FlowPeriodData periodData) {
+    final canGoBack = periodData.canGoBack;
+    final canGoForward = _pageOffset > 0;
+
+    return Row(
+      children: [
+        _PeriodNavArrow(
+          icon: Icons.chevron_left_rounded,
+          enabled: canGoBack,
+          onTap: canGoBack
+              ? () {
+            setState(() {
+              _pageOffset += 1;
+            });
+          }
+              : null,
+        ),
+        Expanded(
+          child: Column(
+            children: [
+              Text(
+                periodData.title,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF2A1E3B),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                periodData.subtitle,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  color: Color(0xFF9CA3AF),
+                ),
+              ),
+            ],
+          ),
+        ),
+        _PeriodNavArrow(
+          icon: Icons.chevron_right_rounded,
+          enabled: canGoForward,
+          onTap: canGoForward
+              ? () {
+            setState(() {
+              _pageOffset -= 1;
+            });
+          }
+              : null,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatBlock(BuildContext context, String label, String value, {bool alignEnd = false}) {
+    return Column(
+      crossAxisAlignment: alignEnd ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF9CA3AF),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF2A1E3B),
+          ),
+          textAlign: alignEnd ? TextAlign.end : TextAlign.start,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFlowChart(BuildContext context, _FlowPeriodData periodData) {
+    if (periodData.points.isEmpty) {
+      return Center(
+        child: Text(
+          tr(context, 'No sessions in this period', 'لا توجد جلسات في هذه الفترة'),
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF9CA3AF),
+          ),
+        ),
+      );
+    }
+
+    final labels = <String>[];
+    final dayStartXValues = <double>[];
+    const double xStartOffset = 0.1;
+
+    final bool showAllDates = periodData.points.length <= 7;
+    final List<LineChartBarData> lineBarsData = [];
+    int visualPointCount = 0;
+
+    if (_isWeekView) {
+      final spots = <FlSpot>[];
+
+      for (int i = 0; i < periodData.points.length; i++) {
+        final point = periodData.points[i];
+        final x = i.toDouble() + xStartOffset;
+
+        spots.add(
+          FlSpot(
+            x,
+            _indexFor(point).toDouble(),
+          ),
+        );
+
+        final bool isFirstPointForDay =
+            i == 0 || !_isSameDay(periodData.points[i - 1].date, point.date);
+
+        if (isFirstPointForDay) {
+          dayStartXValues.add(x);
+        }
+
+        if (showAllDates) {
+          labels.add(_formatMonthDay(context, point.date));
+        } else {
+          labels.add(isFirstPointForDay ? _formatMonthDay(context, point.date) : '');
+        }
+      }
+
+      visualPointCount = spots.length;
+
+      lineBarsData.add(
+        LineChartBarData(
+          spots: spots,
+          isCurved: false,
+          color: _purple,
+          barWidth: 2.6,
+          isStrokeCapRound: true,
+          dotData: FlDotData(
+            show: true,
+            getDotPainter: (spot, percent, barData, index) {
+              return FlDotCirclePainter(
+                radius: 4,
+                color: Colors.white,
+                strokeWidth: 2,
+                strokeColor: _purple,
+              );
+            },
+          ),
+        ),
+      );
+    } else {
+      final Map<String, List<VideoSessionFlowPoint>> pointsBySession = {};
+      for (final point in periodData.points) {
+        pointsBySession.putIfAbsent(point.sessionId, () => []);
+        pointsBySession[point.sessionId]!.add(point);
+      }
+
+      final sessionEntries = pointsBySession.entries.toList()
+        ..sort((a, b) {
+          final aDate = a.value.first.date;
+          final bDate = b.value.first.date;
+          final timeCompare = aDate.compareTo(bDate);
+          if (timeCompare != 0) return timeCompare;
+          return a.key.compareTo(b.key);
+        });
+
+      for (int i = 0; i < sessionEntries.length; i++) {
+        final sessionPoints = List<VideoSessionFlowPoint>.from(sessionEntries[i].value)
+          ..sort((a, b) => a.date.compareTo(b.date));
+
+        final startPoint = sessionPoints.first;
+        final endPoint = sessionPoints.last;
+        final startX = (i * 2).toDouble();
+        final endX = startX + 1;
+
+        dayStartXValues.add(startX);
+        labels.add(_sessionLabel(context, i + 1));
+        labels.add('');
+
+        lineBarsData.add(
+          LineChartBarData(
+            spots: [
+              FlSpot(startX, _indexFor(startPoint).toDouble()),
+              FlSpot(endX, _indexFor(endPoint).toDouble()),
+            ],
+            isCurved: false,
+            color: _purple,
+            barWidth: 2.6,
+            isStrokeCapRound: true,
+            dotData: FlDotData(
+              show: true,
+              getDotPainter: (spot, percent, barData, index) {
+                final isStart = index == 0;
+                return FlDotCirclePainter(
+                  radius: isStart ? 4.5 : 5,
+                  color: isStart ? Colors.white : _purpleDark,
+                  strokeWidth: 2,
+                  strokeColor: _purple,
+                );
+              },
+            ),
+            belowBarData: BarAreaData(show: false),
+          ),
+        );
+      }
+
+      visualPointCount = sessionEntries.length * 2;
+    }
+
+    final maxX = math.max(0, visualPointCount - 1).toDouble();
+    final maxY = (_axisItems.length - 1).toDouble();
+
+    return LineChart(
+      LineChartData(
+        minX: 0,
+        maxX: maxX,
+        minY: -0.35,
+        maxY: maxY + 0.15,
+        clipData: FlClipData.none(),
+        borderData: FlBorderData(show: false),
+        gridData: FlGridData(
+          show: true,
+          drawVerticalLine: true,
+          verticalInterval: 1,
+          horizontalInterval: 1,
+          checkToShowVerticalLine: (value) {
+            return dayStartXValues.any((x) => (x - value).abs() < 0.2);
+          },
+          getDrawingVerticalLine: (value) => FlLine(
+            color: const Color(0xFFD9CFFF),
+            strokeWidth: 1.2,
+            dashArray: const [4, 4],
+          ),
+          getDrawingHorizontalLine: (value) => FlLine(
+            color: const Color(0xFFE8E0F5),
+            strokeWidth: 1,
+            dashArray: const [4, 4],
+          ),
+        ),
+        titlesData: FlTitlesData(
+          topTitles: AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
+          rightTitles: AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
+          leftTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              interval: 1,
+              reservedSize: 52,
+              getTitlesWidget: (value, meta) {
+                final roundedValue = value.roundToDouble();
+
+                if ((value - roundedValue).abs() > 0.001) {
+                  return const SizedBox.shrink();
+                }
+
+                final index = roundedValue.toInt();
+                if (index < 0 || index >= _axisItems.length) {
+                  return const SizedBox.shrink();
+                }
+
+                return Align(
+                  alignment: Alignment.centerRight,
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 4),
+                    child: Text(
+                      _axisItems[index].label(context),
+                      textAlign: TextAlign.right,
+                      maxLines: 1,
+                      overflow: TextOverflow.visible,
+                      style: const TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF8D84A6),
+                        height: 1.0,
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              reservedSize: 44,
+              showTitles: true,
+              interval: 1,
+              getTitlesWidget: (value, meta) {
+                final index = value.toInt();
+                if (index < 0 || index >= labels.length) {
+                  return const SizedBox.shrink();
+                }
+
+                final label = labels[index];
+                if (label.isEmpty) {
+                  return const SizedBox.shrink();
+                }
+
+                return Padding(
+                  padding: const EdgeInsets.only(top: 10),
+                  child: Text(
+                    label,
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF8D84A6),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+        lineTouchData: LineTouchData(
+          enabled: false,
+          handleBuiltInTouches: false,
+        ),
+        lineBarsData: lineBarsData,
+      ),
+    );
+  }
+
+  bool _isSameDay(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
+  int _indexFor(VideoSessionFlowPoint point) {
+    final key = widget.type == _VideoFlowCardType.emotion ? point.emotionKey : point.toneKey;
+    final index = _axisItems.indexWhere((item) => item.key == key);
+    return index >= 0 ? index : _axisItems.indexWhere((item) => item.key == 'neutral').clamp(0, _axisItems.length - 1);
+  }
+
+  Map<String, List<VideoSessionFlowPoint>> _groupByCharacter(List<VideoSessionFlowPoint> points) {
+    final Map<String, List<VideoSessionFlowPoint>> grouped = {};
+    for (final point in points) {
+      final key = point.characterName.trim().toLowerCase();
+      grouped.putIfAbsent(key, () => []);
+      grouped[key]!.add(point);
+    }
+    return {for (final entry in grouped.entries) entry.key: entry.value};
+  }
+
+  _FlowPeriodData _buildWeekData(List<VideoSessionFlowPoint> points) {
+    final now = DateTime.now();
+    final startOfThisWeek = _startOfWeek(now);
+    final start = startOfThisWeek.subtract(Duration(days: 7 * _pageOffset));
+    final end = start.add(const Duration(days: 6));
+
+    final inWeek = points.where((point) {
+      final d = DateTime(point.date.year, point.date.month, point.date.day);
+      return !d.isBefore(start) && !d.isAfter(end);
+    }).toList()..sort((a, b) => a.date.compareTo(b.date));
+
+    final Map<String, VideoSessionFlowPoint> latestPerSession = {};
+    for (final point in inWeek) {
+      latestPerSession[point.sessionId] = point;
+    }
+    final periodPoints = latestPerSession.values.toList()..sort((a, b) => a.date.compareTo(b.date));
+
+    final oldest = points.isEmpty ? null : points.first.date;
+    final canGoBack = oldest != null && _startOfWeek(oldest).isBefore(start);
+
+    return _FlowPeriodData(
+      title: _formatDateRange(context, start, end),
+      subtitle: _localizedNumber(context, start.year),
+      points: periodPoints,
+      canGoBack: canGoBack,
+      sessionCount: latestPerSession.length,
+    );
+  }
+
+  _FlowPeriodData _buildDayData(List<VideoSessionFlowPoint> points) {
+    final Map<DateTime, List<VideoSessionFlowPoint>> dayGroups = {};
+    final Map<DateTime, Set<String>> sessionIdsByDay = {};
+
+    for (final point in points) {
+      final dayKey = DateTime(point.date.year, point.date.month, point.date.day);
+      dayGroups.putIfAbsent(dayKey, () => []);
+      dayGroups[dayKey]!.add(point);
+
+      sessionIdsByDay.putIfAbsent(dayKey, () => <String>{});
+      sessionIdsByDay[dayKey]!.add(point.sessionId);
+    }
+
+    final days = dayGroups.keys.toList()
+      ..sort((a, b) => b.compareTo(a));
+
+    if (days.isEmpty) {
+      final now = DateTime.now();
+      return _FlowPeriodData(
+        title: _formatMonthDay(context, now),
+        subtitle: _localizedNumber(context, now.year),
+        points: const [],
+        canGoBack: false,
+        sessionCount: 0,
+      );
+    }
+
+    final safeOffset = _pageOffset.clamp(0, days.length - 1);
+    final selectedDay = days[safeOffset];
+    final selectedDayPoints = List<VideoSessionFlowPoint>.from(dayGroups[selectedDay] ?? const [])
+      ..sort((a, b) {
+        final timeCompare = a.date.compareTo(b.date);
+        if (timeCompare != 0) return timeCompare;
+        final sessionCompare = a.sessionId.compareTo(b.sessionId);
+        if (sessionCompare != 0) return sessionCompare;
+        return a.characterName.compareTo(b.characterName);
+      });
+
+    final sessionCount = sessionIdsByDay[selectedDay]?.length ?? 0;
+
+    return _FlowPeriodData(
+      title: _formatMonthDay(context, selectedDay),
+      subtitle: tr(
+        context,
+        'Session start and end in this day',
+        'بداية ونهاية كل جلسة في هذا اليوم',
+      ),
+      points: selectedDayPoints,
+      canGoBack: safeOffset < days.length - 1,
+      sessionCount: sessionCount,
+    );
+  }
+
+  static DateTime _startOfWeek(DateTime date) {
+    final normalized = DateTime(date.year, date.month, date.day);
+    return normalized.subtract(Duration(days: normalized.weekday - 1));
+  }
+
+  static String _formatDateRange(BuildContext context, DateTime start, DateTime end) {
+    return '${_formatMonthDay(context, start)} - ${_formatMonthDay(context, end)}';
+  }
+
+  static String _formatMonthDay(BuildContext context, DateTime date) {
+    final month = _monthName(context, date.month);
+    final day = _localizedNumber(context, date.day);
+    return isArabic(context) ? '$day $month' : '$month $day';
+  }
+
+  static String _sessionLabel(BuildContext context, int number) {
+    return '${tr(context, 'S', 'ج')}${_localizedNumber(context, number)}';
+  }
+
+
+  static String _formatTimeLabel(BuildContext context, DateTime date) {
+    final hour24 = date.hour;
+    final minuteText = date.minute.toString().padLeft(2, '0');
+    if (isArabic(context)) {
+      final period = hour24 >= 12 ? 'م' : 'ص';
+      final hour12 = hour24 % 12 == 0 ? 12 : hour24 % 12;
+      return '${_localizedNumber(context, hour12)}:${_localizedNumber(context, date.minute)} $period';
+    }
+    final period = hour24 >= 12 ? 'PM' : 'AM';
+    final hour12 = hour24 % 12 == 0 ? 12 : hour24 % 12;
+    return '$hour12:$minuteText $period';
+  }
+
+  static String _monthName(BuildContext context, int month) {
+    const en = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const ar = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+    return isArabic(context) ? ar[month - 1] : en[month - 1];
+  }
+
+  static String _localizedNumber(BuildContext context, int value) {
+    final text = value.toString();
+    if (!isArabic(context)) return text;
+    const western = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+    const arabic = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+    var result = text;
+    for (int i = 0; i < western.length; i++) {
+      result = result.replaceAll(western[i], arabic[i]);
+    }
+    return result;
+  }
+}
+
+class _FlowAxisItem {
+  final String key;
+  final String en;
+  final String ar;
+
+  const _FlowAxisItem(this.key, this.en, this.ar);
+
+  String label(BuildContext context) => isArabic(context) ? ar : en;
+}
+
+class _FlowPeriodData {
+  final String title;
+  final String subtitle;
+  final List<VideoSessionFlowPoint> points;
+  final bool canGoBack;
+  final int sessionCount;
+
+  const _FlowPeriodData({
+    required this.title,
+    required this.subtitle,
+    required this.points,
+    required this.canGoBack,
+    required this.sessionCount,
+  });
 }

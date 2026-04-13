@@ -1,8 +1,7 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:ana_ifs_app/l10n/app_strings.dart';
 import 'package:ana_ifs_app/core/widgets/shared_widgets.dart';
@@ -64,12 +63,14 @@ class _ProgressScreenContent extends StatefulWidget {
 }
 
 class __ProgressScreenContentState extends State<_ProgressScreenContent> {
-  static const String _moodsStorageKey = 'progress_saved_moods_by_date';
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
 
   int _selectedTabIndex = 0; // 0 = mood, 1 = achievements, 2 = history
   bool _isMoodLoading = true;
 
   Map<String, String> _savedMoodsByDate = {};
+  Set<String> _autoRetrievedMoodDates = <String>{};
 
   @override
   void initState() {
@@ -89,21 +90,101 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
     });
   }
 
+  String? get _uid => _auth.currentUser?.uid;
+
   Future<void> _loadSavedMoods() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_moodsStorageKey);
+      final uid = _uid;
+      if (uid == null) {
+        debugPrint('No authenticated user found while loading moods.');
+        return;
+      }
 
-      if (raw != null && raw.isNotEmpty) {
-        final decoded = jsonDecode(raw);
-        if (decoded is Map) {
-          _savedMoodsByDate = decoded.map(
-                (key, value) => MapEntry(key.toString(), value.toString()),
-          );
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final startOfWeek = today.subtract(Duration(days: today.weekday - 1));
+      final endOfWeek = startOfWeek.add(const Duration(days: 7));
+
+      final moodMap = <String, String>{};
+
+      final manualSnapshot = await _firestore
+          .collection('users')
+          .doc(uid)
+          .collection('progress_moods')
+          .where('dateKey', isGreaterThanOrEqualTo: _dateKey(startOfWeek))
+          .where('dateKey', isLessThan: _dateKey(endOfWeek))
+          .get();
+
+      for (final doc in manualSnapshot.docs) {
+        final data = doc.data();
+        final moodKey = _normalizeMoodKey(data['moodKey']);
+        final dateKey = (data['dateKey'] ?? doc.id).toString();
+        if (moodKey != null) {
+          moodMap[dateKey] = moodKey;
         }
       }
+
+      final sessionSnapshot = await _firestore
+          .collection('users')
+          .doc(uid)
+          .collection('sessions')
+          .where('type', isEqualTo: 'video')
+          .get();
+
+      final latestSessionByDate = <String, _DailyMoodSession>{};
+      final autoRetrievedDates = <String>{};
+
+      for (final doc in sessionSnapshot.docs) {
+        final data = doc.data();
+        final sessionDateTime = _extractSessionDateTime(data);
+        if (sessionDateTime == null) continue;
+
+        final normalizedSessionDate = DateTime(
+          sessionDateTime.year,
+          sessionDateTime.month,
+          sessionDateTime.day,
+        );
+
+        if (normalizedSessionDate.isBefore(startOfWeek) ||
+            !normalizedSessionDate.isBefore(endOfWeek)) {
+          continue;
+        }
+
+        final moodKey = await _resolveLatestMoodForSession(
+          uid: uid,
+          sessionId: doc.id,
+          sessionData: data,
+        );
+        if (moodKey == null) continue;
+
+        final dateKey = _dateKey(normalizedSessionDate);
+        final candidate = _DailyMoodSession(
+          dateTime: sessionDateTime,
+          moodKey: moodKey,
+        );
+
+        final current = latestSessionByDate[dateKey];
+        if (current == null || candidate.dateTime.isAfter(current.dateTime)) {
+          latestSessionByDate[dateKey] = candidate;
+        }
+      }
+
+      for (final entry in latestSessionByDate.entries) {
+        moodMap.putIfAbsent(entry.key, () => entry.value.moodKey);
+        autoRetrievedDates.add(entry.key);
+      }
+
+      if (mounted) {
+        setState(() {
+          _savedMoodsByDate = moodMap;
+          _autoRetrievedMoodDates = autoRetrievedDates;
+        });
+      } else {
+        _savedMoodsByDate = moodMap;
+        _autoRetrievedMoodDates = autoRetrievedDates;
+      }
     } catch (e) {
-      debugPrint('Error loading saved moods: $e');
+      debugPrint('Error loading saved moods from Firestore: $e');
     }
 
     if (mounted) {
@@ -117,21 +198,121 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
     required DateTime date,
     required String moodKey,
   }) async {
+    final uid = _uid;
+    if (uid == null) {
+      debugPrint('No authenticated user found while saving mood.');
+      return;
+    }
+
+    final normalizedMoodKey = _normalizeMoodKey(moodKey);
+    if (normalizedMoodKey == null) {
+      debugPrint('Unsupported mood key: $moodKey');
+      return;
+    }
+
     final dateKey = _dateKey(date);
+    final normalizedDate = DateTime(date.year, date.month, date.day);
 
     setState(() {
-      _savedMoodsByDate[dateKey] = moodKey;
+      _savedMoodsByDate[dateKey] = normalizedMoodKey;
     });
 
     try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(
-        _moodsStorageKey,
-        jsonEncode(_savedMoodsByDate),
-      );
+      await _firestore
+          .collection('users')
+          .doc(uid)
+          .collection('progress_moods')
+          .doc(dateKey)
+          .set({
+        'dateKey': dateKey,
+        'date': Timestamp.fromDate(normalizedDate),
+        'moodKey': normalizedMoodKey,
+        'source': 'manual',
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
     } catch (e) {
-      debugPrint('Error saving mood: $e');
+      debugPrint('Error saving mood to Firestore: $e');
     }
+  }
+
+  DateTime? _extractSessionDateTime(Map<String, dynamic> data) {
+    final faceEmotion = (data['faceEmotion'] as Map<String, dynamic>?) ?? {};
+
+    final dynamic rawDate = faceEmotion['updatedAt'] ??
+        data['updatedAt'] ??
+        data['endedAt'] ??
+        data['lastMessageAt'] ??
+        data['startedAt'];
+
+    if (rawDate is Timestamp) {
+      return rawDate.toDate();
+    }
+
+    if (rawDate is DateTime) {
+      return rawDate;
+    }
+
+    if (rawDate is String) {
+      return DateTime.tryParse(rawDate);
+    }
+
+    return null;
+  }
+
+  Future<String?> _resolveLatestMoodForSession({
+    required String uid,
+    required String sessionId,
+    required Map<String, dynamic> sessionData,
+  }) async {
+    return _extractDominantEmotionFromSession(sessionData);
+  }
+
+  bool _canUserUpdateDate(DateTime date) {
+    final dateKey = _dateKey(date);
+    return _autoRetrievedMoodDates.contains(dateKey);
+  }
+
+  String? _extractDominantEmotionFromSession(Map<String, dynamic> data) {
+    final faceEmotion = (data['faceEmotion'] as Map<String, dynamic>?) ?? {};
+
+    final directCandidates = <dynamic>[
+      faceEmotion['dominant'],
+    ];
+
+    for (final candidate in directCandidates) {
+      final normalized = _normalizeMoodKey(candidate);
+      if (normalized != null) {
+        return normalized;
+      }
+    }
+
+    return null;
+  }
+
+  String? _normalizeMoodKey(dynamic raw) {
+    if (raw == null) return null;
+
+    final normalized = raw
+        .toString()
+        .trim()
+        .toLowerCase()
+        .replaceAll('-', '_')
+        .replaceAll(' ', '_');
+
+    const aliases = <String, String>{
+      'happiness': 'happy',
+      'joy': 'happy',
+      'sadness': 'sad',
+      'anger': 'angry',
+      'surprised': 'surprise',
+      'surprize': 'surprise',
+      'fearful': 'fear',
+      'scared': 'fear',
+      'disgusted': 'disgust',
+    };
+
+    final resolved = aliases[normalized] ?? normalized;
+    return moodVisuals.containsKey(resolved) ? resolved : null;
   }
 
   String _dateKey(DateTime date) {
@@ -395,9 +576,11 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
               final hasMood = moodKey != null;
               final palette = _paletteForMood(isToday: isToday);
 
+              final canUserUpdate = isToday && _canUserUpdateDate(date);
+
               return Expanded(
                 child: GestureDetector(
-                  onTap: isToday
+                  onTap: canUserUpdate
                       ? () => _showMoodSelectionDialog(context, date)
                       : null,
                   child: Padding(
@@ -492,8 +675,8 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
               Text(
                 tr(
                   context,
-                  'Only today can be updated',
-                  'يمكن تحديث يوم اليوم فقط',
+                  'Only today with an automatic mood can be updated',
+                  'يمكن تحديث اليوم فقط عند وجود مزاج تلقائي',
                 ),
                 style: const TextStyle(
                   fontSize: 12,
@@ -721,6 +904,16 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
       ),
     );
   }
+}
+
+class _DailyMoodSession {
+  final DateTime dateTime;
+  final String moodKey;
+
+  const _DailyMoodSession({
+    required this.dateTime,
+    required this.moodKey,
+  });
 }
 
 class _MoodPalette {
