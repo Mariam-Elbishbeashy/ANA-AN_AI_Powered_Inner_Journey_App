@@ -1,111 +1,38 @@
+// lib/features/guider/presentation/screens/guider_sessions_screen.dart
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:ana_ifs_app/l10n/app_strings.dart';
-import 'package:ana_ifs_app/features/character/domain/entities/user_character.dart';
-import 'package:ana_ifs_app/features/chat/data/datasources/inner_character_local_data_source.dart';
-import 'package:ana_ifs_app/features/chat/data/models/inner_character_profile.dart';
-import 'package:ana_ifs_app/features/video_chat/presentation/screens/video_call_screen.dart';
-import 'package:ana_ifs_app/features/video_chat/presentation/screens/video_session_viewer_screen.dart';
-import 'package:ana_ifs_app/features/video_chat/data/repositories/video_session_repository.dart';
-import 'package:ana_ifs_app/features/video_chat/domain/entities/video_session.dart';
+import '../../data/repositories/guider_session_repository.dart';
+import '../../domain/entities/guider_session.dart';
+import 'guider_session_viewer_screen.dart';
+import 'guider_video_call_screen.dart';
 
-class VideoSessionsScreen extends StatefulWidget {
-  final UserCharacter character;
+class GuiderSessionsScreen extends StatefulWidget {
+  final String userName;
+  final String? characterId;
 
-  const VideoSessionsScreen({
+  const GuiderSessionsScreen({
     super.key,
-    required this.character,
+    required this.userName,
+    this.characterId,
   });
 
   @override
-  State<VideoSessionsScreen> createState() => _VideoSessionsScreenState();
+  State<GuiderSessionsScreen> createState() => _GuiderSessionsScreenState();
 }
 
-class _VideoSessionsScreenState extends State<VideoSessionsScreen> {
-  late final VideoSessionRepository _sessionRepository;
-  late final InnerCharacterLocalDataSource _characterLocalDataSource;
-
-  late final String _characterIdForBackend;
-  late final String _assistantAvatarPath;
-
+class _GuiderSessionsScreenState extends State<GuiderSessionsScreen> {
+  late final GuiderSessionRepository _repository;
   final _refreshIndicatorKey = GlobalKey<RefreshIndicatorState>();
 
   @override
   void initState() {
     super.initState();
-    _sessionRepository = VideoSessionRepository();
-    _characterLocalDataSource = InnerCharacterLocalDataSource();
-    _characterIdForBackend = _getCharacterIdForBackend(widget.character.characterName);
-    _assistantAvatarPath = _getImagePathForCharacter(widget.character.characterName);
-  }
-
-  String _getCharacterIdForBackend(String characterName) {
-    final idMap = {
-      'Inner Critic': 'inner_critic',
-      'People Pleaser': 'people_pleaser',
-      'Lonely Part': 'lonely',
-      'Jealous Part': 'jealous',
-      'Ashamed Part': 'ashamed',
-      'Workaholic': 'workaholic',
-      'Perfectionist': 'perfectionist',
-      'Procrastinator': 'procrastinator',
-      'Excessive Gamer': 'excessive_gamer',
-      'Confused Part': 'confused',
-      'Dependent Part': 'dependent',
-      'Fearful Part': 'fearful',
-      'Neglected Part': 'neglected',
-      'Overeater': 'overater_binger',
-      'Overeater/Binger': 'overater_binger',
-      'Overwhelmed Part': 'overwhelmed',
-      'Stoic Part': 'stoic',
-      'Wounded Child': 'wounded_child',
-      'Controller': 'controller',
-      'Controller Part': 'controller',
-    };
-    return idMap[characterName] ?? characterName.toLowerCase().replaceAll(' ', '_');
-  }
-
-  String _getImagePathForCharacter(String characterName) {
-    final imageMap = {
-      'Inner Critic': 'inner_critic.png',
-      'People Pleaser': 'people_pleaser.png',
-      'Lonely Part': 'lonely.png',
-      'Jealous Part': 'jealous.png',
-      'Ashamed Part': 'ashamed.png',
-      'Workaholic': 'workaholic.png',
-      'Perfectionist': 'perfictionist.png',
-      'Procrastinator': 'procrastinator.png',
-      'Excessive Gamer': 'excessive_gamer.png',
-      'Confused Part': 'confused.png',
-      'Dependent Part': 'dependant.png',
-      'Fearful Part': 'fearful.png',
-      'Neglected Part': 'neglected.png',
-      'Overeater': 'overeater_binger.png',
-      'Binger': 'overeater_binger.png',
-      'Overeater/Binger': 'overeater_binger.png',
-      'Overwhelmed Part': 'overwhelmed.png',
-      'Stoic Part': 'stoic.png',
-      'Wounded Child': 'wounded_child.png',
-      'Controller': 'controller.png',
-      'Controller Part': 'controller.png',
-    };
-
-    if (imageMap.containsKey(characterName)) {
-      return 'assets/images/${imageMap[characterName]}';
-    }
-
-    final lowerName = characterName.toLowerCase();
-    for (final entry in imageMap.entries) {
-      if (lowerName.contains(entry.key.toLowerCase()) ||
-          entry.key.toLowerCase().contains(lowerName)) {
-        return 'assets/images/${entry.value}';
-      }
-    }
-
-    return 'assets/images/inner_critic.png';
+    _repository = GuiderSessionRepository();
   }
 
   String _formatDuration(int seconds) {
+    if (seconds <= 0) return tr(context, 'Just started', 'بدأت للتو');
     final minutes = seconds ~/ 60;
     final remainingSeconds = seconds % 60;
     if (minutes > 0) {
@@ -115,97 +42,61 @@ class _VideoSessionsScreenState extends State<VideoSessionsScreen> {
     return '${remainingSeconds}s';
   }
 
-  String _formatWhen(DateTime? dt) {
+  String _formatDateTime(DateTime? dt) {
     if (dt == null) return tr(context, 'Just now', 'الآن');
     final local = dt.toLocal();
-    final y = local.year.toString().padLeft(4, '0');
-    final m = local.month.toString().padLeft(2, '0');
-    final d = local.day.toString().padLeft(2, '0');
-    final hh = local.hour.toString().padLeft(2, '0');
-    final mm = local.minute.toString().padLeft(2, '0');
-    return '$y-$m-$d  $hh:$mm';
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final date = DateTime(local.year, local.month, local.day);
+
+    if (date == today) {
+      return 'Today ${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
+    }
+
+    final yesterday = DateTime(now.year, now.month, now.day - 1);
+    if (date == yesterday) {
+      return 'Yesterday ${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
+    }
+
+    return '${local.day}/${local.month}/${local.year} ${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
   }
 
   Future<void> _startNewSession() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-
-    final active = await _sessionRepository.getActiveVideoSession(
-      uid: user.uid,
-      characterId: _characterIdForBackend,
-    );
-
-    if (!mounted) return;
-
-    if (active != null) {
-      final shouldEnd = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text(tr(context, 'Active session exists', 'هناك جلسة نشطة')),
-          content: Text(
-            tr(
-              context,
-              'You already have an active video session with this character. To start a new one, the current session must be ended first.',
-              'لديك بالفعل جلسة فيديو نشطة مع هذه الشخصية. لبدء جلسة جديدة، يجب إنهاء الجلسة الحالية أولاً.',
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: Text(tr(context, 'Cancel', 'إلغاء')),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: Text(tr(context, 'End & start new', 'إنهاء وبدء جديد')),
-            ),
-          ],
-        ),
-      );
-
-      if (shouldEnd != true) return;
-
-      await _sessionRepository.endVideoSession(
-        uid: user.uid,
-        sessionId: active.id,
-      );
-    }
-
-    await Navigator.of(context).push(
+    final result = await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => VideoCallScreen(
-          character: widget.character,
+        builder: (_) => GuiderVideoCallScreen(
+          userName: widget.userName,
+          characterId: widget.characterId,
         ),
       ),
     );
 
-    // Refresh after returning from call
     if (mounted) {
       setState(() {});
     }
   }
 
-  Future<void> _openSession(VideoSession session) async {
+  Future<void> _openSession(GuiderSession session) async {
     if (!mounted) return;
 
     if (session.isActive) {
       await Navigator.of(context).push(
         MaterialPageRoute(
-          builder: (_) => VideoCallScreen(
-            character: widget.character,
-            existingSessionId: session.id,
+          builder: (_) => GuiderVideoCallScreen(
+            userName: widget.userName,
+            characterId: widget.characterId,
           ),
         ),
       );
-      // Refresh after returning from active session
       if (mounted) {
         setState(() {});
       }
     } else {
       await Navigator.of(context).push(
         MaterialPageRoute(
-          builder: (_) => VideoSessionViewerScreen(
-            character: widget.character,
+          builder: (_) => GuiderSessionViewerScreen(
             session: session,
+            userName: widget.userName,
           ),
         ),
       );
@@ -224,8 +115,6 @@ class _VideoSessionsScreenState extends State<VideoSessionsScreen> {
       );
     }
 
-    final title = widget.character.getDisplayName(isArabic(context) ? 'ar' : 'en');
-
     return Scaffold(
       backgroundColor: const Color(0xFFF9F6FF),
       body: Container(
@@ -243,6 +132,7 @@ class _VideoSessionsScreenState extends State<VideoSessionsScreen> {
         child: SafeArea(
           child: Column(
             children: [
+              // App Bar
               Padding(
                 padding: const EdgeInsets.fromLTRB(18, 8, 18, 8),
                 child: Row(
@@ -254,7 +144,7 @@ class _VideoSessionsScreenState extends State<VideoSessionsScreen> {
                     Expanded(
                       child: Center(
                         child: Text(
-                          tr(context, 'Video Sessions', 'جلسات الفيديو'),
+                          tr(context, 'Guider Sessions', 'جلسات المرشد'),
                           style: const TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.w800,
@@ -267,31 +157,28 @@ class _VideoSessionsScreenState extends State<VideoSessionsScreen> {
                   ],
                 ),
               ),
+              // Header Card
               Padding(
                 padding: const EdgeInsets.fromLTRB(18, 6, 18, 12),
-                child: _CharacterHeaderCard(
-                  title: title,
+                child: _HeaderCard(
+                  title: tr(context, 'The Guider', 'المرشد'),
                   subtitle: tr(
                     context,
-                    'Pick a past session or start a new video call.',
-                    'اختر جلسة سابقة أو ابدأ مكالمة فيديو جديدة.',
+                    'Pick a past session or start a new video call with The Guider.',
+                    'اختر جلسة سابقة أو ابدأ مكالمة فيديو جديدة مع المرشد.',
                   ),
-                  avatarPath: _assistantAvatarPath,
                 ),
               ),
+              // Sessions List
               Expanded(
                 child: RefreshIndicator(
                   key: _refreshIndicatorKey,
                   onRefresh: () async {
-                    // Force refresh by rebuilding the stream
                     setState(() {});
                     await Future.delayed(const Duration(milliseconds: 500));
                   },
-                  child: StreamBuilder<List<VideoSession>>(
-                    stream: _sessionRepository.streamVideoSessionsForCharacter(
-                      uid: user.uid,
-                      characterId: _characterIdForBackend,
-                    ),
+                  child: StreamBuilder<List<GuiderSession>>(
+                    stream: _repository.streamGuiderSessions(uid: user.uid),
                     builder: (context, snapshot) {
                       if (snapshot.connectionState == ConnectionState.waiting) {
                         return const Center(
@@ -317,9 +204,7 @@ class _VideoSessionsScreenState extends State<VideoSessionsScreen> {
                                 ),
                                 const SizedBox(height: 12),
                                 TextButton(
-                                  onPressed: () {
-                                    setState(() {});
-                                  },
+                                  onPressed: () => setState(() {}),
                                   child: Text(tr(context, 'Retry', 'إعادة المحاولة')),
                                 ),
                               ],
@@ -328,29 +213,62 @@ class _VideoSessionsScreenState extends State<VideoSessionsScreen> {
                         );
                       }
 
-                      final allSessions = snapshot.data ?? const <VideoSession>[];
+                      final allSessions = snapshot.data ?? const <GuiderSession>[];
 
-                      // Filter sessions: show active sessions AND completed sessions with duration > 0
+                      // Filter sessions: show active sessions AND completed sessions with content
                       final sessions = allSessions.where((session) {
                         if (session.isActive) return true;
-                        return session.duration > 0;
+                        if (session.threadId.isNotEmpty) return true;
+                        if (session.duration > 0) return true;
+                        if (session.endedAt != null) return true;
+
+                        final hasFaceEmotion = (session.faceEmotion?['totalDetections'] ?? 0) > 0;
+                        final hasVoiceEmotion = (session.voiceTone?['totalDetections'] ?? 0) > 0;
+                        if (hasFaceEmotion || hasVoiceEmotion) return true;
+
+                        return false;
                       }).toList();
 
                       if (sessions.isEmpty) {
                         return Center(
                           child: Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 28),
-                            child: Text(
-                              tr(
-                                context,
-                                'No video sessions yet. Start your first session to begin.',
-                                'لا توجد جلسات فيديو بعد. ابدأ أول جلسة لتبدأ.',
-                              ),
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                color: Color(0xFF4B3A66),
-                                height: 1.5,
-                              ),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(
+                                  Icons.assistant_navigation,
+                                  color: Color(0xFFB79CFF),
+                                  size: 54,
+                                ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  tr(
+                                    context,
+                                    'No Guider sessions yet. Start your first session to begin.',
+                                    'لا توجد جلسات مرشد بعد. ابدأ أول جلسة لتبدأ.',
+                                  ),
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    color: Color(0xFF4B3A66),
+                                    height: 1.5,
+                                  ),
+                                ),
+                                const SizedBox(height: 24),
+                                ElevatedButton.icon(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF8E7CFF),
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                  ),
+                                  onPressed: _startNewSession,
+                                  icon: const Icon(Icons.videocam_rounded),
+                                  label: Text(tr(context, 'Start a Session', 'ابدأ جلسة')),
+                                ),
+                              ],
                             ),
                           ),
                         );
@@ -362,16 +280,18 @@ class _VideoSessionsScreenState extends State<VideoSessionsScreen> {
                         separatorBuilder: (_, __) => const SizedBox(height: 10),
                         itemBuilder: (context, index) {
                           final s = sessions[index];
-                          final when = _formatWhen(s.startedAt);
+                          final when = _formatDateTime(s.startedAt);
                           final duration = _formatDuration(s.duration);
+
+                          final subtitle = s.isActive
+                              ? tr(context, 'Started: $when', 'بدأت: $when')
+                              : (s.duration > 0
+                              ? tr(context, '$when • $duration', '$when • $duration')
+                              : when);
 
                           final statusLabel = s.isActive
                               ? tr(context, 'Active', 'نشطة')
                               : tr(context, 'Ended', 'منتهية');
-
-                          final subtitle = s.isActive
-                              ? tr(context, 'Started: $when', 'بدأت: $when')
-                              : tr(context, '$when • $duration', '$when • $duration');
 
                           return _SessionTile(
                             title: tr(
@@ -382,7 +302,7 @@ class _VideoSessionsScreenState extends State<VideoSessionsScreen> {
                             subtitle: subtitle,
                             statusLabel: statusLabel,
                             isActive: s.isActive,
-                            guiderJoined: s.guiderJoined,
+                            hasGuider: true, // Always true for Guider sessions
                             onTap: () => _openSession(s),
                           );
                         },
@@ -391,6 +311,7 @@ class _VideoSessionsScreenState extends State<VideoSessionsScreen> {
                   ),
                 ),
               ),
+              // Start New Session Button
               Padding(
                 padding: EdgeInsets.fromLTRB(
                   18,
@@ -412,7 +333,10 @@ class _VideoSessionsScreenState extends State<VideoSessionsScreen> {
                     ),
                     onPressed: _startNewSession,
                     icon: const Icon(Icons.videocam_rounded),
-                    label: Text(tr(context, 'Start a new video session', 'ابدأ جلسة فيديو جديدة')),
+                    label: Text(
+                      tr(context, 'Start a new Guider session', 'ابدأ جلسة مرشد جديدة'),
+                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                    ),
                   ),
                 ),
               ),
@@ -454,15 +378,13 @@ class _CircleIconButton extends StatelessWidget {
   }
 }
 
-class _CharacterHeaderCard extends StatelessWidget {
+class _HeaderCard extends StatelessWidget {
   final String title;
   final String subtitle;
-  final String avatarPath;
 
-  const _CharacterHeaderCard({
+  const _HeaderCard({
     required this.title,
     required this.subtitle,
-    required this.avatarPath,
   });
 
   @override
@@ -476,20 +398,17 @@ class _CharacterHeaderCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          CircleAvatar(
-            radius: 26,
-            backgroundColor: const Color(0xFFB79CFF).withOpacity(0.18),
-            child: ClipOval(
-              child: Image.asset(
-                avatarPath,
-                width: 54,
-                height: 54,
-                fit: BoxFit.contain,
-                errorBuilder: (_, __, ___) => const Icon(
-                  Icons.psychology_alt_rounded,
-                  color: Color(0xFF8E7CFF),
-                ),
-              ),
+          Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              color: const Color(0xFF8E7CFF).withOpacity(0.15),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.assistant_navigation,
+              color: Color(0xFF8E7CFF),
+              size: 28,
             ),
           ),
           const SizedBox(width: 12),
@@ -528,7 +447,7 @@ class _SessionTile extends StatelessWidget {
   final String subtitle;
   final String statusLabel;
   final bool isActive;
-  final bool guiderJoined;
+  final bool hasGuider;
   final VoidCallback onTap;
 
   const _SessionTile({
@@ -536,7 +455,7 @@ class _SessionTile extends StatelessWidget {
     required this.subtitle,
     required this.statusLabel,
     required this.isActive,
-    required this.guiderJoined,
+    required this.hasGuider,
     required this.onTap,
   });
 
@@ -554,6 +473,7 @@ class _SessionTile extends StatelessWidget {
         ),
         child: Row(
           children: [
+            // Icon Container
             Container(
               width: 40,
               height: 40,
@@ -570,6 +490,7 @@ class _SessionTile extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 12),
+            // Title and Subtitle
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -584,7 +505,7 @@ class _SessionTile extends StatelessWidget {
                           color: Color(0xFF2A1E3B),
                         ),
                       ),
-                      if (guiderJoined) ...[
+                      if (hasGuider) ...[
                         const SizedBox(width: 8),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -595,18 +516,18 @@ class _SessionTile extends StatelessWidget {
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(
+                              const Icon(
                                 Icons.assistant_navigation,
                                 size: 10,
-                                color: const Color(0xFFB79CFF),
+                                color: Color(0xFFB79CFF),
                               ),
                               const SizedBox(width: 2),
                               Text(
                                 'Guider',
-                                style: TextStyle(
+                                style: const TextStyle(
                                   fontSize: 9,
                                   fontWeight: FontWeight.w600,
-                                  color: const Color(0xFFB79CFF),
+                                  color: Color(0xFFB79CFF),
                                 ),
                               ),
                             ],
@@ -627,6 +548,7 @@ class _SessionTile extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 10),
+            // Status Badge
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(

@@ -1,17 +1,17 @@
+// lib/features/guider/presentation/screens/guider_session_viewer_screen.dart
 import 'package:flutter/material.dart';
 import 'package:ana_ifs_app/l10n/app_strings.dart';
-import 'package:ana_ifs_app/features/character/domain/entities/user_character.dart';
-import 'package:ana_ifs_app/features/video_chat/domain/entities/video_session.dart';
-import 'package:ana_ifs_app/features/video_chat/presentation/screens/video_chat_history_screen.dart';
+import '../../domain/entities/guider_session.dart';
+import 'guider_chat_history_screen.dart';
 
-class VideoSessionViewerScreen extends StatelessWidget {
-  final UserCharacter character;
-  final VideoSession session;
+class GuiderSessionViewerScreen extends StatelessWidget {
+  final GuiderSession session;
+  final String userName;
 
-  const VideoSessionViewerScreen({
+  const GuiderSessionViewerScreen({
     super.key,
-    required this.character,
     required this.session,
+    required this.userName,
   });
 
   String _formatDuration(int seconds) {
@@ -30,12 +30,25 @@ class VideoSessionViewerScreen extends StatelessWidget {
         '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
   }
 
+  String _getEmotionLabel(String emotion) {
+    final labels = {
+      'happy': '😊 Happy',
+      'sad': '😢 Sad',
+      'angry': '😠 Angry',
+      'fearful': '😨 Fearful',
+      'surprised': '😲 Surprised',
+      'disgusted': '🤢 Disgusted',
+      'neutral': '😐 Neutral',
+    };
+    return labels[emotion] ?? emotion;
+  }
+
   void _viewChatHistory(BuildContext context) {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => VideoChatHistoryScreen(
-          character: character,
+        builder: (_) => GuiderChatHistoryScreen(
           session: session,
+          userName: userName,
         ),
       ),
     );
@@ -43,7 +56,6 @@ class VideoSessionViewerScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final title = character.getDisplayName(isArabic(context) ? 'ar' : 'en');
     final isArabicValue = isArabic(context);
 
     return Scaffold(
@@ -74,7 +86,7 @@ class VideoSessionViewerScreen extends StatelessWidget {
                     Expanded(
                       child: Center(
                         child: Text(
-                          title,
+                          tr(context, 'Guider Session', 'جلسة المرشد'),
                           style: const TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.w800,
@@ -99,8 +111,8 @@ class VideoSessionViewerScreen extends StatelessWidget {
                   child: Text(
                     tr(
                       context,
-                      'This video session has ended. You\'re viewing it in read-only mode.',
-                      'انتهت جلسة الفيديو هذه. أنت تعرضها الآن في وضع القراءة فقط.',
+                      'This Guider session has ended. You\'re viewing it in read-only mode.',
+                      'انتهت جلسة المرشد هذه. أنت تعرضها الآن في وضع القراءة فقط.',
                     ),
                     textAlign: TextAlign.center,
                     style: const TextStyle(
@@ -135,9 +147,9 @@ class VideoSessionViewerScreen extends StatelessWidget {
                                     shape: BoxShape.circle,
                                   ),
                                   child: const Icon(
-                                    Icons.videocam_rounded,
+                                    Icons.assistant_navigation,
                                     size: 30,
-                                    color: Color(0xFF8E7CFF),
+                                    color: Color(0xFFB79CFF),
                                   ),
                                 ),
                                 const SizedBox(width: 16),
@@ -146,7 +158,7 @@ class VideoSessionViewerScreen extends StatelessWidget {
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
                                       Text(
-                                        tr(context, 'Session Details', 'تفاصيل الجلسة'),
+                                        tr(context, 'Session with The Guider', 'جلسة مع المرشد'),
                                         style: const TextStyle(
                                           fontSize: 16,
                                           fontWeight: FontWeight.w700,
@@ -168,17 +180,29 @@ class VideoSessionViewerScreen extends StatelessWidget {
                             ),
                             const SizedBox(height: 20),
                             _InfoRow(
+                              label: tr(context, 'User', 'المستخدم'),
+                              value: userName,
+                            ),
+                            const SizedBox(height: 12),
+                            _InfoRow(
                               label: tr(context, 'Duration', 'المدة'),
                               value: _formatDuration(session.duration),
                             ),
                             const SizedBox(height: 12),
                             _InfoRow(
-                              label: tr(context, 'Guider Present', 'المُرشد حاضر'),
-                              value: session.guiderJoined
-                                  ? (isArabicValue ? 'نعم' : 'Yes')
-                                  : (isArabicValue ? 'لا' : 'No'),
+                              label: tr(context, 'Status', 'الحالة'),
+                              value: session.isActive
+                                  ? (isArabicValue ? 'نشطة' : 'Active')
+                                  : (isArabicValue ? 'منتهية' : 'Ended'),
                             ),
-                            if (session.emotionsTracked!.isNotEmpty) ...[
+                            if (session.characterId != null) ...[
+                              const SizedBox(height: 12),
+                              _InfoRow(
+                                label: tr(context, 'Character Focus', 'الشخصية المستهدفة'),
+                                value: session.characterId!.replaceAll('_', ' ').toUpperCase(),
+                              ),
+                            ],
+                            if (session.emotionsTracked != null && session.emotionsTracked!.isNotEmpty) ...[
                               const SizedBox(height: 12),
                               _InfoRow(
                                 label: tr(context, 'Emotions Tracked', 'المشاعر المسجلة'),
@@ -196,7 +220,7 @@ class VideoSessionViewerScreen extends StatelessWidget {
                             ElevatedButton.icon(
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: const Color(0xFFEDE7FF),
-                                foregroundColor: const Color(0xFF8E7CFF),
+                                foregroundColor: const Color(0xFFB79CFF),
                                 padding: const EdgeInsets.symmetric(vertical: 12),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(12),
@@ -213,6 +237,130 @@ class VideoSessionViewerScreen extends StatelessWidget {
                           ],
                         ),
                       ),
+                      if (session.faceEmotion != null && session.faceEmotion!.isNotEmpty) ...[
+                        const SizedBox(height: 20),
+                        Container(
+                          padding: const EdgeInsets.all(20),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: const Color(0xFFE5DEFF)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  const Icon(
+                                    Icons.face_rounded,
+                                    color: Color(0xFFB79CFF),
+                                    size: 20,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Text(
+                                    tr(context, 'Face Emotion Analysis', 'تحليل مشاعر الوجه'),
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF2A1E3B),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 15),
+                              _InfoRow(
+                                label: tr(context, 'Dominant Emotion', 'المشاعر السائدة'),
+                                value: _getEmotionLabel(session.faceEmotion?['dominant'] ?? 'neutral'),
+                              ),
+                              const SizedBox(height: 8),
+                              _InfoRow(
+                                label: tr(context, 'Average Confidence', 'متوسط الثقة'),
+                                value: '${((session.faceEmotion?['averageConfidence'] ?? 0) * 100).toInt()}%',
+                              ),
+                              const SizedBox(height: 8),
+                              _InfoRow(
+                                label: tr(context, 'Start Emotion', 'مشاعر البداية'),
+                                value: _getEmotionLabel(session.faceEmotion?['startEmotion'] ?? 'neutral'),
+                              ),
+                              const SizedBox(height: 8),
+                              _InfoRow(
+                                label: tr(context, 'End Emotion', 'مشاعر النهاية'),
+                                value: _getEmotionLabel(session.faceEmotion?['endEmotion'] ?? 'neutral'),
+                              ),
+                              if ((session.faceEmotion?['totalDetections'] ?? 0) > 0)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 8),
+                                  child: _InfoRow(
+                                    label: tr(context, 'Detections', 'عدد الكشوفات'),
+                                    value: '${session.faceEmotion?['totalDetections'] ?? 0}',
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ],
+                      if (session.voiceTone != null && session.voiceTone!.isNotEmpty) ...[
+                        const SizedBox(height: 20),
+                        Container(
+                          padding: const EdgeInsets.all(20),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: const Color(0xFFE5DEFF)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  const Icon(
+                                    Icons.mic_rounded,
+                                    color: Color(0xFFB79CFF),
+                                    size: 20,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Text(
+                                    tr(context, 'Voice Tone Analysis', 'تحليل نبرة الصوت'),
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF2A1E3B),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 15),
+                              _InfoRow(
+                                label: tr(context, 'Dominant Tone', 'النبرة السائدة'),
+                                value: _getEmotionLabel(session.voiceTone?['dominant'] ?? 'neutral'),
+                              ),
+                              const SizedBox(height: 8),
+                              _InfoRow(
+                                label: tr(context, 'Average Confidence', 'متوسط الثقة'),
+                                value: '${((session.voiceTone?['averageConfidence'] ?? 0) * 100).toInt()}%',
+                              ),
+                              const SizedBox(height: 8),
+                              _InfoRow(
+                                label: tr(context, 'Start Tone', 'نبرة البداية'),
+                                value: _getEmotionLabel(session.voiceTone?['startEmotion'] ?? 'neutral'),
+                              ),
+                              const SizedBox(height: 8),
+                              _InfoRow(
+                                label: tr(context, 'End Tone', 'نبرة النهاية'),
+                                value: _getEmotionLabel(session.voiceTone?['endEmotion'] ?? 'neutral'),
+                              ),
+                              if ((session.voiceTone?['totalDetections'] ?? 0) > 0)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 8),
+                                  child: _InfoRow(
+                                    label: tr(context, 'Detections', 'عدد الكشوفات'),
+                                    value: '${session.voiceTone?['totalDetections'] ?? 0}',
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ],
                       if (session.sessionSummary != null && session.sessionSummary!.isNotEmpty) ...[
                         const SizedBox(height: 20),
                         Container(
@@ -229,7 +377,7 @@ class VideoSessionViewerScreen extends StatelessWidget {
                                 children: [
                                   Icon(
                                     Icons.summarize_rounded,
-                                    color: const Color(0xFF8E7CFF),
+                                    color: const Color(0xFFB79CFF),
                                     size: 20,
                                   ),
                                   const SizedBox(width: 10),
@@ -246,24 +394,14 @@ class VideoSessionViewerScreen extends StatelessWidget {
                               const SizedBox(height: 15),
                               if (session.sessionSummary!['highlights'] != null)
                                 ..._buildHighlights(session.sessionSummary!['highlights']),
-                              if (session.sessionSummary!['nextStepSuggestion'] != null) ...[
-                                const SizedBox(height: 15),
-                                Container(
-                                  padding: const EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFF5F0FF),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Text(
-                                    session.sessionSummary!['nextStepSuggestion'],
-                                    style: const TextStyle(
-                                      fontSize: 14,
-                                      color: Color(0xFF4B3A66),
-                                      height: 1.5,
-                                    ),
+                              if (session.sessionSummary!['duration'] != null)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 12),
+                                  child: _InfoRow(
+                                    label: tr(context, 'Session Duration', 'مدة الجلسة'),
+                                    value: _formatDuration(session.sessionSummary!['duration']),
                                   ),
                                 ),
-                              ],
                             ],
                           ),
                         ),
@@ -290,7 +428,7 @@ class VideoSessionViewerScreen extends StatelessWidget {
               '• ',
               style: TextStyle(
                 fontSize: 14,
-                color: Color(0xFF8E7CFF),
+                color: Color(0xFFB79CFF),
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -329,7 +467,7 @@ class _CircleIconButton extends StatelessWidget {
           shape: BoxShape.circle,
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.06),
+              color: Colors.black.withOpacity(0.06),
               blurRadius: 12,
               offset: const Offset(0, 6),
             ),
