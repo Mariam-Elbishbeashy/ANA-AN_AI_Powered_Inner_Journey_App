@@ -9,8 +9,9 @@ import 'package:ana_ifs_app/features/character/domain/entities/user_character.da
 import 'package:ana_ifs_app/features/chat/presentation/screens/character_chat_sessions_screen.dart';
 import 'package:ana_ifs_app/features/voice_analysis/presentation/screens/voice_analysis_screen.dart';
 import 'package:ana_ifs_app/features/video_chat/presentation/screens/video_call_screen.dart';
-
+import 'package:ana_ifs_app/features/voice_analysis/presentation/screens/voice_sessions_screen.dart';
 import '../../../video_chat/presentation/screens/video_sessions_screen.dart';
+
 class CharacterProfileScreen extends StatefulWidget {
   final UserCharacter character;
   final bool hideCommunicationHub;
@@ -328,7 +329,7 @@ class _CharacterProfileScreenState extends State<CharacterProfileScreen> {
                           onVoice: () {
                             Navigator.of(context).push(
                               MaterialPageRoute(
-                                builder: (_) => VoiceAnalysisScreen(
+                                builder: (_) => VoiceSessionsScreen(
                                   character: widget.character,
                                 ),
                               ),
@@ -1524,8 +1525,8 @@ class _CommunicationHub extends StatelessWidget {
                   title: tr(context, 'Video', 'فيديو'),
                   subtitle: tr(
                     context,
-                    'Video call',
-                    'مكالمة فيديو',
+                    'Guided sessions',
+                    'جلسات موجهة',
                   ),
                   gradientColors: const [Color(0xFF6A5CFF), Color(0xFF4A3F8F)],
                   onTap: onVideo,

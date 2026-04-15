@@ -11,6 +11,7 @@ import 'package:ana_ifs_app/features/character/domain/entities/user_character.da
 
 import '../../../video_chat/presentation/screens/guider_sessions_screen.dart';
 
+import 'package:ana_ifs_app/features/voice_analysis/presentation/screens/voice_sessions_screen.dart';
 class ChatScreen extends StatelessWidget {
   final String name;
   final VoidCallback onLogout;
@@ -189,7 +190,7 @@ class ChatScreen extends StatelessWidget {
                   onVoice: () {
                     Navigator.of(context).push(
                       MaterialPageRoute(
-                        builder: (_) => VoiceAnalysisScreen(
+                        builder: (_) => VoiceSessionsScreen(
                           character: character,
                         ),
                       ),
@@ -425,7 +426,7 @@ class _GuiderCommunicationHub extends StatelessWidget {
                   subtitle: tr(
                     context,
                     'Video call',
-                    'مكلمة فيديو',
+                    'مكالمة فيديو',
                   ),
                   gradientColors: const [Color(0xFF6A5CFF), Color(0xFF4A3F8F)],
                   onTap: onVideo,
