@@ -64,7 +64,18 @@ except Exception as e:
 ARABIC_RE = re.compile(r"[\u0600-\u06FF]")
 
 def detect_lang(text: str) -> str:
-    return "ar" if ARABIC_RE.search(text or "") else "en"
+    if not text:
+        return "en"
+
+    arabic_chars = len(re.findall(r"[\u0600-\u06FF]", text))
+    total_chars = len(text)
+
+    if total_chars == 0:
+        return "en"
+
+    ratio = arabic_chars / total_chars
+
+    return "ar" if ratio > 0.3 else "en"
 
 
 def _now_iso() -> str:
@@ -498,6 +509,7 @@ def transcribe_audio(wav_path: str) -> str:
         t = client.audio.transcriptions.create(
             model=OPENAI_TRANSCRIBE_MODEL,
             file=f,
+            language="en"
         )
         return (getattr(t, "text", "") or "").strip()
 
@@ -538,7 +550,8 @@ def get_character_response(uid: str, character_id: str, character_profile: Dict,
                 "characterId": character_id,
                 "characterProfile": character_profile,
                 "messages": messages,
-                "checkIntervention": True
+                "checkIntervention": True,
+                "language": "en"
             },
             timeout=30
         )
@@ -556,7 +569,8 @@ def get_guided_response(uid: str, character_id: str, character_profile: Dict, me
                 "uid": uid,
                 "characterId": character_id,
                 "characterProfile": character_profile,
-                "messages": messages
+                "messages": messages,
+                 "language": "en"
             },
             timeout=30
         )
@@ -789,7 +803,7 @@ def voice_chat():
             "fear": "",
             "whatINeed": []
         }
-
+        emotion_session_id = None
         if db:
             _ensure_session_doc(uid, session_id, character_id, thread_id, character_profile)
             _ensure_thread_doc(uid, thread_id, session_id, character_id, character_profile)
@@ -925,6 +939,17 @@ def voice_chat():
 
         out_name = f"{uid}_{character_id}_{ts}_ai.wav"
         out_path = os.path.join(TTS_DIR, out_name)
+        # FORCE FINAL OUTPUT LANGUAGE SAFETY
+        if detect_lang(assistant_text) == "ar":
+            print("⚠️ Arabic output detected, forcing English fallback")
+            assistant_text = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": "Rewrite in natural, simple English. Keep meaning unchanged. No extra text."},
+                    {"role": "user", "content": assistant_text}
+                ],
+                temperature=0.2
+            ).choices[0].message.content
         tts_to_file(assistant_text, out_path, voice=voice_to_use)
         audio_url = make_public_audio_url(request, out_name)
 

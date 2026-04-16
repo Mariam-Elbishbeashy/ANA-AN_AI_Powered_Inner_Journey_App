@@ -3,7 +3,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-
+import 'package:ana_ifs_app/features/voice_analysis/presentation/screens/guider_voice_sessions_screen.dart';
 import 'package:ana_ifs_app/l10n/app_strings.dart';
 import 'package:ana_ifs_app/features/character/domain/entities/user_character.dart';
 import 'package:ana_ifs_app/features/chat/presentation/screens/character_chat_sessions_screen.dart';
@@ -329,8 +329,9 @@ class _CharacterProfileScreenState extends State<CharacterProfileScreen> {
                           onVoice: () {
                             Navigator.of(context).push(
                               MaterialPageRoute(
-                                builder: (_) => VoiceSessionsScreen(
-                                  character: widget.character,
+                                builder: (_) => GuiderVoiceSessionsScreen(
+                                  userName: widget.character.displayNameEn, // or get user's name from somewhere
+                                  characterId: widget.character.id,
                                 ),
                               ),
                             );
