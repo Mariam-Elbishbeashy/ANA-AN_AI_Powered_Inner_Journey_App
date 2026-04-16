@@ -45,6 +45,11 @@ class VoiceSessionViewerScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final title = character.displayNameEn;
     final isArabicValue = isArabic(context);
+    final durationSeconds = session.duration > 0
+        ? session.duration
+        : session.endedAt != null
+        ? session.endedAt!.difference(session.startedAt).inSeconds
+        : 0;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF9F6FF),
@@ -167,31 +172,11 @@ class VoiceSessionViewerScreen extends StatelessWidget {
                               ],
                             ),
                             const SizedBox(height: 20),
+
                             _InfoRow(
                               label: tr(context, 'Duration', 'المدة'),
-                              value: _formatDuration(session.duration),
+                              value: _formatDuration(durationSeconds),
                             ),
-                            const SizedBox(height: 12),
-                            _InfoRow(
-                              label: tr(context, 'Guider Present', 'المُرشد حاضر'),
-                              value: session.guiderJoined
-                                  ? (isArabicValue ? 'نعم' : 'Yes')
-                                  : (isArabicValue ? 'لا' : 'No'),
-                            ),
-                            if (session.emotionsTracked.isNotEmpty) ...[
-                              const SizedBox(height: 12),
-                              _InfoRow(
-                                label: tr(context, 'Emotions Tracked', 'المشاعر المسجلة'),
-                                value: session.emotionsTracked.join(', '),
-                              ),
-                            ],
-                            if (session.intensityStart != null && session.intensityEnd != null) ...[
-                              const SizedBox(height: 12),
-                              _InfoRow(
-                                label: tr(context, 'Intensity Change', 'تغير الشدة'),
-                                value: '${(session.intensityStart! * 100).toInt()}% → ${(session.intensityEnd! * 100).toInt()}%',
-                              ),
-                            ],
                             const SizedBox(height: 20),
                             ElevatedButton.icon(
                               style: ElevatedButton.styleFrom(
@@ -213,61 +198,7 @@ class VoiceSessionViewerScreen extends StatelessWidget {
                           ],
                         ),
                       ),
-                      if (session.sessionSummary != null && session.sessionSummary!.isNotEmpty) ...[
-                        const SizedBox(height: 20),
-                        Container(
-                          padding: const EdgeInsets.all(20),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: const Color(0xFFE5DEFF)),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Icon(
-                                    Icons.summarize_rounded,
-                                    color: const Color(0xFF8E7CFF),
-                                    size: 20,
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Text(
-                                    tr(context, 'Session Summary', 'ملخص الجلسة'),
-                                    style: const TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w700,
-                                      color: Color(0xFF2A1E3B),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 15),
-                              if (session.sessionSummary!['highlights'] != null)
-                                ..._buildHighlights(session.sessionSummary!['highlights']),
-                              if (session.sessionSummary!['nextStepSuggestion'] != null) ...[
-                                const SizedBox(height: 15),
-                                Container(
-                                  padding: const EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFF5F0FF),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Text(
-                                    session.sessionSummary!['nextStepSuggestion'],
-                                    style: const TextStyle(
-                                      fontSize: 14,
-                                      color: Color(0xFF4B3A66),
-                                      height: 1.5,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                      ],
+
                     ],
                   ),
                 ),

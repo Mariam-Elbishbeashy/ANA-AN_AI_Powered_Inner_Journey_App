@@ -72,15 +72,50 @@ class _VoiceChatHistoryScreenState extends State<VoiceChatHistoryScreen> {
     return '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
   }
 
-  String _formatDate(DateTime? dt) {
-    if (dt == null) return '';
-    final local = dt.toLocal();
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return '${months[local.month - 1]} ${local.day}, ${local.year}';
+  String _getCharacterDisplayName() {
+    final isArabic = _isArabic();
+    return widget.character.getDisplayName(isArabic ? 'ar' : 'en');
   }
 
-  String _getCharacterDisplayName() {
-    return widget.character.displayNameEn;
+  String _getCharacterAvatarPath() {
+    final imageMap = {
+      'Inner Critic': 'inner_critic.png',
+      'People Pleaser': 'people_pleaser.png',
+      'Lonely Part': 'lonely.png',
+      'Jealous Part': 'jealous.png',
+      'Ashamed Part': 'ashamed.png',
+      'Workaholic': 'workaholic.png',
+      'Perfectionist': 'perfictionist.png',
+      'Procrastinator': 'procrastinator.png',
+      'Excessive Gamer': 'excessive_gamer.png',
+      'Confused Part': 'confused.png',
+      'Dependent Part': 'dependant.png',
+      'Fearful Part': 'fearful.png',
+      'Neglected Part': 'neglected.png',
+      'Overeater': 'overeater_binger.png',
+      'Binger': 'overeater_binger.png',
+      'Overeater/Binger': 'overeater_binger.png',
+      'Overwhelmed Part': 'overwhelmed.png',
+      'Stoic Part': 'stoic.png',
+      'Wounded Child': 'wounded_child.png',
+      'Controller': 'controller.png',
+      'Controller Part': 'controller.png',
+    };
+
+    final characterName = widget.character.characterName;
+    if (imageMap.containsKey(characterName)) {
+      return 'assets/images/${imageMap[characterName]}';
+    }
+
+    final lowerName = characterName.toLowerCase();
+    for (final entry in imageMap.entries) {
+      if (lowerName.contains(entry.key.toLowerCase()) ||
+          entry.key.toLowerCase().contains(lowerName)) {
+        return 'assets/images/${entry.value}';
+      }
+    }
+
+    return 'assets/images/inner_critic.png';
   }
 
   bool _isArabic() {
@@ -89,9 +124,19 @@ class _VoiceChatHistoryScreenState extends State<VoiceChatHistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF9F6FF),
+        body: Center(
+          child: Text(tr(context, 'Please sign in to continue.', 'يرجى تسجيل الدخول للمتابعة.')),
+        ),
+      );
+    }
+
     final isArabic = _isArabic();
     final characterName = _getCharacterDisplayName();
-    final sessionDate = _formatDate(widget.session.startedAt);
+    final characterAvatarPath = _getCharacterAvatarPath();
 
     return Scaffold(
       backgroundColor: const Color(0xFFF9F6FF),
@@ -110,11 +155,58 @@ class _VoiceChatHistoryScreenState extends State<VoiceChatHistoryScreen> {
         child: SafeArea(
           child: Column(
             children: [
-              _buildAppBar(isArabic),
-              _buildSessionBanner(isArabic, sessionDate),
-              _buildCharacterHeader(isArabic, characterName),
-              const Divider(height: 1, color: Color(0xFFE5DEFF)),
-              Expanded(child: _buildMessageList(isArabic, characterName)),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 8, 18, 8),
+                child: Row(
+                  children: [
+                    _CircleIconButton(
+                      icon: Icons.arrow_back_rounded,
+                      onTap: () => Navigator.pop(context),
+                    ),
+                    Expanded(
+                      child: Center(
+                        child: Text(
+                          characterName,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF2A1E3B),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 44),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 0, 18, 10),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFA790ED),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0xFFE5DEFF)),
+                  ),
+                  child: Text(
+                    tr(
+                      context,
+                      'This session has ended. You\'re viewing it in read-only mode.',
+                      'انتهت هذه الجلسة. أنت تعرضها الآن في وضع القراءة فقط.',
+                    ),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: _buildMessageList(isArabic, characterName, characterAvatarPath),
+              ),
             ],
           ),
         ),
@@ -122,141 +214,7 @@ class _VoiceChatHistoryScreenState extends State<VoiceChatHistoryScreen> {
     );
   }
 
-  Widget _buildAppBar(bool isArabic) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 8, 18, 8),
-      child: Row(
-        children: [
-          _CircleIconButton(
-            icon: Icons.arrow_back_rounded,
-            onTap: () => Navigator.pop(context),
-          ),
-          Expanded(
-            child: Center(
-              child: Text(
-                tr(context, 'Chat History', 'سجل المحادثة'),
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF2A1E3B),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 44),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSessionBanner(bool isArabic, String sessionDate) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 0, 18, 12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: const Color(0xFFA790ED),
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: Row(
-          children: [
-            const Icon(Icons.history, color: Colors.white, size: 18),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                isArabic
-                    ? 'سجل المحادثة للقراءة فقط - $sessionDate'
-                    : 'Read-only chat history - $sessionDate',
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.white,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCharacterHeader(bool isArabic, String characterName) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-      child: Row(
-        children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: const Color(0xFFEDE7FF),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.mic_rounded,
-              color: Color(0xFF8E7CFF),
-              size: 26,
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  characterName,
-                  style: const TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF2A1E3B),
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  isArabic
-                      ? '${_messages.length} رسالة'
-                      : '${_messages.length} messages',
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: Color(0xFF6B5C82),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (widget.session.guiderJoined)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(
-                color: const Color(0xFFB79CFF).withOpacity(0.15),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(
-                    Icons.assistant_navigation,
-                    size: 14,
-                    color: Color(0xFFB79CFF),
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    tr(context, 'Guider', 'مرشد'),
-                    style: const TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFFB79CFF),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMessageList(bool isArabic, String characterName) {
+  Widget _buildMessageList(bool isArabic, String characterName, String characterAvatarPath) {
     if (_isLoading) {
       return const Center(
         child: CircularProgressIndicator(
@@ -270,12 +228,21 @@ class _VoiceChatHistoryScreenState extends State<VoiceChatHistoryScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.error_outline, color: Color(0xFFE57373), size: 54),
+            const Icon(Icons.error_outline, color: Color(0xFFE57373), size: 48),
             const SizedBox(height: 16),
             Text(
               _error!,
               textAlign: TextAlign.center,
-              style: const TextStyle(color: Color(0xFF6B5C82), fontSize: 14),
+              style: const TextStyle(color: Color(0xFF6B5C82)),
+            ),
+            const SizedBox(height: 12),
+            TextButton(
+              onPressed: () {
+                setState(() {
+                  _loadMessages();
+                });
+              },
+              child: Text(tr(context, 'Retry', 'إعادة المحاولة')),
             ),
           ],
         ),
@@ -318,6 +285,8 @@ class _VoiceChatHistoryScreenState extends State<VoiceChatHistoryScreen> {
           isUser: isUser,
           isGuider: isGuider,
           isArabic: isArabic,
+          characterName: characterName,
+          characterAvatarPath: characterAvatarPath,
         );
       },
     );
@@ -361,6 +330,8 @@ class _ChatBubble extends StatelessWidget {
   final bool isUser;
   final bool isGuider;
   final bool isArabic;
+  final String characterName;
+  final String characterAvatarPath;
 
   const _ChatBubble({
     required this.message,
@@ -369,6 +340,8 @@ class _ChatBubble extends StatelessWidget {
     required this.isUser,
     required this.isGuider,
     required this.isArabic,
+    required this.characterName,
+    required this.characterAvatarPath,
   });
 
   String _formatTime() {
@@ -383,104 +356,103 @@ class _ChatBubble extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 16),
       child: Row(
         mainAxisAlignment: isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
-        crossAxisAlignment: CrossAxisAlignment.end,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Character avatar for non-user messages
           if (!isUser)
             Container(
               width: 36,
               height: 36,
               margin: const EdgeInsets.only(right: 10),
-              decoration: BoxDecoration(
-                color: isGuider
-                    ? const Color(0xFFB79CFF).withOpacity(0.15)
-                    : const Color(0xFFEDE7FF),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                isGuider ? Icons.assistant_navigation : Icons.mic_rounded,
-                size: 20,
-                color: isGuider ? const Color(0xFFB79CFF) : const Color(0xFF8E7CFF),
-              ),
-            ),
-          Flexible(
-            child: Container(
-              constraints: BoxConstraints(
-                maxWidth: MediaQuery.of(context).size.width * 0.72,
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              decoration: BoxDecoration(
-                color: isUser
-                    ? const Color(0xFF8E7CFF)
-                    : (isGuider
-                    ? const Color(0xFFF5F0FF)
-                    : Colors.white),
-                borderRadius: BorderRadius.only(
-                  topLeft: const Radius.circular(20),
-                  topRight: const Radius.circular(20),
-                  bottomLeft: Radius.circular(isUser ? 20 : 6),
-                  bottomRight: Radius.circular(isUser ? 6 : 20),
-                ),
-                border: (!isUser && !isGuider)
-                    ? Border.all(color: const Color(0xFFE5DEFF))
-                    : null,
-              ),
-              child: Column(
-                crossAxisAlignment: isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-                children: [
-                  if (!isUser)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 5),
-                      child: Text(
-                        sender,
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: isGuider
-                              ? const Color(0xFFB79CFF)
-                              : const Color(0xFF8E7CFF),
-                        ),
-                      ),
+              child: ClipOval(
+                child: Image.asset(
+                  characterAvatarPath,
+                  width: 36,
+                  height: 36,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: isGuider
+                          ? const Color(0xFFB79CFF).withOpacity(0.18)
+                          : const Color(0xFFEDE7FF),
+                      shape: BoxShape.circle,
                     ),
-                  Text(
-                    message,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: isUser ? Colors.white : const Color(0xFF2A1E3B),
-                      height: 1.4,
+                    child: Icon(
+                      isGuider ? Icons.assistant_navigation : Icons.mic_rounded,
+                      size: 20,
+                      color: isGuider ? const Color(0xFFB79CFF) : const Color(0xFF8E7CFF),
                     ),
                   ),
-                  if (timestamp != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: Text(
-                        _formatTime(),
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: isUser
-                              ? Colors.white.withOpacity(0.7)
-                              : const Color(0xFF6B5C82),
-                        ),
+                ),
+              ),
+            ),
+
+          Flexible(
+            child: Column(
+              crossAxisAlignment: isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+              children: [
+                // Sender name for non-user messages
+                if (!isUser)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4, left: 4),
+                    child: Text(
+                      sender,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: isGuider
+                            ? const Color(0xFFB79CFF)
+                            : const Color(0xFF8E7CFF),
                       ),
                     ),
-                ],
-              ),
+                  ),
+
+                // Message bubble - white with border (EXACTLY like video)
+                Container(
+                  constraints: BoxConstraints(
+                    maxWidth: MediaQuery.of(context).size.width * 0.72,
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.only(
+                      topLeft: const Radius.circular(20),
+                      topRight: const Radius.circular(20),
+                      bottomLeft: Radius.circular(isUser ? 20 : 6),
+                      bottomRight: Radius.circular(isUser ? 6 : 20),
+                    ),
+                    border: Border.all(color: const Color(0xFFE5DEFF)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        message,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          color: Color(0xFF2A1E3B),
+                          height: 1.4,
+                        ),
+                      ),
+                      if (timestamp != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Text(
+                            _formatTime(),
+                            style: const TextStyle(
+                              fontSize: 10,
+                              color: Color(0xFF6B5C82),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
-          if (isUser)
-            Container(
-              width: 36,
-              height: 36,
-              margin: const EdgeInsets.only(left: 10),
-              decoration: BoxDecoration(
-                color: const Color(0xFF8E7CFF).withOpacity(0.15),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.person_outline,
-                size: 20,
-                color: Color(0xFF8E7CFF),
-              ),
-            ),
         ],
       ),
     );

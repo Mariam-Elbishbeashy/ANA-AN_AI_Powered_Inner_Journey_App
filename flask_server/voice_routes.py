@@ -44,22 +44,19 @@ os.makedirs(TTS_DIR, exist_ok=True)
 db = None
 try:
     import firebase_admin
-    from firebase_admin import credentials, firestore
+    from firebase_admin import firestore
 
-    key_path = os.getenv("FIREBASE_KEY_PATH", os.path.join(BASE_DIR, "firebase-key.json"))
-    if os.path.exists(key_path):
-        try:
-            firebase_admin.get_app()
-        except ValueError:
-            cred = credentials.Certificate(key_path)
-            firebase_admin.initialize_app(cred)
-        db = firestore.client()
-        print("✅ Firebase initialized (voice_routes)")
-    else:
-        print("⚠️ Firebase key not found - running without Firestore (voice_routes)")
-except Exception:
+    try:
+        firebase_admin.get_app()
+    except ValueError:
+        firebase_admin.initialize_app()
+
+    db = firestore.client()
+    print("✅ Firebase initialized using environment credentials")
+
+except Exception as e:
     db = None
-    print("⚠️ Firebase not initialized - running without Firestore (voice_routes)")
+    print(f"⚠️ Firebase not initialized: {e}")
 
 # =============================
 # Language detection

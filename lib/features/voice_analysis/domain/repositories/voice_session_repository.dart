@@ -6,6 +6,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 class VoiceSession {
   final String id;
+  final String uid;
   final String characterId;
   final String? threadId;
   final DateTime startedAt;
@@ -20,6 +21,7 @@ class VoiceSession {
 
   VoiceSession({
     required this.id,
+    required this.uid,
     required this.characterId,
     this.threadId,
     required this.startedAt,
@@ -36,6 +38,7 @@ class VoiceSession {
   factory VoiceSession.fromFirestore(String id, Map<String, dynamic> map) {
     return VoiceSession(
       id: id,
+      uid: map['uid'] ?? '',
       characterId: map['characterId'] ?? '',
       threadId: map['threadId'],
       startedAt: (map['startedAt'] as Timestamp).toDate(),
@@ -98,6 +101,7 @@ class VoiceSessionRepository {
         .doc(uid)
         .collection('sessions')
         .where('characterId', isEqualTo: characterId)
+        .where('type', isEqualTo: 'voice') // ✅ IMPORTANT FILTER
         .orderBy('startedAt', descending: true)
         .snapshots()
         .map((snapshot) {
@@ -137,14 +141,33 @@ class VoiceSessionRepository {
     required String uid,
     required String sessionId,
   }) async {
-    await _firestore
+    final docRef = _firestore
         .collection('users')
         .doc(uid)
         .collection('sessions')
-        .doc(sessionId)
-        .update({
+        .doc(sessionId);
+
+    final doc = await docRef.get();
+    final data = doc.data();
+
+    // ✅ ADD THIS (IMPORTANT SAFETY CHECK)
+    if (data == null) return;
+
+    // ✅ FIXED startedAt parsing
+    final startedAt = data['startedAt'] != null
+        ? (data['startedAt'] as Timestamp).toDate()
+        : null;
+
+    final endedAt = DateTime.now();
+
+    final duration = startedAt != null
+        ? endedAt.difference(startedAt).inSeconds
+        : 0;
+
+    await docRef.update({
       'status': 'ended',
       'endedAt': FieldValue.serverTimestamp(),
+      'duration': duration,
     });
   }
 
