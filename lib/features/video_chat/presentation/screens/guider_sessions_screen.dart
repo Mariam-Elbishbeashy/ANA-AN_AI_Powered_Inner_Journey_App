@@ -157,7 +157,7 @@ class _GuiderSessionsScreenState extends State<GuiderSessionsScreen> {
                   ],
                 ),
               ),
-              // Header Card
+              // Header Card with Guider Image
               Padding(
                 padding: const EdgeInsets.fromLTRB(18, 6, 18, 12),
                 child: _HeaderCard(
@@ -398,17 +398,21 @@ class _HeaderCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Container(
-            width: 52,
-            height: 52,
-            decoration: BoxDecoration(
-              color: const Color(0xFF8E7CFF).withOpacity(0.15),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.assistant_navigation,
-              color: Color(0xFF8E7CFF),
-              size: 28,
+          CircleAvatar(
+            radius: 26,
+            backgroundColor: const Color(0xFFB79CFF).withOpacity(0.18),
+            child: ClipOval(
+              child: Image.asset(
+                'assets/images/guider.png',
+                width: 52,
+                height: 52,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => const Icon(
+                  Icons.assistant_navigation,
+                  size: 28,
+                  color: Color(0xFF8E7CFF),
+                ),
+              ),
             ),
           ),
           const SizedBox(width: 12),

@@ -44,7 +44,6 @@ class VideoSessionViewerScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final title = character.getDisplayName(isArabic(context) ? 'ar' : 'en');
-    final isArabicValue = isArabic(context);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF9F6FF),
@@ -171,27 +170,6 @@ class VideoSessionViewerScreen extends StatelessWidget {
                               label: tr(context, 'Duration', 'المدة'),
                               value: _formatDuration(session.duration),
                             ),
-                            const SizedBox(height: 12),
-                            _InfoRow(
-                              label: tr(context, 'Guider Present', 'المُرشد حاضر'),
-                              value: session.guiderJoined
-                                  ? (isArabicValue ? 'نعم' : 'Yes')
-                                  : (isArabicValue ? 'لا' : 'No'),
-                            ),
-                            if (session.emotionsTracked!.isNotEmpty) ...[
-                              const SizedBox(height: 12),
-                              _InfoRow(
-                                label: tr(context, 'Emotions Tracked', 'المشاعر المسجلة'),
-                                value: session.emotionsTracked!.join(', '),
-                              ),
-                            ],
-                            if (session.intensityStart != null && session.intensityEnd != null) ...[
-                              const SizedBox(height: 12),
-                              _InfoRow(
-                                label: tr(context, 'Intensity Change', 'تغير الشدة'),
-                                value: '${(session.intensityStart! * 100).toInt()}% → ${(session.intensityEnd! * 100).toInt()}%',
-                              ),
-                            ],
                             const SizedBox(height: 20),
                             ElevatedButton.icon(
                               style: ElevatedButton.styleFrom(
@@ -213,61 +191,6 @@ class VideoSessionViewerScreen extends StatelessWidget {
                           ],
                         ),
                       ),
-                      if (session.sessionSummary != null && session.sessionSummary!.isNotEmpty) ...[
-                        const SizedBox(height: 20),
-                        Container(
-                          padding: const EdgeInsets.all(20),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: const Color(0xFFE5DEFF)),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Icon(
-                                    Icons.summarize_rounded,
-                                    color: const Color(0xFF8E7CFF),
-                                    size: 20,
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Text(
-                                    tr(context, 'Session Summary', 'ملخص الجلسة'),
-                                    style: const TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w700,
-                                      color: Color(0xFF2A1E3B),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 15),
-                              if (session.sessionSummary!['highlights'] != null)
-                                ..._buildHighlights(session.sessionSummary!['highlights']),
-                              if (session.sessionSummary!['nextStepSuggestion'] != null) ...[
-                                const SizedBox(height: 15),
-                                Container(
-                                  padding: const EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFF5F0FF),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Text(
-                                    session.sessionSummary!['nextStepSuggestion'],
-                                    style: const TextStyle(
-                                      fontSize: 14,
-                                      color: Color(0xFF4B3A66),
-                                      height: 1.5,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                      ],
                     ],
                   ),
                 ),
@@ -277,37 +200,6 @@ class VideoSessionViewerScreen extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  List<Widget> _buildHighlights(List<dynamic> highlights) {
-    return highlights.map<Widget>((highlight) {
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 10),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              '• ',
-              style: TextStyle(
-                fontSize: 14,
-                color: Color(0xFF8E7CFF),
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            Expanded(
-              child: Text(
-                highlight.toString(),
-                style: const TextStyle(
-                  fontSize: 14,
-                  color: Color(0xFF4B3A66),
-                  height: 1.4,
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-    }).toList();
   }
 }
 
@@ -329,7 +221,7 @@ class _CircleIconButton extends StatelessWidget {
           shape: BoxShape.circle,
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.06),
+              color: Colors.black.withOpacity(0.06),
               blurRadius: 12,
               offset: const Offset(0, 6),
             ),

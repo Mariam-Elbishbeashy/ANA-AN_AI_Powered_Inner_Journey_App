@@ -79,17 +79,10 @@ class _GuiderChatHistoryScreenState extends State<GuiderChatHistoryScreen> {
     return '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
   }
 
-  String _formatDate(DateTime? dt) {
-    if (dt == null) return '';
-    final local = dt.toLocal();
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return '${months[local.month - 1]} ${local.day}, ${local.year}';
-  }
-
   @override
   Widget build(BuildContext context) {
     final isArabic = _isArabic(context);
-    final sessionDate = _formatDate(widget.session.startedAt);
+    final title = tr(context, 'The Guider', 'المرشد');
 
     return Scaffold(
       backgroundColor: const Color(0xFFF9F6FF),
@@ -108,11 +101,11 @@ class _GuiderChatHistoryScreenState extends State<GuiderChatHistoryScreen> {
         child: SafeArea(
           child: Column(
             children: [
-              _buildAppBar(isArabic),
-              _buildSessionBanner(isArabic, sessionDate),
-              _buildGuiderHeader(isArabic),
-              const Divider(height: 1, color: Color(0xFFE5DEFF)),
-              Expanded(child: _buildMessageList(isArabic)),
+              _buildAppBar(isArabic, title),
+              _buildSessionBanner(isArabic),
+              Expanded(
+                child: _buildMessageList(isArabic),
+              ),
             ],
           ),
         ),
@@ -120,7 +113,7 @@ class _GuiderChatHistoryScreenState extends State<GuiderChatHistoryScreen> {
     );
   }
 
-  Widget _buildAppBar(bool isArabic) {
+  Widget _buildAppBar(bool isArabic, String title) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(18, 8, 18, 8),
       child: Row(
@@ -132,7 +125,7 @@ class _GuiderChatHistoryScreenState extends State<GuiderChatHistoryScreen> {
           Expanded(
             child: Center(
               child: Text(
-                tr(context, 'Guider Chat History', 'سجل محادثة المرشد'),
+                title,
                 style: const TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.w800,
@@ -147,98 +140,30 @@ class _GuiderChatHistoryScreenState extends State<GuiderChatHistoryScreen> {
     );
   }
 
-  Widget _buildSessionBanner(bool isArabic, String sessionDate) {
+  Widget _buildSessionBanner(bool isArabic) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 0, 18, 12),
+      padding: const EdgeInsets.fromLTRB(18, 0, 18, 10),
       child: Container(
+        width: double.infinity,
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
-          color: const Color(0xFFB79CFF),
+          color: const Color(0xFFA790ED),
           borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFFE5DEFF)),
         ),
-        child: Row(
-          children: [
-            const Icon(Icons.history, color: Colors.white, size: 18),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                isArabic
-                    ? 'سجل المحادثة للقراءة فقط - $sessionDate'
-                    : 'Read-only Guider chat history - $sessionDate',
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.white,
-                ),
-              ),
-            ),
-          ],
+        child: Text(
+          tr(
+            context,
+            'This session has ended. You\'re viewing it in read-only mode.',
+            'انتهت هذه الجلسة. أنت تعرضها الآن في وضع القراءة فقط.',
+          ),
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            color: Colors.white,
+          ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildGuiderHeader(bool isArabic) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-      child: Row(
-        children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: const Color(0xFFF5F0FF),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.assistant_navigation,
-              color: Color(0xFFB79CFF),
-              size: 26,
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  tr(context, 'The Guider', 'المرشد'),
-                  style: const TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF2A1E3B),
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  isArabic
-                      ? '${_messages.length} رسالة'
-                      : '${_messages.length} messages',
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: Color(0xFF6B5C82),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (widget.session.characterId != null && widget.session.characterId!.isNotEmpty)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(
-                color: const Color(0xFF8E7CFF).withOpacity(0.12),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Text(
-                widget.session.characterId!.replaceAll('_', ' ').toUpperCase(),
-                style: const TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF8E7CFF),
-                ),
-              ),
-            ),
-        ],
       ),
     );
   }
@@ -247,7 +172,7 @@ class _GuiderChatHistoryScreenState extends State<GuiderChatHistoryScreen> {
     if (_isLoading) {
       return const Center(
         child: CircularProgressIndicator(
-          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFB79CFF)),
+          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF8E7CFF)),
         ),
       );
     }
@@ -370,104 +295,103 @@ class _ChatBubble extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 16),
       child: Row(
         mainAxisAlignment: isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
-        crossAxisAlignment: CrossAxisAlignment.end,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Guider image for non-user messages
           if (!isUser)
             Container(
               width: 36,
               height: 36,
               margin: const EdgeInsets.only(right: 10),
-              decoration: BoxDecoration(
-                color: isGuider
-                    ? const Color(0xFFB79CFF).withOpacity(0.15)
-                    : const Color(0xFFEDE7FF),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                isGuider ? Icons.assistant_navigation : Icons.psychology_alt,
-                size: 20,
-                color: isGuider ? const Color(0xFFB79CFF) : const Color(0xFF8E7CFF),
+              child: ClipOval(
+                child: Image.asset(
+                  'assets/images/guider.png',
+                  width: 36,
+                  height: 36,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) {
+                    // Fallback to icon if image fails to load
+                    return Container(
+                      width: 36,
+                      height: 36,
+                      color: isGuider
+                          ? const Color(0xFFB79CFF).withOpacity(0.15)
+                          : const Color(0xFFEDE7FF),
+                      child: Icon(
+                        isGuider ? Icons.assistant_navigation : Icons.psychology_alt,
+                        size: 20,
+                        color: isGuider ? const Color(0xFFB79CFF) : const Color(0xFF8E7CFF),
+                      ),
+                    );
+                  },
+                ),
               ),
             ),
+
           Flexible(
-            child: Container(
-              constraints: BoxConstraints(
-                maxWidth: MediaQuery.of(context).size.width * 0.72,
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              decoration: BoxDecoration(
-                color: isUser
-                    ? const Color(0xFFB79CFF)
-                    : (isGuider
-                    ? const Color(0xFFF5F0FF)
-                    : Colors.white),
-                borderRadius: BorderRadius.only(
-                  topLeft: const Radius.circular(20),
-                  topRight: const Radius.circular(20),
-                  bottomLeft: Radius.circular(isUser ? 20 : 6),
-                  bottomRight: Radius.circular(isUser ? 6 : 20),
-                ),
-                border: (!isUser && !isGuider)
-                    ? Border.all(color: const Color(0xFFE5DEFF))
-                    : null,
-              ),
-              child: Column(
-                crossAxisAlignment: isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-                children: [
-                  if (!isUser)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 5),
-                      child: Text(
-                        sender,
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: isGuider
-                              ? const Color(0xFFB79CFF)
-                              : const Color(0xFF8E7CFF),
-                        ),
+            child: Column(
+              crossAxisAlignment: isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+              children: [
+                // Sender name for non-user messages
+                if (!isUser)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4, left: 4),
+                    child: Text(
+                      sender,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: isGuider
+                            ? const Color(0xFFB79CFF)
+                            : const Color(0xFF8E7CFF),
                       ),
-                    ),
-                  Text(
-                    message,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: isUser ? Colors.white : const Color(0xFF2A1E3B),
-                      height: 1.4,
                     ),
                   ),
-                  if (timestamp != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: Text(
-                        _formatTime(),
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: isUser
-                              ? Colors.white.withOpacity(0.7)
-                              : const Color(0xFF6B5C82),
+
+                // Message bubble - white with border
+                Container(
+                  constraints: BoxConstraints(
+                    maxWidth: MediaQuery.of(context).size.width * 0.72,
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.only(
+                      topLeft: const Radius.circular(20),
+                      topRight: const Radius.circular(20),
+                      bottomLeft: Radius.circular(isUser ? 20 : 6),
+                      bottomRight: Radius.circular(isUser ? 6 : 20),
+                    ),
+                    border: Border.all(color: const Color(0xFFE5DEFF)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        message,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          color: Color(0xFF2A1E3B),
+                          height: 1.4,
                         ),
                       ),
-                    ),
-                ],
-              ),
+                      if (timestamp != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Text(
+                            _formatTime(),
+                            style: const TextStyle(
+                              fontSize: 10,
+                              color: Color(0xFF6B5C82),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
-          if (isUser)
-            Container(
-              width: 36,
-              height: 36,
-              margin: const EdgeInsets.only(left: 10),
-              decoration: BoxDecoration(
-                color: const Color(0xFFB79CFF).withOpacity(0.15),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.person_outline,
-                size: 20,
-                color: Color(0xFFB79CFF),
-              ),
-            ),
         ],
       ),
     );

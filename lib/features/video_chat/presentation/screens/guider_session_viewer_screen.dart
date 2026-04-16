@@ -30,19 +30,6 @@ class GuiderSessionViewerScreen extends StatelessWidget {
         '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
   }
 
-  String _getEmotionLabel(String emotion) {
-    final labels = {
-      'happy': '😊 Happy',
-      'sad': '😢 Sad',
-      'angry': '😠 Angry',
-      'fearful': '😨 Fearful',
-      'surprised': '😲 Surprised',
-      'disgusted': '🤢 Disgusted',
-      'neutral': '😐 Neutral',
-    };
-    return labels[emotion] ?? emotion;
-  }
-
   void _viewChatHistory(BuildContext context) {
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -56,8 +43,6 @@ class GuiderSessionViewerScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isArabicValue = isArabic(context);
-
     return Scaffold(
       backgroundColor: const Color(0xFFF9F6FF),
       body: Container(
@@ -86,7 +71,7 @@ class GuiderSessionViewerScreen extends StatelessWidget {
                     Expanded(
                       child: Center(
                         child: Text(
-                          tr(context, 'Guider Session', 'جلسة المرشد'),
+                          tr(context, 'The Guider', 'المرشد'),
                           style: const TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.w800,
@@ -146,10 +131,18 @@ class GuiderSessionViewerScreen extends StatelessWidget {
                                     color: const Color(0xFFEDE7FF),
                                     shape: BoxShape.circle,
                                   ),
-                                  child: const Icon(
-                                    Icons.assistant_navigation,
-                                    size: 30,
-                                    color: Color(0xFFB79CFF),
+                                  child: ClipOval(
+                                    child: Image.asset(
+                                      'assets/images/guider.png',
+                                      width: 60,
+                                      height: 60,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) => const Icon(
+                                        Icons.assistant_navigation,
+                                        size: 30,
+                                        color: Color(0xFFB79CFF),
+                                      ),
+                                    ),
                                   ),
                                 ),
                                 const SizedBox(width: 16),
@@ -158,7 +151,7 @@ class GuiderSessionViewerScreen extends StatelessWidget {
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
                                       Text(
-                                        tr(context, 'Session with The Guider', 'جلسة مع المرشد'),
+                                        tr(context, 'Session Details', 'تفاصيل الجلسة'),
                                         style: const TextStyle(
                                           fontSize: 16,
                                           fontWeight: FontWeight.w700,
@@ -188,34 +181,6 @@ class GuiderSessionViewerScreen extends StatelessWidget {
                               label: tr(context, 'Duration', 'المدة'),
                               value: _formatDuration(session.duration),
                             ),
-                            const SizedBox(height: 12),
-                            _InfoRow(
-                              label: tr(context, 'Status', 'الحالة'),
-                              value: session.isActive
-                                  ? (isArabicValue ? 'نشطة' : 'Active')
-                                  : (isArabicValue ? 'منتهية' : 'Ended'),
-                            ),
-                            if (session.characterId != null) ...[
-                              const SizedBox(height: 12),
-                              _InfoRow(
-                                label: tr(context, 'Character Focus', 'الشخصية المستهدفة'),
-                                value: session.characterId!.replaceAll('_', ' ').toUpperCase(),
-                              ),
-                            ],
-                            if (session.emotionsTracked != null && session.emotionsTracked!.isNotEmpty) ...[
-                              const SizedBox(height: 12),
-                              _InfoRow(
-                                label: tr(context, 'Emotions Tracked', 'المشاعر المسجلة'),
-                                value: session.emotionsTracked!.join(', '),
-                              ),
-                            ],
-                            if (session.intensityStart != null && session.intensityEnd != null) ...[
-                              const SizedBox(height: 12),
-                              _InfoRow(
-                                label: tr(context, 'Intensity Change', 'تغير الشدة'),
-                                value: '${(session.intensityStart! * 100).toInt()}% → ${(session.intensityEnd! * 100).toInt()}%',
-                              ),
-                            ],
                             const SizedBox(height: 20),
                             ElevatedButton.icon(
                               style: ElevatedButton.styleFrom(
@@ -237,175 +202,6 @@ class GuiderSessionViewerScreen extends StatelessWidget {
                           ],
                         ),
                       ),
-                      if (session.faceEmotion != null && session.faceEmotion!.isNotEmpty) ...[
-                        const SizedBox(height: 20),
-                        Container(
-                          padding: const EdgeInsets.all(20),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: const Color(0xFFE5DEFF)),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  const Icon(
-                                    Icons.face_rounded,
-                                    color: Color(0xFFB79CFF),
-                                    size: 20,
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Text(
-                                    tr(context, 'Face Emotion Analysis', 'تحليل مشاعر الوجه'),
-                                    style: const TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w700,
-                                      color: Color(0xFF2A1E3B),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 15),
-                              _InfoRow(
-                                label: tr(context, 'Dominant Emotion', 'المشاعر السائدة'),
-                                value: _getEmotionLabel(session.faceEmotion?['dominant'] ?? 'neutral'),
-                              ),
-                              const SizedBox(height: 8),
-                              _InfoRow(
-                                label: tr(context, 'Average Confidence', 'متوسط الثقة'),
-                                value: '${((session.faceEmotion?['averageConfidence'] ?? 0) * 100).toInt()}%',
-                              ),
-                              const SizedBox(height: 8),
-                              _InfoRow(
-                                label: tr(context, 'Start Emotion', 'مشاعر البداية'),
-                                value: _getEmotionLabel(session.faceEmotion?['startEmotion'] ?? 'neutral'),
-                              ),
-                              const SizedBox(height: 8),
-                              _InfoRow(
-                                label: tr(context, 'End Emotion', 'مشاعر النهاية'),
-                                value: _getEmotionLabel(session.faceEmotion?['endEmotion'] ?? 'neutral'),
-                              ),
-                              if ((session.faceEmotion?['totalDetections'] ?? 0) > 0)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 8),
-                                  child: _InfoRow(
-                                    label: tr(context, 'Detections', 'عدد الكشوفات'),
-                                    value: '${session.faceEmotion?['totalDetections'] ?? 0}',
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                      ],
-                      if (session.voiceTone != null && session.voiceTone!.isNotEmpty) ...[
-                        const SizedBox(height: 20),
-                        Container(
-                          padding: const EdgeInsets.all(20),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: const Color(0xFFE5DEFF)),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  const Icon(
-                                    Icons.mic_rounded,
-                                    color: Color(0xFFB79CFF),
-                                    size: 20,
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Text(
-                                    tr(context, 'Voice Tone Analysis', 'تحليل نبرة الصوت'),
-                                    style: const TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w700,
-                                      color: Color(0xFF2A1E3B),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 15),
-                              _InfoRow(
-                                label: tr(context, 'Dominant Tone', 'النبرة السائدة'),
-                                value: _getEmotionLabel(session.voiceTone?['dominant'] ?? 'neutral'),
-                              ),
-                              const SizedBox(height: 8),
-                              _InfoRow(
-                                label: tr(context, 'Average Confidence', 'متوسط الثقة'),
-                                value: '${((session.voiceTone?['averageConfidence'] ?? 0) * 100).toInt()}%',
-                              ),
-                              const SizedBox(height: 8),
-                              _InfoRow(
-                                label: tr(context, 'Start Tone', 'نبرة البداية'),
-                                value: _getEmotionLabel(session.voiceTone?['startEmotion'] ?? 'neutral'),
-                              ),
-                              const SizedBox(height: 8),
-                              _InfoRow(
-                                label: tr(context, 'End Tone', 'نبرة النهاية'),
-                                value: _getEmotionLabel(session.voiceTone?['endEmotion'] ?? 'neutral'),
-                              ),
-                              if ((session.voiceTone?['totalDetections'] ?? 0) > 0)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 8),
-                                  child: _InfoRow(
-                                    label: tr(context, 'Detections', 'عدد الكشوفات'),
-                                    value: '${session.voiceTone?['totalDetections'] ?? 0}',
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                      ],
-                      if (session.sessionSummary != null && session.sessionSummary!.isNotEmpty) ...[
-                        const SizedBox(height: 20),
-                        Container(
-                          padding: const EdgeInsets.all(20),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: const Color(0xFFE5DEFF)),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Icon(
-                                    Icons.summarize_rounded,
-                                    color: const Color(0xFFB79CFF),
-                                    size: 20,
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Text(
-                                    tr(context, 'Session Summary', 'ملخص الجلسة'),
-                                    style: const TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w700,
-                                      color: Color(0xFF2A1E3B),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 15),
-                              if (session.sessionSummary!['highlights'] != null)
-                                ..._buildHighlights(session.sessionSummary!['highlights']),
-                              if (session.sessionSummary!['duration'] != null)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 12),
-                                  child: _InfoRow(
-                                    label: tr(context, 'Session Duration', 'مدة الجلسة'),
-                                    value: _formatDuration(session.sessionSummary!['duration']),
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                      ],
                     ],
                   ),
                 ),
@@ -415,37 +211,6 @@ class GuiderSessionViewerScreen extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  List<Widget> _buildHighlights(List<dynamic> highlights) {
-    return highlights.map<Widget>((highlight) {
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 10),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              '• ',
-              style: TextStyle(
-                fontSize: 14,
-                color: Color(0xFFB79CFF),
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            Expanded(
-              child: Text(
-                highlight.toString(),
-                style: const TextStyle(
-                  fontSize: 14,
-                  color: Color(0xFF4B3A66),
-                  height: 1.4,
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-    }).toList();
   }
 }
 
