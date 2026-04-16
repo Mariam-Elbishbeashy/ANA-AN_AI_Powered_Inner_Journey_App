@@ -66,7 +66,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
 
   // Emotion detection variables
   String _emotionSessionId = "";
-  static const String _emotionServerUrl = "http://192.168.100.7:5002";
+  static const String _emotionServerUrl = "http://10.0.2.2:5002";
   Timer? _emotionFrameTimer;
   bool _emotionActive = false;
   int _frameSkip = 0;
@@ -141,8 +141,8 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   bool _stopping = false;
 
   // Backend endpoints - CORRECT for agents.py (port 5001)
-  static const String _agentServerUrl = "http://192.168.100.7:5001";
-  static const String _videoServerUrl = "http://192.168.100.7:5003";
+  static const String _agentServerUrl = "http://10.0.2.2:5001";
+  static const String _videoServerUrl = "http://10.0.2.2:5003";
   static const String _guiderUpdateEmotionsEndpoint = "/guider/update_emotions";
   static const String _chatEndpoint = "/chat";                    // ← CHANGE: remove /video/
   static const String _chatGuidedEndpoint = "/chat_guided";       // ← CHANGE: remove /video/

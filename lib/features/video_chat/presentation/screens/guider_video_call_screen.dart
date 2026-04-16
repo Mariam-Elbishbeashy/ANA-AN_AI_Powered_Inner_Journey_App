@@ -47,7 +47,7 @@ class _GuiderVideoCallScreenState extends State<GuiderVideoCallScreen> {
 
   // Emotion tracking variables
   String _emotionSessionId = "";
-  static const String _emotionServerUrl = "http://192.168.100.7:5002";
+  static const String _emotionServerUrl = "http://10.0.2.2:5002";
   Timer? _emotionFrameTimer;
   bool _emotionActive = false;
   int _frameSkip = 0;
@@ -116,7 +116,7 @@ class _GuiderVideoCallScreenState extends State<GuiderVideoCallScreen> {
   double _guiderPitch = 1.45;
 
   // Backend
-  static const String _voiceAppBaseUrl = "http://192.168.100.7:5003";
+  static const String _voiceAppBaseUrl = "http://10.0.2.2:5003";
   static const String _guiderRespondEndpoint = "/guider/respond";
   static const String _guiderUpdateEmotionsEndpoint = "/guider/update_emotions";
   static const String _guiderSessionSummaryEndpoint = "/guider/session_summary";
