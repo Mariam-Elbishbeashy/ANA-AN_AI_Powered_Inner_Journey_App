@@ -26,10 +26,7 @@ class DefaultFirebaseOptions {
       case TargetPlatform.android:
         return android;
       case TargetPlatform.iOS:
-        throw UnsupportedError(
-          'DefaultFirebaseOptions have not been configured for ios - '
-          'you can reconfigure this by running the FlutterFire CLI again.',
-        );
+        return ios;
       case TargetPlatform.macOS:
         throw UnsupportedError(
           'DefaultFirebaseOptions have not been configured for macos - '
@@ -59,4 +56,16 @@ class DefaultFirebaseOptions {
     projectId: 'ana-app-94bf3',
     storageBucket: 'ana-app-94bf3.firebasestorage.app',
   );
+
+  static const FirebaseOptions ios = FirebaseOptions(
+    apiKey: 'AIzaSyDa92zMYBWiBLidUzYEe6dQJIDHPPk1Hg0',
+    appId: '1:751671378692:ios:6895ab1848df4e52e44651',
+    messagingSenderId: '751671378692',
+    projectId: 'ana-app-94bf3',
+    storageBucket: 'ana-app-94bf3.firebasestorage.app',
+    androidClientId: '751671378692-k8soqedqvkgcte38i8qreql97p1ujdoc.apps.googleusercontent.com',
+    iosClientId: '751671378692-npdrnlmt0u245jh0u89bbn0ke959drvp.apps.googleusercontent.com',
+    iosBundleId: 'com.ANATeam.anaIfsApp',
+  );
+
 }
