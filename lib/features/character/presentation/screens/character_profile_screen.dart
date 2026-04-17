@@ -56,8 +56,8 @@ class _CharacterProfileScreenState extends State<CharacterProfileScreen> {
             final compactName = _compact(name);
             final compactId = _compact(id);
             final matches = targetNames.any(
-              (target) =>
-                  target == normalizedName ||
+                  (target) =>
+              target == normalizedName ||
                   target == normalizedId ||
                   target == compactName ||
                   target == compactId ||
@@ -329,21 +329,20 @@ class _CharacterProfileScreenState extends State<CharacterProfileScreen> {
                           onVoice: () {
                             Navigator.of(context).push(
                               MaterialPageRoute(
-                                builder: (_) => GuiderVoiceSessionsScreen(
-                                  userName: widget.character.displayNameEn, // or get user's name from somewhere
-                                  characterId: widget.character.id,
+                                builder: (_) => VoiceSessionsScreen(
+                                  character: widget.character,
                                 ),
                               ),
                             );
                           },
                           onVideo: () {
                             Navigator.of(context).push(
-                             MaterialPageRoute(
-                              builder: (_) => VideoSessionsScreen(
-                             character: widget.character,
-                                       ),
-                                  ),
-                               );
+                              MaterialPageRoute(
+                                builder: (_) => VideoSessionsScreen(
+                                  character: widget.character,
+                                ),
+                              ),
+                            );
                           },
                         ),
                       ),
@@ -861,63 +860,63 @@ class _InfoSection extends StatelessWidget {
               runSpacing: 8,
               children: items!.asMap().entries.map(
                     (entry) {
-                      final index = entry.key;
-                      final item = entry.value;
-                      final colors = [
-                        [const Color(0xFF8E7CFF), const Color(0xFF6A5CFF)],
-                        [const Color(0xFFA78BFA), const Color(0xFF9B7BFF)],
-                        [const Color(0xFF6A5CFF), const Color(0xFF4A3F8F)],
-                        [const Color(0xFF9B7BFF), const Color(0xFF7C6AFF)],
-                      ];
-                      final colorPair = colors[index % colors.length];
-                      
-                      return Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 8,
-                        ),
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [
-                              colorPair[0].withOpacity(0.12),
-                              colorPair[1].withOpacity(0.08),
-                            ],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
+                  final index = entry.key;
+                  final item = entry.value;
+                  final colors = [
+                    [const Color(0xFF8E7CFF), const Color(0xFF6A5CFF)],
+                    [const Color(0xFFA78BFA), const Color(0xFF9B7BFF)],
+                    [const Color(0xFF6A5CFF), const Color(0xFF4A3F8F)],
+                    [const Color(0xFF9B7BFF), const Color(0xFF7C6AFF)],
+                  ];
+                  final colorPair = colors[index % colors.length];
+
+                  return Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          colorPair[0].withOpacity(0.12),
+                          colorPair[1].withOpacity(0.08),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: colorPair[0].withOpacity(0.25),
+                        width: 1,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 5,
+                          height: 5,
+                          decoration: BoxDecoration(
+                            color: colorPair[0],
+                            shape: BoxShape.circle,
                           ),
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(
-                            color: colorPair[0].withOpacity(0.25),
-                            width: 1,
+                        ),
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            item,
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w700,
+                              color: colorPair[1].withOpacity(0.9),
+                            ),
                           ),
                         ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              width: 5,
-                              height: 5,
-                              decoration: BoxDecoration(
-                                color: colorPair[0],
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Flexible(
-                              child: Text(
-                                item,
-                                style: TextStyle(
-                                  fontSize: 12.5,
-                                  fontWeight: FontWeight.w700,
-                                  color: colorPair[1].withOpacity(0.9),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  )
+                      ],
+                    ),
+                  );
+                },
+              )
                   .toList(),
             ),
           ],
@@ -997,7 +996,7 @@ class _InfoCarouselState extends State<_InfoCarousel> {
                   [const Color(0xFF6A5CFF), const Color(0xFF8E7CFF)],
                 ];
                 final colorPair = colors[index % colors.length];
-                
+
                 return Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 4),
                   child: _GlassCard(
@@ -1113,35 +1112,35 @@ class _InfoCarouselState extends State<_InfoCarousel> {
                                     children: item.items!
                                         .map(
                                           (value) => Container(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 10,
-                                              vertical: 7,
-                                            ),
-                                            decoration: BoxDecoration(
-                                              gradient: LinearGradient(
-                                                colors: [
-                                                  colorPair[0].withOpacity(0.12),
-                                                  colorPair[1].withOpacity(0.08),
-                                                ],
-                                                begin: Alignment.topLeft,
-                                                end: Alignment.bottomRight,
-                                              ),
-                                              borderRadius: BorderRadius.circular(12),
-                                              border: Border.all(
-                                                color: colorPair[0].withOpacity(0.25),
-                                                width: 1,
-                                              ),
-                                            ),
-                                            child: Text(
-                                              value,
-                                              style: TextStyle(
-                                                fontSize: 12,
-                                                fontWeight: FontWeight.w700,
-                                                color: colorPair[1].withOpacity(0.9),
-                                              ),
-                                            ),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 10,
+                                          vertical: 7,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          gradient: LinearGradient(
+                                            colors: [
+                                              colorPair[0].withOpacity(0.12),
+                                              colorPair[1].withOpacity(0.08),
+                                            ],
+                                            begin: Alignment.topLeft,
+                                            end: Alignment.bottomRight,
                                           ),
-                                        )
+                                          borderRadius: BorderRadius.circular(12),
+                                          border: Border.all(
+                                            color: colorPair[0].withOpacity(0.25),
+                                            width: 1,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          value,
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w700,
+                                            color: colorPair[1].withOpacity(0.9),
+                                          ),
+                                        ),
+                                      ),
+                                    )
                                         .toList(),
                                   ),
                                 ],
@@ -1163,7 +1162,7 @@ class _InfoCarouselState extends State<_InfoCarousel> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: List.generate(
                   widget.items.length,
-                  (index) => AnimatedContainer(
+                      (index) => AnimatedContainer(
                     duration: const Duration(milliseconds: 250),
                     margin: const EdgeInsets.symmetric(horizontal: 4),
                     width: _index == index ? 18 : 6,
@@ -1258,7 +1257,7 @@ class _TimelineSection extends StatelessWidget {
                 [const Color(0xFF9B7BFF), const Color(0xFF7C6AFF)],
               ];
               final colorPair = colors[index % colors.length];
-              
+
               return Padding(
                 padding: const EdgeInsets.only(bottom: 12),
                 child: Row(

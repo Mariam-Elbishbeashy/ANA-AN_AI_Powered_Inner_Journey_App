@@ -236,16 +236,12 @@ class _GuiderVoiceSessionsScreenState extends State<GuiderVoiceSessionsScreen> {
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                const Icon(
-                                  Icons.assistant_navigation,
-                                  color: Color(0xFFB79CFF),
-                                  size: 54,
-                                ),
+
                                 const SizedBox(height: 16),
                                 Text(
                                   tr(
                                     context,
-                                    'No Guider voice sessions yet. Start your first session to begin.',
+                                    'No video sessions yet. Start your first session to begin',
                                     'لا توجد جلسات صوت مرشد بعد. ابدأ أول جلسة لتبدأ.',
                                   ),
                                   textAlign: TextAlign.center,
@@ -255,19 +251,7 @@ class _GuiderVoiceSessionsScreenState extends State<GuiderVoiceSessionsScreen> {
                                   ),
                                 ),
                                 const SizedBox(height: 24),
-                                ElevatedButton.icon(
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFF8E7CFF),
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(14),
-                                    ),
-                                  ),
-                                  onPressed: _startNewSession,
-                                  icon: const Icon(Icons.mic_rounded),
-                                  label: Text(tr(context, 'Start a Session', 'ابدأ جلسة')),
-                                ),
+
                               ],
                             ),
                           ),

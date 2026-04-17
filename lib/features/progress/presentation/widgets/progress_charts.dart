@@ -1015,11 +1015,19 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
   bool _isWeekView = true;
 
   static const Color _tabIndicatorPurple = Color(0xFF8E7CFF);
-  static const Color _dayLinePurple = Color(0xFF8E7CFF);
+  static const Color _chatLineColor = Color(0xFFE57A91);
+  static const Color _voiceLineColor = Color(0xFF5489DE);
+  static const Color _videoLineColor = Color(0xFF8E7CFF);
   static const Color _daySelectedPurple = Color(0xFF6F5BFF);
-  static const Color _dayStartDotFill = Color(0xFFE8E0FF);
-  static const Color _dayStartDotStroke = Color(0xFFC4B5F5);
-  static const Color _dayEndDotFill = Color(0xFF8E7CFF);
+  static const Color _chatStartDotFill = Color(0xFFFFF0F2);
+  static const Color _chatStartDotStroke = Color(0xFFE8B0BE);
+  static const Color _chatEndDotFill = Color(0xFFE88B9E);
+  static const Color _voiceStartDotFill = Color(0xFFEDF3FF);
+  static const Color _voiceStartDotStroke = Color(0xFF8CB0E0);
+  static const Color _voiceEndDotFill = Color(0xFF3D7ACC);
+  static const Color _videoStartDotFill = Color(0xFFE8E0FF);
+  static const Color _videoStartDotStroke = Color(0xFFC4B5F5);
+  static const Color _videoEndDotFill = Color(0xFF8E7CFF);
 
   @override
   Widget build(BuildContext context) {
@@ -1343,16 +1351,33 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
 
     final hasChat = visibleSessions.any((session) => session.sessionType == 'chat');
     final hasVideo = visibleSessions.any((session) => session.sessionType == 'video');
+    final hasVoice = visibleSessions.any((session) => session.sessionType == 'voice');
 
-    if (hasChat && !hasVideo) {
+    if (hasChat && !hasVideo && !hasVoice) {
       return tr(context, 'Chat Intensity', 'شدة الدردشة');
     }
 
-    if (hasVideo && !hasChat) {
+    if (hasVideo && !hasChat && !hasVoice) {
       return tr(context, 'Video Intensity', 'شدة الفيديو');
     }
 
-    return tr(context, 'Chat & Video Intensity', 'شدة الدردشة والفيديو');
+    if (hasVoice && !hasChat && !hasVideo) {
+      return tr(context, 'Voice Intensity', 'شدة المكالمات الصوتية');
+    }
+
+    if (hasChat && hasVoice && !hasVideo) {
+      return tr(context, 'Chat & Voice Intensity', 'شدة الدردشة والصوت');
+    }
+
+    if (hasChat && hasVideo && !hasVoice) {
+      return tr(context, 'Chat & Video Intensity', 'شدة الدردشة والفيديو');
+    }
+
+    if (hasVideo && hasVoice && !hasChat) {
+      return tr(context, 'Video & Voice Intensity', 'شدة الفيديو والصوت');
+    }
+
+    return tr(context, 'Chat, Video & Voice Intensity', 'شدة الدردشة والفيديو والصوت');
   }
 
   Widget _buildSelectedSummaryPill({
@@ -1505,10 +1530,40 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
             ),
           ),
         ),
+        // Find this section and REPLACE the color assignment:
         barGroups: List.generate(7, (dayIndex) {
           final item = periodData.dayItems[dayIndex];
           final overallY = item?.averagePercent ?? 0;
           final hasData = item != null && overallY > 0;
+
+          // REPLACE this entire color logic block:
+          Color barColor;
+          String? tooltipLabel;
+          if (hasData && item != null) {
+            final hasChat = item.sessions.any((s) => s.sessionType == 'chat');
+            final hasVideo = item.sessions.any((s) => s.sessionType == 'video');
+            final hasVoice = item.sessions.any((s) => s.sessionType == 'voice');
+
+            if (hasChat && !hasVideo && !hasVoice) {
+              barColor = _chatLineColor;   // Chat only - Pink
+              tooltipLabel = 'Chat';
+            } else if (hasVoice && !hasChat && !hasVideo) {
+              barColor = _voiceLineColor;  // Voice only - Blue
+              tooltipLabel = 'Voice';
+            } else if (hasVideo && !hasChat && !hasVoice) {
+              barColor = _videoLineColor;  // Video only - Purple
+              tooltipLabel = 'Video';
+            } else if (hasChat && hasVoice && !hasVideo) {
+              barColor = _chatLineColor;   // Chat + Voice mix - Pink
+              tooltipLabel = 'Chat + Voice';
+            } else {
+              barColor = _videoLineColor;  // Any mix including video - Purple
+              tooltipLabel = 'Mixed';
+            }
+          } else {
+            barColor = _videoLineColor;
+          }
+
           return BarChartGroupData(
             x: dayIndex,
             barsSpace: 0,
@@ -1518,7 +1573,7 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
                 toY: hasData ? overallY : 0,
                 width: 14,
                 borderRadius: BorderRadius.circular(12),
-                color: hasData ? _dayLinePurple : Colors.transparent,
+                color: hasData ? barColor : Colors.transparent,
                 backDrawRodData: BackgroundBarChartRodData(
                   show: true,
                   toY: 100,
@@ -1633,10 +1688,37 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
         lineTouchData: LineTouchData(
           enabled: false,
         ),
+        // Find the lineBarsData generation section and REPLACE:
         lineBarsData: List.generate(sessions.length, (i) {
           final s = sessions[i];
           final x0 = (i * 2).toDouble();
           final x1 = x0 + 1;
+
+          // REPLACE this entire color assignment block:
+          Color lineColor;
+          Color startDotFill;
+          Color startDotStroke;
+          Color endDotFill;
+
+          if (s.sessionType == 'chat') {
+            // Chat - Pink
+            lineColor = _chatLineColor;
+            startDotFill = _chatStartDotFill;
+            startDotStroke = _chatStartDotStroke;
+            endDotFill = _chatEndDotFill;
+          } else if (s.sessionType == 'voice') {
+            // Voice - Blue
+            lineColor = _voiceLineColor;
+            startDotFill = _voiceStartDotFill;
+            startDotStroke = _voiceStartDotStroke;
+            endDotFill = _voiceEndDotFill;
+          } else {
+            // Video - Purple (original)
+            lineColor = _videoLineColor;
+            startDotFill = _videoStartDotFill;
+            startDotStroke = _videoStartDotStroke;
+            endDotFill = _videoEndDotFill;
+          }
 
           return LineChartBarData(
             spots: [
@@ -1645,7 +1727,7 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
             ],
             isCurved: false,
             barWidth: 2.5,
-            color: _dayLinePurple,
+            color: lineColor,
             dotData: FlDotData(
               show: true,
               checkToShowDot: (spot, barData) => true,
@@ -1653,9 +1735,9 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
                 final isStart = index == 0;
                 return FlDotCirclePainter(
                   radius: isStart ? 4.5 : 5.5,
-                  color: isStart ? _dayStartDotFill : _dayEndDotFill,
+                  color: isStart ? startDotFill : endDotFill,
                   strokeWidth: 2,
-                  strokeColor: isStart ? _dayStartDotStroke : Colors.white,
+                  strokeColor: isStart ? startDotStroke : Colors.white,
                 );
               },
             ),
@@ -1665,8 +1747,8 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  _dayLinePurple.withOpacity(0.22),
-                  _dayLinePurple.withOpacity(0.04),
+                  lineColor.withOpacity(0.22),
+                  lineColor.withOpacity(0.04),
                 ],
               ),
             ),

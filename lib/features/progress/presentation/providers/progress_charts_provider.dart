@@ -423,8 +423,18 @@ class ProgressChartsProvider {
         characterData,
         fallbackSessionCharacterId: sessionCharacterId,
       );
-      final sessionType = (data['type'] ?? 'chat').toString().trim().toLowerCase();
-      final normalizedSessionType = sessionType == 'video' ? 'video' : 'chat';
+
+      // Get session type - supports 'chat', 'video', and 'voice'
+      final sessionTypeRaw = (data['type'] ?? 'chat').toString().trim().toLowerCase();
+      String normalizedSessionType;
+
+      if (sessionTypeRaw == 'video') {
+        normalizedSessionType = 'video';
+      } else if (sessionTypeRaw == 'voice') {
+        normalizedSessionType = 'voice';
+      } else {
+        normalizedSessionType = 'chat';
+      }
 
       final date = _extractSessionDate(data);
 
