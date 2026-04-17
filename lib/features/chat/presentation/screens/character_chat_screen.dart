@@ -275,8 +275,8 @@ class _GuiderIconButton extends StatelessWidget {
         width: 44,
         height: 44,
         decoration: BoxDecoration(
-          color: isGuiderInChat 
-              ? const Color(0xFFB79CFF) 
+          color: isGuiderInChat
+              ? const Color(0xFFB79CFF)
               : Colors.white,
           shape: BoxShape.circle,
           boxShadow: [
@@ -353,7 +353,7 @@ class _GuiderModal extends StatelessWidget {
             // Guider avatar
             const GuiderAvatar(
               size: 80,
-              backgroundColor: const Color(0xFFB79CFF),
+              backgroundColor: Color(0xFFB79CFF),
               fallbackIconSize: 36,
             ),
             const SizedBox(height: 16),

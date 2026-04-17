@@ -7,26 +7,25 @@ import 'package:ana_ifs_app/features/chat/data/models/chat_session_model.dart';
 import 'package:ana_ifs_app/features/chat/presentation/screens/guider_chat_session_screen.dart';
 import 'package:ana_ifs_app/features/chat/presentation/widgets/guider_avatar.dart';
 
-/// Session history screen for The Guider chat.
-///
-/// Mirrors the character sessions flow:
+/// session history screen for The Guider chat.
+
 /// - show all previous guider sessions
 /// - start a new session
 /// - open active sessions in editable mode
 /// - open ended sessions in read-only mode
-class GuiderChatSessionsScreen extends StatefulWidget {
+class GuiderSessionHistoryScreen extends StatefulWidget {
   final String? currentlyOpenSessionId;
 
-  const GuiderChatSessionsScreen({
+  const GuiderSessionHistoryScreen({
     super.key,
     this.currentlyOpenSessionId,
   });
 
   @override
-  State<GuiderChatSessionsScreen> createState() => _GuiderChatSessionsScreenState();
+  State<GuiderSessionHistoryScreen> createState() => _GuiderSessionHistoryScreenState();
 }
 
-class _GuiderChatSessionsScreenState extends State<GuiderChatSessionsScreen> {
+class _GuiderSessionHistoryScreenState extends State<GuiderSessionHistoryScreen> {
   final _chatRemoteDataSource = ChatRemoteDataSource();
 
   String _formatWhen(DateTime? dt) {

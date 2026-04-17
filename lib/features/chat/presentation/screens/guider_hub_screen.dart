@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'package:ana_ifs_app/l10n/app_strings.dart';
 import 'package:ana_ifs_app/core/widgets/shared_widgets.dart';
-import 'package:ana_ifs_app/features/chat/presentation/screens/guider_chat_sessions_screen.dart';
+import 'package:ana_ifs_app/features/chat/presentation/screens/guider_session_history_screen.dart';
 import 'package:ana_ifs_app/features/video_chat/presentation/screens/guider_video_call_screen.dart'; // Add this import
 import 'package:ana_ifs_app/features/voice_analysis/presentation/screens/voice_analysis_screen.dart';
 import 'package:ana_ifs_app/features/character/domain/entities/user_character.dart';
@@ -12,6 +12,7 @@ import 'package:ana_ifs_app/features/character/domain/entities/user_character.da
 import '../../../video_chat/presentation/screens/guider_sessions_screen.dart';
 
 import 'package:ana_ifs_app/features/voice_analysis/presentation/screens/voice_sessions_screen.dart';
+
 class ChatScreen extends StatelessWidget {
   final String name;
   final VoidCallback onLogout;
@@ -183,7 +184,7 @@ class ChatScreen extends StatelessWidget {
                   onChat: () {
                     Navigator.of(context).push(
                       MaterialPageRoute(
-                        builder: (_) => const GuiderChatSessionsScreen(),
+                        builder: (_) => const GuiderSessionHistoryScreen(),
                       ),
                     );
                   },

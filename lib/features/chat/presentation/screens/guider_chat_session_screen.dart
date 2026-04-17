@@ -10,7 +10,7 @@ import 'package:ana_ifs_app/features/chat/data/datasources/guider_ai_remote_data
 import 'package:ana_ifs_app/features/chat/data/models/chat_message_model.dart';
 import 'package:ana_ifs_app/features/chat/data/models/chat_session_model.dart';
 import 'package:ana_ifs_app/features/chat/data/models/chat_thread_model.dart';
-import 'package:ana_ifs_app/features/chat/presentation/screens/guider_chat_sessions_screen.dart';
+import 'package:ana_ifs_app/features/chat/presentation/screens/guider_session_history_screen.dart';
 import 'package:ana_ifs_app/features/chat/presentation/widgets/guider_avatar.dart';
 
 /// Active/read-only screen for a specific guider session.
@@ -318,7 +318,7 @@ class _GuiderChatSessionScreenState extends State<GuiderChatSessionScreen> {
                           onTap: () {
                             Navigator.of(context).push(
                               MaterialPageRoute(
-                                builder: (_) => GuiderChatSessionsScreen(
+                                builder: (_) => GuiderSessionHistoryScreen(
                                   currentlyOpenSessionId: widget.session.id,
                                 ),
                               ),

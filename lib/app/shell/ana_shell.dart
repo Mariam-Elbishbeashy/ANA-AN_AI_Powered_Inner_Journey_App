@@ -8,7 +8,7 @@ import 'package:ana_ifs_app/core/localization/app_language_provider.dart';
 import 'package:ana_ifs_app/l10n/app_strings.dart';
 import 'package:ana_ifs_app/features/questionnaire/presentation/screens/initial_motivation_screen.dart';
 import 'package:ana_ifs_app/core/services/firestore_service.dart';
-import 'package:ana_ifs_app/features/chat/presentation/screens/chat_screen.dart';
+import 'package:ana_ifs_app/features/chat/presentation/screens/guider_hub_screen.dart';
 import 'package:ana_ifs_app/features/home/presentation/screens/home_screen.dart';
 import 'package:ana_ifs_app/features/map_3d/presentation/screens/map_3d_screen.dart';
 import 'package:ana_ifs_app/features/progress/presentation/screens/progress_screen.dart';
