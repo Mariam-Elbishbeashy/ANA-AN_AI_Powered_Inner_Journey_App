@@ -706,6 +706,17 @@ def ensure_character_checklist(uid: str, character_id: str) -> None:
 # -----------------------------------------------------------------------------
 # Intensity scoring (OpenAI JSON; stored + logged)
 # -----------------------------------------------------------------------------
+def _extract_recent_user_messages(messages: List[Dict[str, str]], max_items: int = 6) -> List[str]:
+    user_msgs = []
+    for m in messages[-20:]:
+        if m.get("role") != "user":
+            continue
+        txt = (m.get("content") or "").strip()
+        if txt:
+            user_msgs.append(txt)
+    return user_msgs[-max_items:]
+
+
 def _extract_recent_user_text(messages: List[Dict[str, str]], max_chars: int = 1200) -> str:
     """
     Build a compact text blob for scoring:
@@ -729,6 +740,93 @@ def _extract_recent_user_text(messages: List[Dict[str, str]], max_chars: int = 1
     return text[-max_chars:]
 
 
+def _score_intensity_with_rules(messages: List[Dict[str, str]]) -> Dict[str, Any]:
+    """
+    Deterministic signal extractor for emotional intensity and blending.
+    Used as a transparent, reproducible backbone and LLM fallback.
+    """
+    user_msgs = _extract_recent_user_messages(messages, max_items=6)
+    if not user_msgs:
+        return {
+            "intensity": 0.45,
+            "blend": False,
+            "signals": [],
+            "confidence": 0.2,
+            "explain": "No recent user text; default baseline used.",
+        }
+
+    text = " ".join(user_msgs)
+    lower = text.lower()
+
+    # English + Arabic emotional markers.
+    high_markers = [
+        "panic", "terrified", "overwhelmed", "hopeless", "worthless",
+        "i can't cope", "cant cope", "falling apart", "hate myself",
+        "suicidal", "kill myself", "hurt myself", "no point",
+        "مرعوب", "منهار", "مكتئب", "ما بقدر", "لا استطيع", "تعبان جدا",
+        "خايف", "خائفة", "مضغوط", "ضايع", "محبط",
+    ]
+    medium_markers = [
+        "stuck", "anxious", "drained", "ashamed", "guilty", "confused",
+        "going in circles", "nothing works", "can't stop", "cant stop",
+        "قلق", "متوتر", "مرهق", "خجلان", "محتار", "مش عارف",
+    ]
+    blend_markers = [
+        "i am broken", "i'm broken", "i am worthless", "i'm worthless",
+        "this is who i am", "i am this", "i am a failure", "i'm a failure",
+        "انا فاشل", "انا سيء", "انا مكسور", "انا المشكلة", "هذا انا",
+    ]
+
+    signals: List[str] = []
+    high_hits = sum(1 for m in high_markers if m in lower)
+    med_hits = sum(1 for m in medium_markers if m in lower)
+    blend_hits = sum(1 for m in blend_markers if m in lower)
+
+    if high_hits:
+        signals.append("high_distress_language")
+    if med_hits:
+        signals.append("medium_distress_language")
+    if blend_hits:
+        signals.append("identity_fusion_language")
+
+    # Surface form cues.
+    emphatic_punct = text.count("!") + text.count("؟") + text.count("?")
+    if emphatic_punct >= 3:
+        signals.append("emphatic_punctuation")
+    caps_ratio = 0.0
+    letters = [c for c in text if c.isalpha()]
+    if letters:
+        upper = [c for c in letters if c.isupper()]
+        caps_ratio = len(upper) / max(1, len(letters))
+    if caps_ratio > 0.35 and len(letters) > 20:
+        signals.append("high_caps_emphasis")
+
+    # Simple deterministic score.
+    score = 0.35
+    score += min(0.45, high_hits * 0.12)
+    score += min(0.20, med_hits * 0.05)
+    score += min(0.15, emphatic_punct * 0.02)
+    if caps_ratio > 0.35:
+        score += 0.05
+    if blend_hits > 0:
+        score += 0.08
+
+    intensity = max(0.0, min(1.0, score))
+    blend = blend_hits > 0 or (" i am " in f" {lower} " and intensity >= 0.72)
+    confidence = max(0.25, min(0.95, 0.30 + 0.10 * len(signals) + 0.08 * high_hits))
+
+    return {
+        "intensity": intensity,
+        "blend": blend,
+        "signals": signals,
+        "confidence": confidence,
+        "explain": (
+            f"rules: high_hits={high_hits}, med_hits={med_hits}, "
+            f"blend_hits={blend_hits}, punct={emphatic_punct}, caps_ratio={caps_ratio:.2f}"
+        ),
+    }
+
+
 def score_intensity_with_llm(
     character_id: str,
     messages: List[Dict[str, str]],
@@ -741,6 +839,7 @@ def score_intensity_with_llm(
       rationale: str (1-2 lines)
     """
     context = _extract_recent_user_text(messages)
+    rule_score = _score_intensity_with_rules(messages)
 
     prompt = (
         "You are a scoring function for an IFS-style chat session.\n"
@@ -756,36 +855,88 @@ def score_intensity_with_llm(
         f"{context}\n"
     )
 
-    resp = openai_client.chat.completions.create(
-        model=OPENAI_MODEL,
-        messages=[
-            {"role": "system", "content": "Return JSON only (no markdown)."},
-            {"role": "user", "content": prompt},
-        ],
-        temperature=0.2,
-        response_format={"type": "json_object"},
-    )
+    raw = "{}"
+    llm_error = None
+    try:
+        resp = openai_client.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=[
+                {"role": "system", "content": "Return JSON only (no markdown)."},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.2,
+            response_format={"type": "json_object"},
+        )
+        raw = resp.choices[0].message.content or "{}"
+    except Exception as e:
+        llm_error = str(e)
 
-    raw = resp.choices[0].message.content or "{}"
     try:
         parsed = json.loads(raw)
     except Exception:
         parsed = {}
 
-    # Harden output (never crash the pipeline)
-    intensity = parsed.get("intensity")
+    # Harden LLM output.
+    llm_intensity = parsed.get("intensity")
     try:
-        intensity = float(intensity)
+        llm_intensity = float(llm_intensity)
     except Exception:
-        intensity = 0.5
-    intensity = max(0.0, min(1.0, intensity))
+        llm_intensity = None
+    if llm_intensity is not None:
+        llm_intensity = max(0.0, min(1.0, llm_intensity))
+
+    llm_blend = parsed.get("blend") is True
+    llm_signals_raw = parsed.get("signals") or []
+    llm_signals = [str(s).strip() for s in llm_signals_raw if str(s).strip()]
+    llm_rationale = (parsed.get("rationale") or "").strip()
+
+    # Deterministic fusion.
+    if llm_intensity is None:
+        final_intensity = float(rule_score["intensity"])
+        source = "rules_only_fallback"
+    else:
+        # Weighted fusion (semantic signal + reproducible rule backbone).
+        final_intensity = 0.65 * llm_intensity + 0.35 * float(rule_score["intensity"])
+        final_intensity = max(0.0, min(1.0, final_intensity))
+        source = "hybrid_fusion"
+
+    # Blend decision: trust explicit LLM blend unless rules strongly indicate blending.
+    final_blend = bool(llm_blend or rule_score.get("blend") is True)
+    if llm_intensity is None:
+        final_blend = bool(rule_score.get("blend") is True)
+
+    # Merge and dedupe signals.
+    final_signals: List[str] = []
+    for sig in llm_signals + (rule_score.get("signals") or []):
+        if sig and sig not in final_signals:
+            final_signals.append(sig)
+
+    if llm_rationale:
+        rationale = llm_rationale
+    else:
+        rationale = (
+            "Hybrid score used deterministic rule features due to limited LLM rationale. "
+            + str(rule_score.get("explain") or "")
+        )
+
+    # Normalize float precision to keep logs/storage readable and stable.
+    final_intensity = float(f"{final_intensity:.3f}")
 
     return {
-        "intensity": intensity,
-        "blend": parsed.get("blend") is True,
-        "signals": parsed.get("signals") or [],
-        "rationale": (parsed.get("rationale") or "").strip(),
-        "_raw": parsed,
+        "intensity": final_intensity,
+        "blend": final_blend,
+        "signals": final_signals,
+        "rationale": rationale,
+        "_raw": {
+            "llm": parsed,
+            "rules": rule_score,
+            "fusion": {
+                "source": source,
+                "llmIntensity": llm_intensity,
+                "ruleIntensity": rule_score.get("intensity"),
+                "llmError": llm_error,
+            },
+        },
     }
 
 
