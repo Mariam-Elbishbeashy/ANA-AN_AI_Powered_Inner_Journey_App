@@ -126,7 +126,7 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
   // ==========================
   // Backend (Flask) - EMULATOR ONLY
   // ==========================
-  static const String _baseUrl = "http://10.0.2.2:5003";
+  static const String _baseUrl = "http://10.0.2.2:5004";
   static const String _voiceChatEndpoint = "/voice/chat";
 
   // ==========================

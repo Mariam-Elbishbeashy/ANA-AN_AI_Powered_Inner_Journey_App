@@ -546,7 +546,7 @@ def make_public_audio_url(req, filename: str) -> str:
     host = req.host.split(":")[0]
     if host in ["127.0.0.1", "localhost"]:
         host = "10.0.2.2"
-    return f"http://{host}:5003/voice/audio/{filename}"
+    return f"http://{host}:5004/voice/audio/{filename}"
 
 # =============================
 # Agents API Helpers

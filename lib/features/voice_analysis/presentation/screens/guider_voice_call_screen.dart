@@ -88,7 +88,7 @@ class _GuiderVoiceCallScreenState extends State<GuiderVoiceCallScreen>
   static const double _guiderPitch = 1.2;
 
   // Backend URLs - USING EXISTING VOICE ENDPOINTS
-  static const String _baseUrl = "http://10.0.2.2:5003";
+  static const String _baseUrl = "http://10.0.2.2:5004";
   static const String _voiceChatEndpoint = "/voice/chat";
 
   @override

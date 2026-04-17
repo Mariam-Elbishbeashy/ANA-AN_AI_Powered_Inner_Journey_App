@@ -85,6 +85,7 @@ class _ChatConversationState extends State<ChatConversation> {
   bool _isInitializing = true;
   bool _isSending = false;
   Object? _lastSendError;
+  int _lastRenderedMessageCount = 0;
 
   // Guider intervention state
   GuiderInterventionModel? _pendingIntervention;
@@ -94,12 +95,12 @@ class _ChatConversationState extends State<ChatConversation> {
   void initState() {
     super.initState();
     _initializeChat();
-    _messageController.addListener(_handleTyping);
     _inputFocusNode.addListener(_handleFocusChange);
   }
 
   @override
   void dispose() {
+    _inputFocusNode.removeListener(_handleFocusChange);
     _messageController.dispose();
     _scrollController.dispose();
     _inputFocusNode.dispose();
@@ -492,9 +493,32 @@ class _ChatConversationState extends State<ChatConversation> {
     );
   }
 
-  //Handle typing in the chat conversation.
-  void _handleTyping() {
-    _scrollToBottom();
+  bool _isNearBottom({double threshold = 120}) {
+    if (!_scrollController.hasClients) return true;
+    final position = _scrollController.position;
+    final distanceFromBottom = position.maxScrollExtent - position.pixels;
+    return distanceFromBottom <= threshold;
+  }
+
+  void _autoScrollAfterBuildIfNeeded(List<ChatMessageModel> messages) {
+    final currentCount = messages.length;
+
+    // Initialize counter without scrolling on first paint.
+    if (_lastRenderedMessageCount == 0) {
+      _lastRenderedMessageCount = currentCount;
+      return;
+    }
+
+    final hasNewMessages = currentCount > _lastRenderedMessageCount;
+    final userIsNearBottom = _isNearBottom();
+    _lastRenderedMessageCount = currentCount;
+
+    if (!hasNewMessages || !userIsNearBottom) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _scrollToBottom();
+    });
   }
 
   //Handle focus change in the chat conversation.
@@ -558,6 +582,7 @@ class _ChatConversationState extends State<ChatConversation> {
             ),
             builder: (context, snapshot) {
               final messages = snapshot.data ?? [];
+              _autoScrollAfterBuildIfNeeded(messages);
               if (messages.isEmpty) {
                 return Center(
                   child: Text(
