@@ -108,6 +108,234 @@ def _messages_ref(uid: str, thread_id: str):
     return _threads_ref(uid).document(thread_id).collection("messages")
 
 
+_SEVERITY_RANK = {"none": 0, "low": 1, "medium": 2, "high": 3}
+
+
+def _normalize_character_key(value: Any) -> str:
+    return str(value or "").strip().lower().replace(" ", "_")
+
+
+def _get_session_time_key(session: Dict[str, Any]) -> str:
+    # Keep sorting index-safe (string compare), no composite indexes needed.
+    return str(
+        session.get("endedAt")
+        or session.get("updatedAt")
+        or session.get("startedAt")
+        or ""
+    )
+
+
+def _extract_session_intensity_end(session: Dict[str, Any]) -> Optional[float]:
+    try:
+        intensity = session.get("intensity") or {}
+        val = intensity.get("end")
+        if val is None:
+            return None
+        return float(val)
+    except Exception:
+        return None
+
+
+def _extract_session_intensity_delta(session: Dict[str, Any]) -> Optional[float]:
+    try:
+        intensity = session.get("intensity") or {}
+        val = intensity.get("delta")
+        if val is None:
+            return None
+        return float(val)
+    except Exception:
+        return None
+
+
+def _extract_session_intervention_severity(session: Dict[str, Any]) -> str:
+    # Canonical location (new): session.intervention.maxSeverity
+    intervention = session.get("intervention") or {}
+    sev = str(intervention.get("maxSeverity") or intervention.get("lastSeverity") or "").strip().lower()
+    if sev in _SEVERITY_RANK:
+        return sev
+
+    # Legacy fallback: some payloads may store intervention directly
+    sev = str(session.get("severity") or "").strip().lower()
+    if sev in _SEVERITY_RANK:
+        return sev
+
+    return "none"
+
+
+def _plan_completion_ratio(plan_snapshot: Dict[str, Any]) -> float:
+    items = plan_snapshot.get("checklistItems") or []
+    if not items:
+        return 0.0
+    completed = sum(1 for it in items if str(it.get("status") or "").strip().lower() == "completed")
+    return completed / max(1, len(items))
+
+
+def _find_user_character_doc(uid: str, character_id: str):
+    target = _normalize_character_key(character_id)
+    try:
+        chars_ref = db.collection("user_characters").where("userId", "==", uid)
+        for doc in chars_ref.stream():
+            data = doc.to_dict() or {}
+            candidates = {
+                _normalize_character_key(doc.id),
+                _normalize_character_key(data.get("id")),
+                _normalize_character_key(data.get("characterId")),
+                _normalize_character_key(data.get("innerCharacterId")),
+                _normalize_character_key(data.get("characterName")),
+                _normalize_character_key(data.get("displayName")),
+                _normalize_character_key(data.get("displayNameEn")),
+            }
+            if target in candidates:
+                return doc.reference, data
+    except Exception:
+        pass
+    return None, None
+
+
+def _record_session_intervention(uid: str, session_id: str, reason: str, severity: str) -> None:
+    """
+    Persist intervention severity into the session doc so stabilization rules can
+    evaluate recent ended sessions.
+    """
+    sev = str(severity or "low").strip().lower()
+    if sev not in _SEVERITY_RANK:
+        sev = "low"
+
+    sref = _session_ref(uid, session_id)
+    prev_max = "none"
+    try:
+        snap = sref.get()
+        if snap.exists:
+            d = snap.to_dict() or {}
+            prev_max = _extract_session_intervention_severity(d)
+    except Exception:
+        prev_max = "none"
+
+    max_sev = sev if _SEVERITY_RANK[sev] >= _SEVERITY_RANK.get(prev_max, 0) else prev_max
+    sref.set(
+        {
+            "intervention": {
+                "count": firestore.Increment(1),
+                "lastSeverity": sev,
+                "maxSeverity": max_sev,
+                "lastReason": str(reason or ""),
+                "updatedAt": firestore.SERVER_TIMESTAMP,
+            },
+            "updatedAt": firestore.SERVER_TIMESTAMP,
+        },
+        merge=True,
+    )
+
+
+def _evaluate_character_stability(uid: str, character_id: str) -> Dict[str, Any]:
+    """
+    Stability rule (requested thresholds):
+      - minEndedSessions >= 5
+      - totalUserTurns >= 9
+      - last 3 ended sessions: intensity.end <= 0.35 for all 3
+      - no high/medium intervention in last 3 ended sessions
+      - plan completion >= 70%
+      - focus.itemId != stabilization
+    """
+    try:
+        snaps = _sessions_ref(uid).where("characterId", "==", character_id).limit(200).stream()
+        ended_sessions: List[Dict[str, Any]] = []
+        for s in snaps:
+            d = s.to_dict() or {}
+            if str(d.get("status") or "").strip().lower() == "ended":
+                ended_sessions.append({**d, "_id": s.id})
+
+        ended_sessions.sort(key=_get_session_time_key, reverse=True)
+        min_ended_ok = len(ended_sessions) >= 5
+        total_user_turns = sum(int(s.get("userTurnCount") or 0) for s in ended_sessions)
+        turns_ok = total_user_turns >= 9
+
+        last3 = ended_sessions[:3]
+        low_end_ok = (
+            len(last3) == 3
+            and all((_extract_session_intensity_end(s) is not None and _extract_session_intensity_end(s) <= 0.35) for s in last3)
+        )
+        no_mid_high_intervention_ok = (
+            len(last3) == 3
+            and all(_extract_session_intervention_severity(s) not in {"medium", "high"} for s in last3)
+        )
+
+        plan_snapshot = _get_character_plan_snapshot(uid, character_id)
+        completion_ratio = _plan_completion_ratio(plan_snapshot)
+        plan_completion_ok = completion_ratio >= 0.70
+        focus_item = str((plan_snapshot.get("focus") or {}).get("itemId") or "").strip().lower()
+        focus_ok = focus_item != "stabilization"
+
+        is_stable = all(
+            [
+                min_ended_ok,
+                turns_ok,
+                low_end_ok,
+                no_mid_high_intervention_ok,
+                plan_completion_ok,
+                focus_ok,
+            ]
+        )
+        return {
+            "isStable": is_stable,
+            "checks": {
+                "minEndedSessions": min_ended_ok,
+                "totalUserTurns": turns_ok,
+                "last3IntensityEnd": low_end_ok,
+                "last3NoMidHighIntervention": no_mid_high_intervention_ok,
+                "planCompletion": plan_completion_ok,
+                "focusNotStabilization": focus_ok,
+            },
+            "metrics": {
+                "endedSessionsCount": len(ended_sessions),
+                "totalUserTurns": total_user_turns,
+                "planCompletionRatio": round(completion_ratio, 3),
+                "focusItemId": focus_item or None,
+            },
+        }
+    except Exception as e:
+        return {
+            "isStable": False,
+            "checks": {},
+            "metrics": {},
+            "error": str(e),
+        }
+
+
+def _apply_stable_state_if_eligible(uid: str, character_id: str) -> Dict[str, Any]:
+    """
+    Evaluate requested stability thresholds and set user_character.currentState to
+    'stable' if all checks pass.
+    """
+    evaluation = _evaluate_character_stability(uid, character_id)
+    if not evaluation.get("isStable"):
+        return {"changed": False, "evaluation": evaluation}
+
+    ref, data = _find_user_character_doc(uid, character_id)
+    if ref is None:
+        return {"changed": False, "evaluation": evaluation, "error": "user_character_not_found"}
+
+    current_state = str((data or {}).get("currentState") or "active").strip().lower()
+    if current_state == "inactive":
+        # Keep inactive semantics (separate from stability progression).
+        return {"changed": False, "evaluation": evaluation, "reason": "character_inactive"}
+
+    if current_state == "stable":
+        return {"changed": False, "evaluation": evaluation, "reason": "already_stable"}
+
+    now_iso = _now_dt().isoformat()
+    ref.set(
+        {
+            "previousState": current_state or "active",
+            "currentState": "stable",
+            "stableAt": now_iso,
+            "updatedAt": firestore.SERVER_TIMESTAMP,
+        },
+        merge=True,
+    )
+    return {"changed": True, "evaluation": evaluation}
+
+
 #Build a system prompt for the inner character.
 def build_inner_character_prompt(character_profile: Dict) -> str:
     display_name = character_profile.get('displayName', 'Inner Part')
@@ -1521,6 +1749,28 @@ def chat():
                     'intensityNow': (intensity_payload or {}).get("intensity") if intensity_payload else None,
                     'blendNow': (intensity_payload or {}).get("blend") if intensity_payload else None,
                 }
+                if session_id:
+                    try:
+                        _record_session_intervention(
+                            uid=uid,
+                            session_id=session_id,
+                            reason=analysis.get("reason", ""),
+                            severity=analysis.get("severity", "low"),
+                        )
+                    except Exception as e:
+                        logger.info(
+                            json.dumps(
+                                {
+                                    "event": "intervention_record_failed",
+                                    "ts": _now_iso(),
+                                    "uid": uid,
+                                    "characterId": character_id,
+                                    "sessionId": session_id,
+                                    "error": str(e),
+                                },
+                                ensure_ascii=False,
+                            )
+                        )
                 print(f"[intervention] Triggered: {analysis.get('reason')} for {character_id}")
 
         return jsonify({
@@ -1693,12 +1943,47 @@ def end_analyze_session():
             )
         )
 
+        # Evaluate whether this character now qualifies for "stable" state.
+        stability_result = _apply_stable_state_if_eligible(uid, character_id)
+        if stability_result.get("changed"):
+            logger.info(
+                json.dumps(
+                    {
+                        "event": "character_marked_stable",
+                        "ts": _now_iso(),
+                        "uid": uid,
+                        "characterId": character_id,
+                        "evaluation": stability_result.get("evaluation") or {},
+                    },
+                    ensure_ascii=False,
+                )
+            )
+        else:
+            logger.info(
+                json.dumps(
+                    {
+                        "event": "character_stability_check",
+                        "ts": _now_iso(),
+                        "uid": uid,
+                        "characterId": character_id,
+                        "changed": False,
+                        "evaluation": stability_result.get("evaluation") or {},
+                        "reason": stability_result.get("reason"),
+                        "error": stability_result.get("error"),
+                    },
+                    ensure_ascii=False,
+                )
+            )
+
         return jsonify(
             {
                 "success": True,
                 "intensityEnd": intensity_score["intensity"],
                 "delta": delta,
                 "focus": plan_diff.get("focus"),
+                "stabilityChanged": stability_result.get("changed") is True,
+                "stabilityChecks": (stability_result.get("evaluation") or {}).get("checks") or {},
+                "stabilityMetrics": (stability_result.get("evaluation") or {}).get("metrics") or {},
                 "sessionSummary": {
                     "highlights": summary.get("highlights") or [],
                     "nextStepSuggestion": summary.get("nextStepSuggestion") or "",
