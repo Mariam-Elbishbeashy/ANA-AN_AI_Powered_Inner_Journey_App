@@ -22,6 +22,12 @@ class GuiderVoiceSessionViewerScreen extends StatelessWidget {
     }
     return '${remainingSeconds}s';
   }
+  String _extractUsername(String email) {
+    if (email.contains('@')) {
+      return email.split('@').first;
+    }
+    return email; // fallback if it's not an email
+  }
 
   String _formatDateTime(DateTime? dt) {
     if (dt == null) return 'Unknown';
@@ -174,12 +180,17 @@ class GuiderVoiceSessionViewerScreen extends StatelessWidget {
                             const SizedBox(height: 20),
                             _InfoRow(
                               label: tr(context, 'User', 'المستخدم'),
-                              value: userName,
+                              value: _extractUsername(userName),
                             ),
-                            const SizedBox(height: 12),
                             _InfoRow(
                               label: tr(context, 'Duration', 'المدة'),
-                              value: _formatDuration(session.duration),
+                              value: _formatDuration(
+                                  session.duration > 0
+                                      ? session.duration
+                                      : (session.endedAt != null && session.startedAt != null
+                                      ? session.endedAt!.difference(session.startedAt!).inSeconds
+                                      : 0)
+                              ),
                             ),
                             const SizedBox(height: 20),
                             ElevatedButton.icon(

@@ -133,6 +133,7 @@ class GuiderVoiceSessionRepository {
   }
 
   int _getDuration(Map<String, dynamic> data) {
+    // Check for explicit duration field first
     if (data['duration'] != null) {
       if (data['duration'] is int) {
         return data['duration'];
@@ -143,11 +144,33 @@ class GuiderVoiceSessionRepository {
       }
     }
 
+    // Calculate from startedAt and endedAt
     if (data['startedAt'] != null && data['endedAt'] != null) {
       final start = _toDateTime(data['startedAt']);
       final end = _toDateTime(data['endedAt']);
       if (start != null && end != null) {
         return end.difference(start).inSeconds;
+      }
+    }
+
+    // FALLBACK: For ended sessions without endedAt, use lastMessageAt or updatedAt
+    if (data['status'] == 'ended' && data['startedAt'] != null) {
+      final start = _toDateTime(data['startedAt']);
+
+      // Try lastMessageAt first
+      if (data['lastMessageAt'] != null) {
+        final end = _toDateTime(data['lastMessageAt']);
+        if (start != null && end != null) {
+          return end.difference(start).inSeconds;
+        }
+      }
+
+      // Fallback to updatedAt
+      if (data['updatedAt'] != null) {
+        final end = _toDateTime(data['updatedAt']);
+        if (start != null && end != null) {
+          return end.difference(start).inSeconds;
+        }
       }
     }
 

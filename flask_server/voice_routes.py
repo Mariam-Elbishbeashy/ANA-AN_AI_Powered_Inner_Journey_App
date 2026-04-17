@@ -133,6 +133,16 @@ def _ensure_session_doc(uid: str, session_id: str, character_id: str, thread_id:
                 "intensity": {},
                 "sessionSummary": {},
                 "periodic": {},
+                # ✅ Add voice tone tracking (mirroring video session)
+                "voiceTone": {
+                    "dominant": None,
+                    "averageConfidence": 0.0,
+                    "startEmotion": None,
+                    "startConfidence": 0.0,
+                    "endEmotion": None,
+                    "endConfidence": 0.0,
+                    "allDetections": []
+                }
             }, merge=True)
             print(f"[voice] Created session doc: {session_id}")
     except Exception as e:
@@ -561,6 +571,53 @@ def get_character_response(uid: str, character_id: str, character_profile: Dict,
         print(f"❌ Error calling agents service: {e}")
         return {"success": False, "assistantMessage": "I'm having trouble connecting.", "intervention": None}
 
+# Add these functions after the existing helper functions in voice_routes.py
+
+def _update_voice_emotion(uid: str, session_id: str, emotion: str, confidence: float) -> None:
+    """Update voice emotion data in Firestore (mirroring video session structure)."""
+    try:
+        sref = _session_ref(uid, session_id)
+        snap = sref.get()
+        if not snap.exists:
+            return
+
+        current_data = snap.to_dict() or {}
+        voice_data = current_data.get('voiceTone', {})
+        all_detections = voice_data.get('allDetections', [])
+
+        all_detections.append({
+            'emotion': emotion,
+            'confidence': confidence,
+            'timestamp': datetime.now(timezone.utc).isoformat()
+        })
+
+        from collections import Counter
+        emotion_counts = Counter([d['emotion'] for d in all_detections])
+        dominant = emotion_counts.most_common(1)[0][0] if emotion_counts else None
+        avg_confidence = sum([d['confidence'] for d in all_detections]) / len(all_detections) if all_detections else 0
+        start_emotion = all_detections[0]['emotion'] if all_detections else None
+        start_confidence = all_detections[0]['confidence'] if all_detections else 0
+        end_emotion = all_detections[-1]['emotion'] if all_detections else None
+        end_confidence = all_detections[-1]['confidence'] if all_detections else 0
+
+        sref.set({
+            'voiceTone': {
+                'dominant': dominant,
+                'averageConfidence': avg_confidence,
+                'startEmotion': start_emotion,
+                'startConfidence': start_confidence,
+                'endEmotion': end_emotion,
+                'endConfidence': end_confidence,
+                'allDetections': all_detections,
+                'updatedAt': firestore.SERVER_TIMESTAMP
+            }
+        }, merge=True)
+
+        print(f"🎭 Voice emotion updated: {emotion} ({confidence:.2f}), dominant: {dominant}")
+
+    except Exception as e:
+        print(f"Error updating voice emotion: {e}")
+
 def get_guided_response(uid: str, character_id: str, character_profile: Dict, messages: List[Dict]) -> Dict:
     try:
         response = requests.post(
@@ -827,7 +884,8 @@ def voice_chat():
                     confidence = voice_emotion.get('confidence', 0.0)
                     print(f"🎭 Voice emotion detected: {emotion} ({confidence*100:.1f}%)")
 
-                    # Save emotion to session in Firestore
+                    if db and session_id:
+                                    _update_voice_emotion(uid, session_id, emotion, confidence)
                     if db and session_id:
                         _session_ref(uid, session_id).set({
                             f"emotions.voice_{datetime.utcnow().isoformat()}": {
@@ -1018,6 +1076,10 @@ def session_summary():
 
         # Generate summary using LLM
         summary = summarize_session_with_llm(character_id, messages)
+        voice_tone = existing.get('voiceTone', {})
+
+        # ✅ Get any face emotion data (though voice sessions typically don't have this)
+        face_emotion = existing.get('faceEmotion', {})
 
         # Update character plan metrics
         if db:
@@ -1052,6 +1114,7 @@ def session_summary():
             "status": "ended",
             "updatedAt": firestore.SERVER_TIMESTAMP,
             "endedAnalyzedAt": firestore.SERVER_TIMESTAMP,
+            "voiceTone": voice_tone,
         }, merge=True)
 
         # Log agent run
@@ -1099,6 +1162,14 @@ def session_summary():
                 'highlights': summary.get("highlights") or [],
                 'nextStepSuggestion': summary.get("nextStepSuggestion") or "",
             },
+            # ✅ Return voice emotion data to Flutter
+            'voiceTone': {
+                'dominant': voice_tone.get('dominant'),
+                'averageConfidence': voice_tone.get('averageConfidence', 0),
+                'startEmotion': voice_tone.get('startEmotion'),
+                'endEmotion': voice_tone.get('endEmotion'),
+                'totalDetections': len(voice_tone.get('allDetections', []))
+                }
         })
 
     except Exception as e:

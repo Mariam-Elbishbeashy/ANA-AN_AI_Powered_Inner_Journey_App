@@ -50,6 +50,7 @@ class _GuiderVoiceCallScreenState extends State<GuiderVoiceCallScreen>
   bool _isProcessing = false;
   bool _isSpeaking = false;
   bool _voiceLoopActive = false;
+  bool _guiderActive = true;
   bool _stopping = false;
 
   // Silence auto-stop config
@@ -69,11 +70,12 @@ class _GuiderVoiceCallScreenState extends State<GuiderVoiceCallScreen>
   String _status = "";
   double _currentDbLevel = -100.0;
   String _lastUserTranscript = "";
-  String _visibleGuiderText = "";
+  String _guiderResponse = ""; // Full response text
+  String _displayedResponse = ""; // Text currently showing (for typing animation)
   String _error = "";
   String? _wavPath;
-  final List<String> _textBuffer = [];
   Timer? _typingTimer;
+  int _typingIndex = 0;
 
   // Session data
   String _sessionId = "";
@@ -88,9 +90,6 @@ class _GuiderVoiceCallScreenState extends State<GuiderVoiceCallScreen>
   // Backend URLs - USING EXISTING VOICE ENDPOINTS
   static const String _baseUrl = "http://10.0.2.2:5003";
   static const String _voiceChatEndpoint = "/voice/chat";
-
-  // Guider GIF path
-  static const String _guiderGifPath = 'assets/animations/guider.gif';
 
   @override
   void initState() {
@@ -165,8 +164,6 @@ class _GuiderVoiceCallScreenState extends State<GuiderVoiceCallScreen>
           setState(() {
             _isSpeaking = false;
             _isProcessing = false;
-            _textBuffer.clear();
-            _visibleGuiderText = "";
             _status = "Listening...";
           });
         }
@@ -313,7 +310,7 @@ class _GuiderVoiceCallScreenState extends State<GuiderVoiceCallScreen>
     req.fields["characterId"] = widget.characterId ?? 'guider';
     req.fields["characterType"] = 'guider';
     req.fields["guided"] = "true";
-    req.fields["guiderActive"] = "true";  // Force Guider to be active
+    req.fields["guiderActive"] = "true";
 
     if (_sessionId.isNotEmpty) {
       req.fields["sessionId"] = _sessionId;
@@ -354,30 +351,26 @@ class _GuiderVoiceCallScreenState extends State<GuiderVoiceCallScreen>
 
   void _startTypingAnimation(String fullText) {
     _typingTimer?.cancel();
+    _typingIndex = 0;
+    _guiderResponse = fullText;
+    _displayedResponse = "";
+
     if (mounted) {
-      setState(() {
-        _textBuffer.clear();
-        _visibleGuiderText = "";
-      });
+      setState(() {});
     }
 
-    final words = fullText.split(' ');
-    int index = 0;
-
-    _typingTimer = Timer.periodic(const Duration(milliseconds: 150), (timer) {
-      if (index >= words.length) {
-        timer.cancel();
-        return;
-      }
-      if (!mounted) return;
-      setState(() {
-        _textBuffer.add(words[index]);
-        if (_textBuffer.length > 15) {
-          _textBuffer.removeAt(0);
+    // Start typing animation
+    _typingTimer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
+      if (_typingIndex < fullText.length) {
+        if (mounted) {
+          setState(() {
+            _displayedResponse = fullText.substring(0, _typingIndex + 1);
+            _typingIndex++;
+          });
         }
-        _visibleGuiderText = _textBuffer.join(' ');
-      });
-      index++;
+      } else {
+        timer.cancel();
+      }
     });
   }
 
@@ -464,6 +457,7 @@ class _GuiderVoiceCallScreenState extends State<GuiderVoiceCallScreen>
         _conversationHistory = _conversationHistory.sublist(_conversationHistory.length - 20);
       }
 
+      // Start typing animation with the response
       _startTypingAnimation(guiderText);
 
       if (mounted) {
@@ -472,12 +466,14 @@ class _GuiderVoiceCallScreenState extends State<GuiderVoiceCallScreen>
         });
       }
 
+      // Speak the response
       await _speakGuiderText(guiderText);
 
+      // Clear displayed text after speaking
       if (mounted) {
         setState(() {
-          _textBuffer.clear();
-          _visibleGuiderText = "";
+          _displayedResponse = "";
+          _guiderResponse = "";
         });
       }
 
@@ -555,8 +551,8 @@ class _GuiderVoiceCallScreenState extends State<GuiderVoiceCallScreen>
         _isRecording = false;
         _isProcessing = false;
         _isSpeaking = false;
-        _textBuffer.clear();
-        _visibleGuiderText = "";
+        _displayedResponse = "";
+        _guiderResponse = "";
         _status = "Paused";
       });
     }
@@ -564,14 +560,61 @@ class _GuiderVoiceCallScreenState extends State<GuiderVoiceCallScreen>
   }
 
   Future<void> _endCall() async {
-    _disposed = true;
+    print("===== _endCall CALLED =====");
 
+    // Stop all audio and tracking
+    _disposed = true;
     _stopAll();
 
+    // Small delay to let audio stop
     await Future.delayed(const Duration(milliseconds: 100));
 
+    // Navigate back IMMEDIATELY
     if (mounted) {
+      print("Navigating back...");
       Navigator.of(context).pop();
+    }
+
+    // Then save session data in background (fire and forget)
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null && _sessionId.isNotEmpty) {
+      // Build messages for summary
+      final messagesForSummary = _conversationHistory.map((msg) {
+        return {
+          'role': msg['role'],
+          'content': msg['content'],
+        };
+      }).toList();
+
+      final durationSeconds = (DateTime.now().millisecondsSinceEpoch - _sessionStartTime) ~/ 1000;
+
+      // Fire and forget - don't await
+      http.post(
+        Uri.parse("$_baseUrl/voice/session_summary"),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'uid': user.uid,
+          'sessionId': _sessionId,
+          'threadId': _threadId,
+          'characterId': widget.characterId ?? 'guider',
+          'duration': durationSeconds,
+          'messages': messagesForSummary,
+        }),
+      ).then((response) {
+        if (response.statusCode == 200) {
+          print("✅ Session summary saved");
+        }
+      }).catchError((e) => print("Error saving summary: $e"));
+
+      // Also call end_session endpoint
+      http.post(
+        Uri.parse("$_baseUrl/voice/end_session"),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'uid': user.uid,
+          'sessionId': _sessionId,
+        }),
+      ).catchError((e) => print("Error ending session: $e"));
     }
   }
 
@@ -603,285 +646,285 @@ class _GuiderVoiceCallScreenState extends State<GuiderVoiceCallScreen>
 
     return Scaffold(
       backgroundColor: const Color(0xFFF9F6FF),
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFFF7F2FF),
-              Color(0xFFF2ECFF),
-              Color(0xFFEDE7FF),
-            ],
-          ),
-        ),
-        child: SafeArea(
-          child: Column(
-            children: [
-              // Top Bar
-              Padding(
-                padding: const EdgeInsets.fromLTRB(18, 8, 18, 8),
-                child: Row(
-                  children: [
-                    _CircleIconButton(
-                      icon: Icons.arrow_back_rounded,
-                      onTap: _endCall,
-                    ),
-                    Expanded(
-                      child: Center(
-                        child: Text(
-                          tr(context, 'The Guider', 'المرشد'),
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF2A1E3B),
-                          ),
+      body: Stack(
+        children: [
+          Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Color(0xFFF7F2FF),
+                  Color(0xFFF2ECFF),
+                  Color(0xFFEDE7FF),
+                ],
+              ),
+            ),
+            child: SafeArea(
+              child: Column(
+                children: [
+                  // Top Bar
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(18, 8, 18, 8),
+                    child: Row(
+                      children: [
+                        _CircleIconButton(
+                          icon: Icons.arrow_back_rounded,
+                          onTap: _endCall,
                         ),
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(20),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.06),
-                            blurRadius: 8,
-                          ),
-                        ],
-                      ),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 8,
-                            height: 8,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: _voiceLoopActive
-                                  ? Colors.green
-                                  : Colors.grey,
+                        Expanded(
+                          child: Center(
+                            child: Text(
+                              tr(context, 'The Guider', 'المرشد'),
+                              style: const TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.w800,
+                                color: Color(0xFF2A1E3B),
+                              ),
                             ),
                           ),
-                          const SizedBox(width: 6),
-                          Text(
-                            _voiceLoopActive ? (isArabic ? "مباشر" : "LIVE") : (isArabic ? "متوقف" : "PAUSED"),
-                            style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF6B5C82),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 10),
-
-              // Status Text
-              Text(
-                _status.isEmpty
-                    ? (isArabic ? "اضغط الميكروفون للتحدث" : "Tap the mic to speak")
-                    : _status,
-                style: const TextStyle(
-                  color: Color(0xFF7A6A5A),
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              if (_error.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 10, 18, 0),
-                  child: Text(
-                    _error,
-                    style: const TextStyle(
-                      color: Colors.red,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-              const SizedBox(height: 18),
-
-              // Guider Animation Area
-              Expanded(
-                child: Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      SizedBox(
-                        width: 290,
-                        height: 290,
-                        child: _showListeningAnim
-                            ? Gif(
-                          key: _gifKey,
-                          image: const AssetImage(_guiderGifPath),
-                          controller: _gifController!,
-                          autostart: Autostart.loop,
-                          fit: BoxFit.contain,
-                        )
-                            : Image.asset(
-                          _guiderGifPath,
-                          fit: BoxFit.contain,
                         ),
-                      ),
-                      const SizedBox(height: 22),
-
-                      // Guider Text Bubble
-                      if (_visibleGuiderText.isNotEmpty || _isProcessing)
-                        Container(
-                          margin: const EdgeInsets.symmetric(horizontal: 24),
-                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                        // Guider Active Badge
+                        AnimatedContainer(
+                          duration: const Duration(milliseconds: 300),
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                           decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(28),
-                            border: Border.all(color: const Color(0xFFE5DEFF)),
-                            boxShadow: [
+                            color: _guiderActive
+                                ? const Color(0xFFB79CFF).withOpacity(0.15)
+                                : Colors.white,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: _guiderActive
+                                  ? const Color(0xFFB79CFF)
+                                  : Colors.grey.withOpacity(0.3),
+                              width: 1.5,
+                            ),
+                            boxShadow: _guiderActive
+                                ? [
                               BoxShadow(
-                                color: Colors.black.withOpacity(0.05),
-                                blurRadius: 10,
+                                color: const Color(0xFFB79CFF).withOpacity(0.25),
+                                blurRadius: 12,
                                 offset: const Offset(0, 4),
                               ),
-                            ],
+                            ]
+                                : [],
                           ),
-                          child: Column(
+                          child: Row(
                             children: [
-                              if (_lastUserTranscript.isNotEmpty && _visibleGuiderText.isNotEmpty)
-                                Padding(
-                                  padding: const EdgeInsets.only(bottom: 12),
-                                  child: Text(
-                                    '"$_lastUserTranscript"',
-                                    textAlign: TextAlign.center,
-                                    style: const TextStyle(
-                                      color: Color(0xFFB79CFF),
-                                      fontSize: 13,
-                                      fontStyle: FontStyle.italic,
+                              Container(
+                                width: 24,
+                                height: 24,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: const Color(0xFFB79CFF).withOpacity(0.4),
+                                      blurRadius: 8,
+                                      offset: const Offset(0, 2),
                                     ),
-                                  ),
+                                  ],
                                 ),
-                              Text(
-                                _visibleGuiderText.isNotEmpty
-                                    ? _visibleGuiderText
-                                    : (isArabic ? "..." : "..."),
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w500,
-                                  color: Color(0xFF2A1E3B),
-                                  height: 1.4,
+                                child: ClipOval(
+                                  child: Image.asset(
+                                    'assets/animations/guider.gif',
+                                    fit: BoxFit.cover,
+                                  ),
                                 ),
                               ),
-                              if (_isProcessing && _visibleGuiderText.isEmpty)
-                                const Padding(
-                                  padding: EdgeInsets.only(top: 8),
-                                  child: SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFB79CFF)),
-                                    ),
-                                  ),
+                              const SizedBox(width: 6),
+                              Text(
+                                isArabic ? "المُرشد معك" : "Guider Active",
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF6B5C82),
                                 ),
+                              ),
                             ],
                           ),
                         ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 10),
 
-                      // Audio Level Indicator (when recording)
-                      if (_isRecording && !_isProcessing && !_isSpeaking)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 16),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withOpacity(0.7),
-                              borderRadius: BorderRadius.circular(20),
+                  // Status Text
+                  Text(
+                    _status.isEmpty
+                        ? (isArabic ? "اضغط الميكروفون للتحدث" : "Tap the mic to speak")
+                        : _status,
+                    style: const TextStyle(
+                      color: Color(0xFF7A6A5A),
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  if (_error.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(18, 10, 18, 0),
+                      child: Text(
+                        _error,
+                        style: const TextStyle(
+                          color: Colors.red,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  const SizedBox(height: 18),
+
+                  // Main Content Area - Similar to VoiceAnalysisScreen
+                  Expanded(
+                    child: Center(
+                      child: SingleChildScrollView(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            // Animated Sphere
+                            SizedBox(
+                              width: 280,
+                              height: 280,
+                              child: _showListeningAnim
+                                  ? Gif(
+                                key: _gifKey,
+                                image: const AssetImage('assets/animations/voice_sphere.gif'),
+                                controller: _gifController!,
+                                autostart: Autostart.loop,
+                                fit: BoxFit.contain,
+                              )
+                                  : Image.asset(
+                                'assets/animations/voice_sphere.gif',
+                                fit: BoxFit.contain,
+                              ),
                             ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Container(
-                                  width: 8,
-                                  height: 8,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: _currentDbLevel > -25
-                                        ? Colors.green
-                                        : (_currentDbLevel > -35 ? Colors.yellow : Colors.red),
+                            const SizedBox(height: 30),
+
+                            // Response Card - Like Voice Analysis Screen
+                            if (_displayedResponse.isNotEmpty)
+                              Container(
+                                margin: const EdgeInsets.symmetric(horizontal: 24),
+                                padding: const EdgeInsets.all(24),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.9),
+                                  borderRadius: BorderRadius.circular(32),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(0.08),
+                                      blurRadius: 20,
+                                      offset: const Offset(0, 8),
+                                    ),
+                                  ],
+                                  border: Border.all(
+                                    color: const Color(0xFFB79CFF).withOpacity(0.3),
+                                    width: 1,
                                   ),
                                 ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  isArabic ? "تتحدث..." : "Speaking...",
-                                  style: const TextStyle(color: Colors.white, fontSize: 12),
-                                ),
-                                const SizedBox(width: 8),
-                                Container(
-                                  width: 50,
-                                  height: 4,
-                                  decoration: BoxDecoration(
-                                    color: Colors.grey.withOpacity(0.5),
-                                    borderRadius: BorderRadius.circular(2),
-                                  ),
-                                  child: FractionallySizedBox(
-                                    widthFactor: ((_currentDbLevel + 50) / 35).clamp(0.0, 1.0),
-                                    child: Container(
-                                      decoration: BoxDecoration(
-                                        color: _currentDbLevel > -25
-                                            ? Colors.green
-                                            : (_currentDbLevel > -35 ? Colors.yellow : Colors.red),
-                                        borderRadius: BorderRadius.circular(2),
+                                child: Column(
+                                  children: [
+                                    // Guider label
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Container(
+                                          width: 8,
+                                          height: 8,
+                                          decoration: const BoxDecoration(
+                                            color: Color(0xFF8E7CFF),
+                                            shape: BoxShape.circle,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+
+                                      ],
+                                    ),
+                                    const SizedBox(height: 16),
+                                    // Response text
+                                    Text(
+                                      _displayedResponse,
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.w700,
+                                        color: Color(0xFF2A1E3B),
+                                        height: 1.4,
                                       ),
                                     ),
-                                  ),
+                                    if (_isSpeaking) ...[
+                                      const SizedBox(height: 16),
+                                      // Speaking indicator
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          _buildDot(0),
+                                          const SizedBox(width: 4),
+                                          _buildDot(1),
+                                          const SizedBox(width: 4),
+                                          _buildDot(2),
+                                        ],
+                                      ),
+                                    ],
+                                  ],
                                 ),
-                              ],
-                            ),
-                          ),
+                              ),
+                          ],
                         ),
-                    ],
+                      ),
+                    ),
                   ),
-                ),
-              ),
 
-              // Bottom Buttons
-              Padding(
-                padding: EdgeInsets.fromLTRB(24, 8, 24, 24 + MediaQuery.of(context).padding.bottom),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    _RoundCircleButton(
-                      icon: Icons.pause_rounded,
-                      onTap: _stopAll,
-                      backgroundColor: Colors.white,
-                      iconColor: const Color(0xFF2A1E3B),
+                  // Bottom Buttons
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(24, 8, 24, 24 + MediaQuery.of(context).padding.bottom),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        _RoundCircleButton(
+                          icon: Icons.pause_rounded,
+                          onTap: _stopAll,
+                          backgroundColor: Colors.white,
+                          iconColor: const Color(0xFF2A1E3B),
+                        ),
+                        _RoundCircleButton(
+                          icon: Icons.mic_rounded,
+                          onTap: () {
+                            if (!_voiceLoopActive) {
+                              _startVoiceLoop();
+                            } else if (_isRecording) {
+                              _stopRecordingAndSend();
+                            }
+                          },
+                          backgroundColor: const Color(0xFF8E7CFF),
+                          iconColor: Colors.white,
+                          size: 64,
+                        ),
+                        _RoundCircleButton(
+                          icon: Icons.close_rounded,
+                          onTap: _endCall,
+                          backgroundColor: Colors.white,
+                          iconColor: const Color(0xFF2A1E3B),
+                        ),
+                      ],
                     ),
-                    _RoundCircleButton(
-                      icon: Icons.mic_rounded,
-                      onTap: () {
-                        if (!_voiceLoopActive) {
-                          _startVoiceLoop();
-                        } else if (_isRecording) {
-                          _stopRecordingAndSend();
-                        }
-                      },
-                      backgroundColor: const Color(0xFF8E7CFF),
-                      iconColor: Colors.white,
-                      size: 64,
-                    ),
-                    _RoundCircleButton(
-                      icon: Icons.close_rounded,
-                      onTap: _endCall,
-                      backgroundColor: Colors.white,
-                      iconColor: const Color(0xFF2A1E3B),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDot(int index) {
+    return AnimatedOpacity(
+      opacity: _isSpeaking ? 1.0 : 0.3,
+      duration: const Duration(milliseconds: 400),
+      child: Container(
+        width: 8,
+        height: 8,
+        decoration: BoxDecoration(
+          color: const Color(0xFF8E7CFF),
+          shape: BoxShape.circle,
         ),
       ),
     );

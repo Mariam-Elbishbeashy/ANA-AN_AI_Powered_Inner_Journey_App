@@ -4,6 +4,45 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 // ENTITY CLASSES
 // ============================================================
 
+// ✅ ADD THIS - VoiceToneData class for voice emotion tracking
+class VoiceToneData {
+  final String? dominant;
+  final double averageConfidence;
+  final String? startEmotion;
+  final double startConfidence;
+  final String? endEmotion;
+  final double endConfidence;
+  final List<Map<String, dynamic>> allDetections;
+  final DateTime? updatedAt;
+
+  const VoiceToneData({
+    this.dominant,
+    this.averageConfidence = 0.0,
+    this.startEmotion,
+    this.startConfidence = 0.0,
+    this.endEmotion,
+    this.endConfidence = 0.0,
+    this.allDetections = const [],
+    this.updatedAt,
+  });
+
+  factory VoiceToneData.fromJson(Map<String, dynamic> json) {
+    return VoiceToneData(
+      dominant: json['dominant'] as String?,
+      averageConfidence: (json['averageConfidence'] as num?)?.toDouble() ?? 0.0,
+      startEmotion: json['startEmotion'] as String?,
+      startConfidence: (json['startConfidence'] as num?)?.toDouble() ?? 0.0,
+      endEmotion: json['endEmotion'] as String?,
+      endConfidence: (json['endConfidence'] as num?)?.toDouble() ?? 0.0,
+      allDetections: List<Map<String, dynamic>>.from(json['allDetections'] ?? []),
+      updatedAt: json['updatedAt'] != null
+          ? (json['updatedAt'] as DateTime)
+          : null,
+    );
+  }
+}
+
+// ✅ UPDATE VoiceSession class to include voiceTone (with null safety for old sessions)
 class VoiceSession {
   final String id;
   final String uid;
@@ -18,6 +57,7 @@ class VoiceSession {
   final double? intensityStart;
   final double? intensityEnd;
   final Map<String, dynamic>? sessionSummary;
+  final VoiceToneData? voiceTone;
 
   VoiceSession({
     required this.id,
@@ -33,15 +73,29 @@ class VoiceSession {
     this.intensityStart,
     this.intensityEnd,
     this.sessionSummary,
+    this.voiceTone,
   });
 
   factory VoiceSession.fromFirestore(String id, Map<String, dynamic> map) {
+    // Safely parse voiceTone - handle case where it doesn't exist
+    VoiceToneData? voiceToneData;
+    if (map['voiceTone'] != null && map['voiceTone'] is Map<String, dynamic>) {
+      try {
+        voiceToneData = VoiceToneData.fromJson(map['voiceTone']);
+      } catch (e) {
+        print('Error parsing voiceTone: $e');
+        voiceToneData = null;
+      }
+    }
+
     return VoiceSession(
       id: id,
       uid: map['uid'] ?? '',
       characterId: map['characterId'] ?? '',
       threadId: map['threadId'],
-      startedAt: (map['startedAt'] as Timestamp).toDate(),
+      startedAt: map['startedAt'] != null
+          ? (map['startedAt'] as Timestamp).toDate()
+          : DateTime.now(),
       endedAt: map['endedAt'] != null
           ? (map['endedAt'] as Timestamp).toDate()
           : null,
@@ -52,6 +106,7 @@ class VoiceSession {
       intensityStart: (map['intensity']?['start'] as num?)?.toDouble(),
       intensityEnd: (map['intensity']?['end'] as num?)?.toDouble(),
       sessionSummary: map['sessionSummary'],
+      voiceTone: voiceToneData,
     );
   }
 }
@@ -90,7 +145,7 @@ class VoiceSessionRepository {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   // ============================================================
-  // STREAM SESSIONS (FIXED - REAL FIRESTORE)
+  // STREAM SESSIONS
   // ============================================================
   Stream<List<VoiceSession>> streamVoiceSessionsForCharacter({
     required String uid,
@@ -101,7 +156,7 @@ class VoiceSessionRepository {
         .doc(uid)
         .collection('sessions')
         .where('characterId', isEqualTo: characterId)
-        .where('type', isEqualTo: 'voice') // ✅ IMPORTANT FILTER
+        .where('type', isEqualTo: 'voice')
         .orderBy('startedAt', descending: true)
         .snapshots()
         .map((snapshot) {
@@ -150,10 +205,8 @@ class VoiceSessionRepository {
     final doc = await docRef.get();
     final data = doc.data();
 
-    // ✅ ADD THIS (IMPORTANT SAFETY CHECK)
     if (data == null) return;
 
-    // ✅ FIXED startedAt parsing
     final startedAt = data['startedAt'] != null
         ? (data['startedAt'] as Timestamp).toDate()
         : null;

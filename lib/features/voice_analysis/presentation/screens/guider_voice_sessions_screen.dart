@@ -102,7 +102,7 @@ class _GuiderVoiceSessionsScreenState extends State<GuiderVoiceSessionsScreen> {
         MaterialPageRoute(
           builder: (_) => GuiderVoiceSessionViewerScreen(
             session: session,
-            userName: widget.userName,
+            userName: FirebaseAuth.instance.currentUser?.email ?? '',
           ),
         ),
       );
@@ -269,9 +269,7 @@ class _GuiderVoiceSessionsScreenState extends State<GuiderVoiceSessionsScreen> {
 
                           final subtitle = s.isActive
                               ? tr(context, 'Started: $when', 'بدأت: $when')
-                              : (s.duration > 0
-                              ? tr(context, '$when • $duration', '$when • $duration')
-                              : when);
+                              : when;
 
                           final statusLabel = s.isActive
                               ? tr(context, 'Active', 'نشطة')

@@ -8,7 +8,7 @@ import 'package:ana_ifs_app/features/chat/presentation/screens/guider_session_hi
 import 'package:ana_ifs_app/features/video_chat/presentation/screens/guider_video_call_screen.dart'; // Add this import
 import 'package:ana_ifs_app/features/voice_analysis/presentation/screens/voice_analysis_screen.dart';
 import 'package:ana_ifs_app/features/character/domain/entities/user_character.dart';
-
+import 'package:ana_ifs_app/features/voice_analysis/presentation/screens/guider_voice_sessions_screen.dart';
 import '../../../video_chat/presentation/screens/guider_sessions_screen.dart';
 
 import 'package:ana_ifs_app/features/voice_analysis/presentation/screens/voice_sessions_screen.dart';
@@ -191,8 +191,9 @@ class ChatScreen extends StatelessWidget {
                   onVoice: () {
                     Navigator.of(context).push(
                       MaterialPageRoute(
-                        builder: (_) => VoiceSessionsScreen(
-                          character: character,
+                        builder: (_) => GuiderVoiceSessionsScreen(
+                          userName: character.displayNameEn,
+                          characterId: character.id,
                         ),
                       ),
                     );
