@@ -5,7 +5,7 @@ import json
 import logging
 from datetime import datetime, timezone
 import time
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 import traceback
 
 import firebase_admin
@@ -139,6 +139,7 @@ Guidelines:
 - Use gentle questions to help the user connect with this part.
 - Avoid clinical language and avoid giving medical advice.
 - Keep the tone realistic and human, not robotic.
+- Keep the responses not too long, concise, and natural, 4-5 sentences max.
 """.strip()
 
 
@@ -146,15 +147,27 @@ Guidelines:
 def build_system_prompt_with_memory(
     character_profile: Dict,
     memory_summary: str,
+    plan_focus_hint: str = "",
 ) -> str:
     base_prompt = build_inner_character_prompt(character_profile)
-    if not memory_summary:
+    if not memory_summary and not plan_focus_hint:
         return base_prompt
+
+    extras: List[str] = []
+    if memory_summary:
+        extras.append(
+            f"""Memory summary (use only if relevant):
+{memory_summary}"""
+        )
+    if plan_focus_hint:
+        extras.append(
+            f"""Current therapeutic focus (internal hint; do not mention checklist mechanics):
+{plan_focus_hint}"""
+        )
 
     return f"""{base_prompt}
 
-Memory summary (use only if relevant):
-{memory_summary}
+{chr(10).join(extras)}
 """.strip()
 
 
@@ -923,14 +936,6 @@ def _get_session_user_turn_count(uid: str, session_id: str) -> int:
         return 0
 
 
-def _should_run_periodic_update(uid: str, session_id: str) -> bool:
-    """
-    every 3 user turns: 3,6,9,...
-    """
-    n = _get_session_user_turn_count(uid, session_id)
-    return n > 0 and (n % 3) == 0
-
-
 def _try_acquire_periodic_update(uid: str, session_id: str) -> int:
     """
     prevents duplicate/overlapping periodic updates for the same session turn
@@ -1175,9 +1180,22 @@ def chat():
         check_intervention = data.get('checkIntervention', True)  # Enable by default
 
         memory_summary = load_agent_memory_summary(uid, character_id)
+        char_plan_snapshot = _get_character_plan_snapshot(uid, character_id)
+        plan_focus_hint = ""
+        if char_plan_snapshot:
+            focus = (char_plan_snapshot.get("focus") or {})
+            focus_item = focus.get("itemId")
+            focus_reason = focus.get("reason")
+            if focus_item:
+                plan_focus_hint = (
+                    f"Prioritize '{focus_item}' right now"
+                    + (f" ({focus_reason})" if focus_reason else "")
+                    + ". Keep this subtle, natural, and in-character."
+                )
         system_prompt = build_system_prompt_with_memory(
             character_profile,
             memory_summary,
+            plan_focus_hint=plan_focus_hint,
         )
         openai_messages = [{'role': 'system', 'content': system_prompt}]
 
@@ -1902,14 +1920,11 @@ If someone is in crisis, gently encourage them to seek professional help.
 
 You have access to the user's conversations with their inner parts. Use this to personalize your guidance, but don't overwhelm them with information.
 
-PLAN MANAGEMENT RULES (IMPORTANT):
-- Create ONE plan after 3-4 exchanges when you understand the user's focus - then STOP creating new plans
-- After a plan exists, ONLY use update_plan_step to track progress - DO NOT create new plans
-- Only create a NEW plan if: (1) user explicitly shifts to a completely different inner part, OR (2) all steps are completed
-- When user makes progress or has insight: use update_plan_step with status="completed"
-- When user needs more work on a step: use update_plan_step with status="in_progress" and notes
-- CRITICAL: Do NOT create a plan on every message - maximum ONE plan per conversation topic
-- NEVER say the whole plan at once to the user, just walk the user through it step by step
+GUIDANCE RULE (IMPORTANT):
+- Keep your guidance aligned with IFS principles and the user's current state across parts.
+- Use prior context to choose the most relevant focus, but stay flexible (not step-by-step rigid).
+- Offer one small, practical next step at a time.
+- Do not mention internal planning/checklist logic to the user.
 
 Example good response: "It sounds like your Workaholic has been very active lately. What does it feel like when that part takes over?"
 
@@ -1933,56 +1948,129 @@ def get_all_character_summaries(uid: str) -> Dict[str, str]:
     return summaries
 
 
-def get_recent_character_messages(uid: str, limit_per_character: int = 5) -> Dict[str, List[Dict]]:
-    """Fetch recent messages from all character chat threads."""
-    all_messages = {}
+def get_user_character_states(uid: str) -> List[Dict[str, str]]:
+    """
+    Fetch per-character state from `user_characters` for this user.
+
+    Expected state values:
+    - active
+    - stable
+    - inactive
+    """
+    rows: List[Dict[str, str]] = []
     try:
-        threads_ref = db.collection('users').document(uid).collection('chat_threads')
-        threads = threads_ref.where('characterType', '==', 'inner_character').stream()
-        
-        for thread in threads:
-            thread_data = thread.to_dict() or {}
-            character_id = thread_data.get('characterId', 'unknown')
-            
-            # Get recent messages from this thread
-            messages_ref = threads_ref.document(thread.id).collection('messages')
-            recent = messages_ref.order_by('createdAt', direction='DESCENDING').limit(limit_per_character).stream()
-            
-            messages = []
-            for msg in recent:
-                msg_data = msg.to_dict() or {}
-                messages.append({
-                    'role': msg_data.get('role', 'user'),
-                    'content': msg_data.get('content', ''),
-                })
-            
-            if messages:
-                # Reverse to get chronological order
-                all_messages[character_id] = list(reversed(messages))
+        chars_ref = db.collection("user_characters").where("userId", "==", uid)
+        for doc in chars_ref.stream():
+            data = doc.to_dict() or {}
+            character_id = (
+                data.get("characterId")
+                or data.get("innerCharacterId")
+                or data.get("id")
+                or doc.id
+            )
+            display_name = (
+                data.get("characterName")
+                or data.get("displayNameEn")
+                or data.get("displayName")
+                or str(character_id).replace("_", " ").title()
+            )
+            state = str(data.get("currentState") or "active").strip().lower()
+            if state not in {"active", "stable", "inactive"}:
+                state = "active"
+            rows.append(
+                {
+                    "characterId": str(character_id),
+                    "displayName": str(display_name),
+                    "currentState": state,
+                }
+            )
     except Exception as e:
-        print(f"[guider] Error fetching character messages: {e}")
-    return all_messages
+        print(f"[guider] Error fetching user_characters states: {e}")
+    return rows
 
 
-def build_guider_context(uid: str) -> str:
+def _format_plan_snapshot_for_prompt(plan_snapshot: Dict[str, Any], max_items: int = 4) -> str:
+    """Formats a compact checklist plan snapshot for prompt injection."""
+    if not plan_snapshot:
+        return ""
+
+    focus = plan_snapshot.get("focus") or {}
+    focus_item = focus.get("itemId") or "none"
+    focus_reason = focus.get("reason") or "none"
+    items = plan_snapshot.get("checklistItems") or []
+    metrics = plan_snapshot.get("metrics") or {}
+
+    prioritized: List[Dict[str, Any]] = []
+    for status in ("needs_work", "in_progress", "completed"):
+        prioritized.extend([it for it in items if it.get("status") == status])
+    if not prioritized:
+        prioritized = items
+
+    lines = [
+        f"- focus: {focus_item} (reason: {focus_reason})",
+        f"- status: {plan_snapshot.get('status') or 'active'}",
+    ]
+    if metrics:
+        lines.append(f"- metrics: {json.dumps(metrics, ensure_ascii=False, default=_json_default)}")
+    if prioritized:
+        lines.append("- checklist:")
+        for it in prioritized[:max_items]:
+            lines.append(
+                f"  - {it.get('id')}: {it.get('status')} (confidence={it.get('confidence')})"
+            )
+    return "\n".join(lines)
+
+
+def build_guider_context(
+    uid: str,
+    states: Optional[List[Dict[str, str]]] = None,
+    guider_plan_snapshot: Optional[Dict[str, Any]] = None,
+) -> str:
     """Build context for the Guider from all character conversations."""
+    states = states if states is not None else get_user_character_states(uid)
     summaries = get_all_character_summaries(uid)
-    
-    if not summaries:
+
+    if not summaries and not states and not guider_plan_snapshot:
         return "The user hasn't had any conversations with their inner parts yet."
-    
+
     context_parts = ["Here's what you know about the user's inner parts:\n"]
-    
-    for character_id, summary in summaries.items():
-        display_name = character_id.replace('_', ' ').title()
-        context_parts.append(f"**{display_name}:**\n{summary}\n")
-    
+
+    if states:
+        context_parts.append("Current state snapshot from user_characters:")
+        # Keep deterministic order for prompt stability.
+        for row in sorted(states, key=lambda x: x.get("displayName", "").lower()):
+            context_parts.append(
+                f"- {row.get('displayName')} ({row.get('characterId')}): {row.get('currentState')}"
+            )
+        context_parts.append("")
+
+    if summaries:
+        context_parts.append("Conversation memory summaries by inner part:")
+        for character_id, summary in summaries.items():
+            display_name = character_id.replace('_', ' ').title()
+            context_parts.append(f"**{display_name}:**\n{summary}\n")
+
+    if guider_plan_snapshot:
+        plan_text = _format_plan_snapshot_for_prompt(guider_plan_snapshot, max_items=4)
+        if plan_text:
+            context_parts.append("Current guider checklist plan snapshot:")
+            context_parts.append(plan_text)
+
     return "\n".join(context_parts)
 
 
-def build_guider_system_prompt_with_context(uid: str, guider_memory: str) -> str:
+def build_guider_system_prompt_with_context(
+    uid: str,
+    guider_memory: str,
+    states: Optional[List[Dict[str, str]]] = None,
+    guider_plan_snapshot: Optional[Dict[str, Any]] = None,
+) -> str:
     """Build the full system prompt for the Guider with user context."""
-    character_context = build_guider_context(uid)
+    character_context = build_guider_context(
+        uid,
+        states=states,
+        guider_plan_snapshot=guider_plan_snapshot,
+    )
     
     prompt = GUIDER_SYSTEM_PROMPT
     
@@ -2000,19 +2088,9 @@ def run_guider_agent_step(system_prompt: str, messages: List[Dict[str, str]]) ->
     agent_messages = [
         {'role': 'system', 'content': system_prompt},
         {'role': 'system', 'content': (
-            'Return JSON with keys: "assistantMessage", "toolCalls", "memorySummary". '
-            '"toolCalls" is a list of {name, args}. '
-            '\n\nAvailable tools:'
-            '\n- create_healing_plan: args={title, targetCharacterId (optional), steps (list of step descriptions)}. '
-            'Use ONCE after 3-4 exchanges. DO NOT use again unless topic completely changes or plan is done.'
-            '\n- update_plan_step: args={stepId, status ("completed"/"in_progress"), notes (optional)}. '
-            'Use this to track progress on EXISTING plan steps. This is your main tool after plan is created.'
-            '\n- suggest_character_focus: args={characterId, reason}. '
-            'Use when you identify which inner part needs attention.'
-            '\n- add_timeline_event: args={type, title, summary}. '
-            'Use to record breakthroughs or important moments.'
-            '\n\nIMPORTANT: After creating ONE plan, prefer update_plan_step over create_healing_plan.'
-            '\n\n"memorySummary" should be under 6 bullet points about the user\'s journey.'
+            'Return JSON with keys: "assistantMessage", "memorySummary". '
+            '"assistantMessage" should be warm, concise, and practical. '
+            '"memorySummary" should be under 6 bullet points about the user\'s journey.'
         )},
     ]
     
@@ -2033,105 +2111,7 @@ def run_guider_agent_step(system_prompt: str, messages: List[Dict[str, str]]) ->
     try:
         return json.loads(raw)
     except Exception:
-        return {'assistantMessage': '', 'toolCalls': [], 'memorySummary': ''}
-
-
-def has_active_plan(uid: str) -> bool:
-    """Check if user already has an active plan."""
-    try:
-        plans_ref = db.collection('users').document(uid).collection('plans')
-        active_plans = plans_ref.where('status', '==', 'active').limit(1).stream()
-        for _ in active_plans:
-            return True
-    except Exception:
-        pass
-    return False
-
-
-def run_guider_tool_calls(uid: str, tool_calls: List[Dict[str, Any]]) -> None:
-    """Execute tool calls from the Guider agent."""
-    for call in tool_calls:
-        name = call.get('name')
-        args = call.get('args') or {}
-        print(f"[guider] tool_call: {name} args={args}")
-        
-        if name == 'create_healing_plan':
-            # Only create a new plan if there's no active plan
-            if has_active_plan(uid):
-                print(f"[guider] SKIPPED create_healing_plan - active plan already exists")
-            else:
-                create_healing_plan(uid, args)
-        elif name == 'update_plan_step':
-            update_plan_step(uid, args)
-        elif name == 'suggest_character_focus':
-            # Just log for now, could trigger a notification
-            print(f"[guider] Suggested focus on: {args.get('characterId')} - {args.get('reason')}")
-        elif name == 'add_timeline_event':
-            add_timeline_event(uid, args)
-
-
-def create_healing_plan(uid: str, args: Dict[str, Any]) -> str:
-    """Create a new healing plan for the user."""
-    plans_ref = db.collection('users').document(uid).collection('plans')
-    
-    # Deactivate any existing active plans
-    active_plans = plans_ref.where('status', '==', 'active').stream()
-    for plan in active_plans:
-        plans_ref.document(plan.id).update({'status': 'paused'})
-    
-    # Create new plan
-    steps = args.get('steps', [])
-    plan_steps = [
-        {'id': f'step_{i}', 'description': step, 'status': 'pending'}
-        for i, step in enumerate(steps)
-    ]
-    
-    new_plan = {
-        'title': args.get('title', 'Healing Plan'),
-        'targetCharacterId': args.get('targetCharacterId'),
-        'status': 'active',
-        'steps': plan_steps,
-        'currentStepIndex': 0,
-        'createdAt': firestore.SERVER_TIMESTAMP,
-        'updatedAt': firestore.SERVER_TIMESTAMP,
-    }
-    
-    doc_ref = plans_ref.add(new_plan)
-    print(f"[guider] Created healing plan: {doc_ref[1].id}")
-    return doc_ref[1].id
-
-
-def update_plan_step(uid: str, args: Dict[str, Any]) -> None:
-    """Update a step in the user's active plan."""
-    plans_ref = db.collection('users').document(uid).collection('plans')
-    active_plans = plans_ref.where('status', '==', 'active').limit(1).stream()
-    
-    for plan in active_plans:
-        plan_data = plan.to_dict() or {}
-        steps = plan_data.get('steps', [])
-        step_id = args.get('stepId')
-        new_status = args.get('status', 'completed')
-        notes = args.get('notes', '')
-        
-        for step in steps:
-            if step.get('id') == step_id:
-                step['status'] = new_status
-                if notes:
-                    step['notes'] = notes
-                break
-        
-        # Update current step index if completing
-        current_index = plan_data.get('currentStepIndex', 0)
-        if new_status == 'completed' and current_index < len(steps) - 1:
-            current_index += 1
-        
-        plans_ref.document(plan.id).update({
-            'steps': steps,
-            'currentStepIndex': current_index,
-            'updatedAt': firestore.SERVER_TIMESTAMP,
-        })
-        print(f"[guider] Updated plan step: {step_id} -> {new_status}")
-        break
+        return {'assistantMessage': '', 'memorySummary': ''}
 
 
 @app.route('/chat_guider', methods=['POST'])
@@ -2158,17 +2138,44 @@ def chat_guider():
         thread_id = data.get('threadId')
         messages = data.get('messages') or []
         character_id = 'guider'
+
+        # Load per-character state snapshot so Guider can ground decisions in
+        # current stabilization status across all parts.
+        character_states = get_user_character_states(uid)
+        state_counts = {"active": 0, "stable": 0, "inactive": 0}
+        for row in character_states:
+            st = str(row.get("currentState") or "").lower()
+            if st in state_counts:
+                state_counts[st] += 1
+        logger.info(
+            json.dumps(
+                {
+                    "event": "guider_character_states_snapshot",
+                    "ts": _now_iso(),
+                    "uid": uid,
+                    "total": len(character_states),
+                    "active": state_counts["active"],
+                    "stable": state_counts["stable"],
+                    "inactive": state_counts["inactive"],
+                },
+                ensure_ascii=False,
+            )
+        )
         
         # Load guider's memory of this user
         guider_memory = load_agent_memory_summary(uid, 'guider')
+        guider_plan_snapshot = _get_character_plan_snapshot(uid, 'guider')
         
         # Build system prompt with all character context
-        system_prompt = build_guider_system_prompt_with_context(uid, guider_memory)
+        system_prompt = build_guider_system_prompt_with_context(
+            uid,
+            guider_memory,
+            states=character_states,
+            guider_plan_snapshot=guider_plan_snapshot,
+        )
         
         # Run the guider agent
         agent_result = run_guider_agent_step(system_prompt, messages)
-        tool_calls = agent_result.get('toolCalls') or []
-        run_guider_tool_calls(uid, tool_calls)
         
         assistant_message = agent_result.get('assistantMessage', '')
         updated_summary = agent_result.get('memorySummary', '')
@@ -2270,7 +2277,6 @@ def chat_guider():
         return jsonify({
             'success': True,
             'assistantMessage': assistant_message,
-            'toolCalls': tool_calls,
         })
     except Exception as e:
         traceback.print_exc()
@@ -2293,39 +2299,6 @@ def chat_guider():
             )
         except Exception:
             pass
-
-
-@app.route('/plans/active', methods=['GET'])
-def get_active_plan():
-    """Get the user's active healing plan."""
-    try:
-        uid = request.args.get('uid')
-        if not uid:
-            return jsonify({
-                'success': False,
-                'error': 'uid is required'
-            }), 400
-        
-        plans_ref = db.collection('users').document(uid).collection('plans')
-        active_plans = plans_ref.where('status', '==', 'active').limit(1).stream()
-        
-        for plan in active_plans:
-            plan_data = plan.to_dict() or {}
-            plan_data['id'] = plan.id
-            return jsonify({
-                'success': True,
-                'plan': plan_data,
-            })
-        
-        return jsonify({
-            'success': False,
-            'error': 'No active plan found'
-        }), 404
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': f'Error fetching plan: {str(e)}'
-        }), 500
 
 
 @app.route('/character_plans/active', methods=['GET'])
