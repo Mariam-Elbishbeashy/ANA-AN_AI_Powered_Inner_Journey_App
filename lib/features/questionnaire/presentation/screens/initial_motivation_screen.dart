@@ -159,7 +159,7 @@ class _InitialMotivationScreenState extends State<InitialMotivationScreen>
                                           BoxShadow(
                                             color: const Color(
                                               0xFF8E7CFF,
-                                            ).withOpacity(0.1),
+                                            ).withValues(alpha: 0.1),
                                             blurRadius: 15,
                                             spreadRadius: 2,
                                             offset: const Offset(0, 5),
@@ -243,12 +243,12 @@ class _InitialMotivationScreenState extends State<InitialMotivationScreen>
                                 Container(
                                   padding: const EdgeInsets.all(20),
                                   decoration: BoxDecoration(
-                                    color: Colors.white.withOpacity(0.8),
+                                    color: Colors.white.withValues(alpha: 0.8),
                                     borderRadius: BorderRadius.circular(20),
                                     border: Border.all(
                                       color: const Color(
                                         0xFF8E7CFF,
-                                      ).withOpacity(0.2),
+                                      ).withValues(alpha: 0.2),
                                     ),
                                   ),
                                   child: Text(
@@ -319,7 +319,7 @@ class _InitialMotivationScreenState extends State<InitialMotivationScreen>
                                   elevation: 0,
                                   shadowColor: const Color(
                                     0xFF8E7CFF,
-                                  ).withOpacity(0.3),
+                                  ).withValues(alpha: 0.3),
                                 ),
                                 child: Row(
                                   mainAxisAlignment: MainAxisAlignment.center,

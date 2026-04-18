@@ -44,25 +44,24 @@ CORS(app)  # Enable CORS for Flutter app
 # Firestore helpers (schema)
 # -----------------------------------------------------------------------------
 def _now_iso() -> str:
-    # useful for terminal logs (firestore uses SERVER_TIMESTAMP for writes).
+    # for terminal logs (firestore uses SERVER_TIMESTAMP for writes).
     return datetime.now(timezone.utc).isoformat()
 
 
 def _now_dt():
     """
-    Firestore does NOT allow SERVER_TIMESTAMP sentinels inside array elements.
-    Our checklistItems is an array of maps, so per-item timestamps must be real
-    datetime values.
+    firestore doesn't allow SERVER_TIMESTAMP inside array elements.
+    the checklistItems is an array of maps, so per-item timestamps must be real
+    datetime values
     """
     return datetime.now(timezone.utc)
 
 
 def _json_default(obj):
     """
-    Make Firestore/Python datetime-like objects JSON-serializable.
-    This is used ONLY for embedding context into prompts/logs.
+    make firestore/python datetime-like objects JSON-serializable.
+    used only for embedding context into prompts/logs
     """
-    # Firestore returns DatetimeWithNanoseconds which has isoformat().
     iso = getattr(obj, "isoformat", None)
     if callable(iso):
         try:
@@ -109,6 +108,7 @@ def _messages_ref(uid: str, thread_id: str):
 
 
 _SEVERITY_RANK = {"none": 0, "low": 1, "medium": 2, "high": 3}
+_CORE_TRACKED_CHECKLIST_ITEMS = {"stabilization", "unblending", "triggers_fears"}
 
 
 def _normalize_character_key(value: Any) -> str:
@@ -116,7 +116,6 @@ def _normalize_character_key(value: Any) -> str:
 
 
 def _get_session_time_key(session: Dict[str, Any]) -> str:
-    # Keep sorting index-safe (string compare), no composite indexes needed.
     return str(
         session.get("endedAt")
         or session.get("updatedAt")
@@ -148,13 +147,13 @@ def _extract_session_intensity_delta(session: Dict[str, Any]) -> Optional[float]
 
 
 def _extract_session_intervention_severity(session: Dict[str, Any]) -> str:
-    # Canonical location (new): session.intervention.maxSeverity
+    # canonical location (new): session.intervention.maxSeverity
     intervention = session.get("intervention") or {}
     sev = str(intervention.get("maxSeverity") or intervention.get("lastSeverity") or "").strip().lower()
     if sev in _SEVERITY_RANK:
         return sev
 
-    # Legacy fallback: some payloads may store intervention directly
+    # legacy fallback: some payloads may store intervention directly
     sev = str(session.get("severity") or "").strip().lower()
     if sev in _SEVERITY_RANK:
         return sev
@@ -166,8 +165,14 @@ def _plan_completion_ratio(plan_snapshot: Dict[str, Any]) -> float:
     items = plan_snapshot.get("checklistItems") or []
     if not items:
         return 0.0
-    completed = sum(1 for it in items if str(it.get("status") or "").strip().lower() == "completed")
-    return completed / max(1, len(items))
+    # Stability uses only the checklist items that are actively auto-updated by
+    # backend policy, so the threshold can be reached without manual edits.
+    scoped = [it for it in items if str(it.get("id") or "").strip() in _CORE_TRACKED_CHECKLIST_ITEMS]
+    target_items = scoped if scoped else items
+    completed = sum(
+        1 for it in target_items if str(it.get("status") or "").strip().lower() == "completed"
+    )
+    return completed / max(1, len(target_items))
 
 
 def _find_user_character_doc(uid: str, character_id: str):
@@ -194,8 +199,8 @@ def _find_user_character_doc(uid: str, character_id: str):
 
 def _record_session_intervention(uid: str, session_id: str, reason: str, severity: str) -> None:
     """
-    Persist intervention severity into the session doc so stabilization rules can
-    evaluate recent ended sessions.
+    keeps intervention severity into the session doc so stabilization rules can
+    evaluate recent ended sessions
     """
     sev = str(severity or "low").strip().lower()
     if sev not in _SEVERITY_RANK:
@@ -229,9 +234,9 @@ def _record_session_intervention(uid: str, session_id: str, reason: str, severit
 
 def _evaluate_character_stability(uid: str, character_id: str) -> Dict[str, Any]:
     """
-    Stability rule (requested thresholds):
+    stability rules (thresholds):
       - minEndedSessions >= 5
-      - totalUserTurns >= 9
+      - totalUserTurns >= 20
       - last 3 ended sessions: intensity.end <= 0.35 for all 3
       - no high/medium intervention in last 3 ended sessions
       - plan completion >= 70%
@@ -248,7 +253,7 @@ def _evaluate_character_stability(uid: str, character_id: str) -> Dict[str, Any]
         ended_sessions.sort(key=_get_session_time_key, reverse=True)
         min_ended_ok = len(ended_sessions) >= 5
         total_user_turns = sum(int(s.get("userTurnCount") or 0) for s in ended_sessions)
-        turns_ok = total_user_turns >= 9
+        turns_ok = total_user_turns >= 20
 
         last3 = ended_sessions[:3]
         low_end_ok = (
@@ -304,8 +309,8 @@ def _evaluate_character_stability(uid: str, character_id: str) -> Dict[str, Any]
 
 def _apply_stable_state_if_eligible(uid: str, character_id: str) -> Dict[str, Any]:
     """
-    Evaluate requested stability thresholds and set user_character.currentState to
-    'stable' if all checks pass.
+    evaluate requested stability thresholds and set user_character.currentState to
+    'stable' if all checks pass
     """
     evaluation = _evaluate_character_stability(uid, character_id)
     if not evaluation.get("isStable"):
@@ -317,7 +322,7 @@ def _apply_stable_state_if_eligible(uid: str, character_id: str) -> Dict[str, An
 
     current_state = str((data or {}).get("currentState") or "active").strip().lower()
     if current_state == "inactive":
-        # Keep inactive semantics (separate from stability progression).
+        # keeping inactive semantics (separate from stability progression)
         return {"changed": False, "evaluation": evaluation, "reason": "character_inactive"}
 
     if current_state == "stable":
@@ -336,7 +341,7 @@ def _apply_stable_state_if_eligible(uid: str, character_id: str) -> Dict[str, An
     return {"changed": True, "evaluation": evaluation}
 
 
-#Build a system prompt for the inner character.
+#build a system prompt for the inner character
 def build_inner_character_prompt(character_profile: Dict) -> str:
     display_name = character_profile.get('displayName', 'Inner Part')
     role = character_profile.get('role', 'Inner Part')
@@ -371,7 +376,7 @@ Guidelines:
 """.strip()
 
 
-#Build a system prompt for the inner character with memory.
+#build a system prompt for the inner character with memory
 def build_system_prompt_with_memory(
     character_profile: Dict,
     memory_summary: str,
@@ -386,7 +391,7 @@ def build_system_prompt_with_memory(
         extras.append(
             f"""Memory summary (use only if relevant):
 {memory_summary}"""
-        )
+        ) # feeding it a hint of the plan focus item
     if plan_focus_hint:
         extras.append(
             f"""Current therapeutic focus (internal hint; do not mention checklist mechanics):
@@ -399,7 +404,7 @@ def build_system_prompt_with_memory(
 """.strip()
 
 
-#Load the memory summary for the inner character.
+#load the memory summary for the inner character
 def load_agent_memory_summary(uid: str, character_id: str) -> str:
     doc_ref = db.collection('users').document(uid).collection('agent_memory').document(character_id)
     snapshot = doc_ref.get()
@@ -409,7 +414,7 @@ def load_agent_memory_summary(uid: str, character_id: str) -> str:
     return ''
 
 
-#Save the memory summary for the inner character.
+#save the memory summary for the inner character
 def save_agent_memory_summary(uid: str, character_id: str, summary: str) -> None:
     doc_ref = db.collection('users').document(uid).collection('agent_memory').document(character_id)
     doc_ref.set({
@@ -421,9 +426,9 @@ def save_agent_memory_summary(uid: str, character_id: str, summary: str) -> None
 # -----------------------------------------------------------------------------
 # Per-character checklist templates (fully custom per characterId)
 # -----------------------------------------------------------------------------
-# Each characterId can override the list entirely.
+# each characterId can override the list entirely
 CHARACTER_CHECKLIST_TEMPLATES: Dict[str, List[Dict[str, str]]] = {
-    # Common IDs used by the app/backend.
+    # IDs used by the app/backend.
     "inner_critic": [
         {
             "id": "unblending",
@@ -932,7 +937,7 @@ def ensure_character_checklist(uid: str, character_id: str) -> None:
 
 
 # -----------------------------------------------------------------------------
-# Intensity scoring (OpenAI JSON; stored + logged)
+# Intensity scoring
 # -----------------------------------------------------------------------------
 def _extract_recent_user_messages(messages: List[Dict[str, str]], max_items: int = 6) -> List[str]:
     user_msgs = []
@@ -947,9 +952,9 @@ def _extract_recent_user_messages(messages: List[Dict[str, str]], max_items: int
 
 def _extract_recent_user_text(messages: List[Dict[str, str]], max_chars: int = 1200) -> str:
     """
-    Build a compact text blob for scoring:
-    - prioritize user messages
-    - include last few assistant lines for context
+    builds a compact text blob for scoring:
+    - prioritizing user messages
+    - including last few assistant lines for context
     """
     if not messages:
         return ""
@@ -970,8 +975,8 @@ def _extract_recent_user_text(messages: List[Dict[str, str]], max_chars: int = 1
 
 def _score_intensity_with_rules(messages: List[Dict[str, str]]) -> Dict[str, Any]:
     """
-    Deterministic signal extractor for emotional intensity and blending.
-    Used as a transparent, reproducible backbone and LLM fallback.
+    deterministic signal extractor for emotional intensity and blending
+    used as a backbone and LLM fallback
     """
     user_msgs = _extract_recent_user_messages(messages, max_items=6)
     if not user_msgs:
@@ -986,7 +991,7 @@ def _score_intensity_with_rules(messages: List[Dict[str, str]]) -> Dict[str, Any
     text = " ".join(user_msgs)
     lower = text.lower()
 
-    # English + Arabic emotional markers.
+    # English + Arabic emotional markers
     high_markers = [
         "panic", "terrified", "overwhelmed", "hopeless", "worthless",
         "i can't cope", "cant cope", "falling apart", "hate myself",
@@ -1002,7 +1007,7 @@ def _score_intensity_with_rules(messages: List[Dict[str, str]]) -> Dict[str, Any
     blend_markers = [
         "i am broken", "i'm broken", "i am worthless", "i'm worthless",
         "this is who i am", "i am this", "i am a failure", "i'm a failure",
-        "انا فاشل", "انا سيء", "انا مكسور", "انا المشكلة", "هذا انا",
+        "انا فاشل", "انا سيء", "انا مكسور", "انا المشكلة", "دا انا",
     ]
 
     signals: List[str] = []
@@ -1017,7 +1022,7 @@ def _score_intensity_with_rules(messages: List[Dict[str, str]]) -> Dict[str, Any
     if blend_hits:
         signals.append("identity_fusion_language")
 
-    # Surface form cues.
+    # surface form cues
     emphatic_punct = text.count("!") + text.count("؟") + text.count("?")
     if emphatic_punct >= 3:
         signals.append("emphatic_punctuation")
@@ -1029,7 +1034,7 @@ def _score_intensity_with_rules(messages: List[Dict[str, str]]) -> Dict[str, Any
     if caps_ratio > 0.35 and len(letters) > 20:
         signals.append("high_caps_emphasis")
 
-    # Simple deterministic score.
+    # simple deterministic score
     score = 0.35
     score += min(0.45, high_hits * 0.12)
     score += min(0.20, med_hits * 0.05)
@@ -1060,7 +1065,7 @@ def score_intensity_with_llm(
     messages: List[Dict[str, str]],
 ) -> Dict[str, Any]:
     """
-    Returns structured JSON:
+    returns structured JSON:
       intensity: float (0..1)
       blend: bool
       signals: list[str]
@@ -1104,7 +1109,7 @@ def score_intensity_with_llm(
     except Exception:
         parsed = {}
 
-    # Harden LLM output.
+    # harden LLM output
     llm_intensity = parsed.get("intensity")
     try:
         llm_intensity = float(llm_intensity)
@@ -1118,22 +1123,22 @@ def score_intensity_with_llm(
     llm_signals = [str(s).strip() for s in llm_signals_raw if str(s).strip()]
     llm_rationale = (parsed.get("rationale") or "").strip()
 
-    # Deterministic fusion.
+    # deterministic fusion
     if llm_intensity is None:
         final_intensity = float(rule_score["intensity"])
         source = "rules_only_fallback"
     else:
-        # Weighted fusion (semantic signal + reproducible rule backbone).
+        # weighted fusion (semantic signal + reproducible rule backbone).
         final_intensity = 0.65 * llm_intensity + 0.35 * float(rule_score["intensity"])
         final_intensity = max(0.0, min(1.0, final_intensity))
         source = "hybrid_fusion"
 
-    # Blend decision: trust explicit LLM blend unless rules strongly indicate blending.
+    # blend decision: trust explicit LLM blend unless rules strongly indicate blending
     final_blend = bool(llm_blend or rule_score.get("blend") is True)
     if llm_intensity is None:
         final_blend = bool(rule_score.get("blend") is True)
 
-    # Merge and dedupe signals.
+    # merge and dedupe signals
     final_signals: List[str] = []
     for sig in llm_signals + (rule_score.get("signals") or []):
         if sig and sig not in final_signals:
@@ -1147,7 +1152,7 @@ def score_intensity_with_llm(
             + str(rule_score.get("explain") or "")
         )
 
-    # Normalize float precision to keep logs/storage readable and stable.
+    # normalize float precision
     final_intensity = float(f"{final_intensity:.3f}")
 
     return {
@@ -1173,7 +1178,7 @@ def summarize_session_with_llm(
     messages: List[Dict[str, str]],
 ) -> Dict[str, Any]:
     """
-    End-of-session summarizer.
+    end-of-session summarizer
     Returns JSON with keys:
       highlights: list[str]
       ifsSignals: dict
@@ -1239,8 +1244,7 @@ def _update_character_plan_from_score(
     evidence: str,
 ) -> Dict[str, Any]:
     """
-    Applies simple, understandable rules to update checklist item statuses.
-    Returns a small diff object for logging/agent_runs.
+    rules to update checklist item statuses
     """
     ensure_character_checklist(uid, character_id)
     plan_ref = _character_plan_ref(uid, character_id)
@@ -1271,6 +1275,8 @@ def _update_character_plan_from_score(
                     changed.append({"id": item_id, "from": before, "to": after})
                 return
 
+    by_id = {str(it.get("id") or "").strip(): it for it in items}
+
     # Rules
     if intensity >= 0.75:
         set_item("stabilization", "needs_work", 0.7)
@@ -1279,6 +1285,24 @@ def _update_character_plan_from_score(
     if intensity < 0.55 and not blend:
         # gentle signal that user can probably explore triggers/fears
         set_item("triggers_fears", "in_progress", 0.6)
+
+    # completion promotion rules:
+    # - keep deterministic/simple
+    # - only promote when the immediate score suggests steadier regulation
+    # - never promote while blended
+    if not blend and intensity <= 0.45:
+        set_item("unblending", "completed", 0.85)
+    if intensity <= 0.35:
+        set_item("stabilization", "completed", 0.85)
+
+    triggers_item = by_id.get("triggers_fears") or {}
+    if (
+        not blend
+        and intensity <= 0.50
+        and str(triggers_item.get("status") or "").strip().lower() == "in_progress"
+        and float(triggers_item.get("confidence") or 0.0) >= 0.6
+    ):
+        set_item("triggers_fears", "completed", 0.8)
 
     plan_ref.set(
         {
@@ -1293,7 +1317,7 @@ def _update_character_plan_from_score(
 
 
 def _log_agent_run(ref, payload: Dict[str, Any]) -> None:
-    """writes an agent run doc (and never throws)"""
+    """writes an agent run doc"""
     try:
         ref.document().set({**payload, "createdAt": firestore.SERVER_TIMESTAMP}, merge=True)
     except Exception as e:
@@ -1319,7 +1343,7 @@ def _try_acquire_periodic_update(uid: str, session_id: str) -> int:
     """
     prevents duplicate/overlapping periodic updates for the same session turn
 
-    - return the current user turn (int) if a periodic update should run and we acquired
+    - return the current user turn (int) if a periodic update should run and holding
       the right to run it for this turn
     - return 0 otherwise (skip)
     """
@@ -1337,7 +1361,7 @@ def _try_acquire_periodic_update(uid: str, session_id: str) -> int:
         periodic = data.get("periodic") or {}
         last_turn = int(periodic.get("lastTurn") or 0)
 
-        # Only allow one periodic update per turn, ever.
+        # only allow one periodic update per turn, everrr
         if turn <= last_turn:
             return 0
 
@@ -1357,30 +1381,32 @@ def _try_acquire_periodic_update(uid: str, session_id: str) -> int:
     try:
         return int(_txn(transaction) or 0)
     except Exception:
-        # If the guard fails for any reason, be conservative: skip.
+        # if the guard fails, skip
         return 0
 
 
 def _write_session_intensity(uid: str, session_id: str, score: Dict[str, Any], turn: int) -> None:
     """
     persist intensity signals to the session document
-    - set intensity.start once (first time we ever write intensity)
-    - update intensity.latest each time periodic updates run
+    - set intensity.start once (first time ever writing intensity)
+    - update intensity.latest each time periodic updates runs
     """
     try:
         sref = _session_ref(uid, session_id)
 
-        # Use a transaction to ensure "start" is set only once, even when
-        # overlapping requests happen.
+        # use a transaction to ensure "start" is set only once, even when (decorator)
+        # overlapping requests happen
         transaction = db.transaction()
 
+        # runs as one atomic read-> decide->write block
+        # if another request updates this doc mid-process, firestore retries
         @firestore.transactional
         def _txn(txn):
             snap = sref.get(transaction=txn)
             start_val = None
             if snap.exists:
                 try:
-                    # Prefer field-path access (works regardless of map shape).
+
                     start_val = snap.get("intensity.start")
                 except Exception:
                     data = snap.to_dict() or {}
@@ -1402,7 +1428,7 @@ def _write_session_intensity(uid: str, session_id: str, score: Dict[str, Any], t
                 updates["intensity.startTurn"] = int(turn)
 
 
-            # transaction.update() so dotted keys are treated as field paths
+
             if snap.exists:
                 txn.update(sref, updates)
             else:
@@ -1414,7 +1440,7 @@ def _write_session_intensity(uid: str, session_id: str, score: Dict[str, Any], t
 
 
 
-#Update the progress summary for the inner character.
+#update the progress summary for the inner character
 def update_progress_summary(uid: str, data: Dict[str, Any]) -> None:
     updates = {}
     if 'breakthrough' in data and 'notes' not in data:
@@ -1432,7 +1458,7 @@ def update_progress_summary(uid: str, data: Dict[str, Any]) -> None:
         db.collection('users').document(uid).set(updates, merge=True)
 
 
-#Add a timeline event for the inner character.
+#adding a timeline event for the inner character
 def add_timeline_event(uid: str, data: Dict[str, Any]) -> None:
     event_ref = db.collection('users').document(uid).collection('timeline').document()
     event_ref.set({
@@ -1444,7 +1470,7 @@ def add_timeline_event(uid: str, data: Dict[str, Any]) -> None:
     })
 
 
-#Set the last agent run for the inner character.
+#setting the last agent run for the inner character
 def set_last_agent_run(uid: str) -> None:
     db.collection('users').document(uid).set({
         'lastAgentRunAt': firestore.SERVER_TIMESTAMP,
@@ -1452,7 +1478,7 @@ def set_last_agent_run(uid: str) -> None:
     }, merge=True)
 
 
-#Run an agent step for the inner character.
+#running an agent step for the inner character
 def run_agent_step(system_prompt: str, messages: List[Dict[str, str]]) -> Dict[str, Any]:
     agent_messages = [
         {'role': 'system', 'content': system_prompt},
@@ -1485,7 +1511,7 @@ def run_agent_step(system_prompt: str, messages: List[Dict[str, str]]) -> Dict[s
         return {'assistantMessage': '', 'toolCalls': [], 'memorySummary': ''}
 
 
-#Run tool calls for the inner character.
+#run tool calls for the inner character
 def run_tool_calls(uid: str, tool_calls: List[Dict[str, Any]]) -> None:
     for call in tool_calls:
         name = call.get('name')
@@ -1499,7 +1525,7 @@ def run_tool_calls(uid: str, tool_calls: List[Dict[str, Any]]) -> None:
             set_last_agent_run(uid)
 
 
-#Build a memory summary prompt for the inner character.
+#building a memory summary prompt for the inner character
 def build_memory_summary_prompt(
     existing_summary: str,
     messages: List[Dict[str, str]],
@@ -1519,7 +1545,7 @@ def build_memory_summary_prompt(
     ]
 
 
-#Generate an updated memory summary for the inner character.
+#generating an updated memory summary for the inner character
 def generate_updated_summary(
     existing_summary: str,
     messages: List[Dict[str, str]],
@@ -1532,7 +1558,7 @@ def generate_updated_summary(
     return (response.choices[0].message.content or '').strip()
 
 
-#Handle a chat request for the inner character.
+#handle a chat request for the inner character
 @app.route('/chat', methods=['POST'])
 def chat():
     try:
@@ -1607,13 +1633,13 @@ def chat():
                 score = score_intensity_with_llm(character_id, messages + [{'role': 'assistant', 'content': assistant_message}])
                 evidence = (messages[-1].get('content') if messages else '')[:200]
 
-                # Write intensity to session doc (start set once, latest updated)
+                # write intensity to session doc (start set once, latest updated)
                 _write_session_intensity(uid, session_id, score, turn_for_update)
 
-                # Update per-character checklist (deterministic policy)
+                # update per-character checklist (deterministic policy)
                 plan_diff = _update_character_plan_from_score(uid, character_id, score, evidence=evidence)
 
-                # Logs (Firestore + terminal)
+                # logs (Firestore + terminal)
                 _log_agent_run(
                     _session_runs_ref(uid, session_id),
                     {
@@ -1670,14 +1696,14 @@ def chat():
                     )
                 )
 
-        # Check for Guider intervention if enabled
+        # check for guider intervention if enabled
         intervention = None
         if check_intervention:
             full_messages = messages + [{'role': 'assistant', 'content': assistant_message}]
             analysis = analyze_intervention_need(full_messages, character_id)
             if analysis.get('shouldIntervene'):
-                # Force an intensity+checklist update on intervention so the Guider
-                # can be aware of the current stance.
+                # forcing an intensity+checklist update on intervention so the Guider
+                # can be aware of the current stance
                 focus_payload = None
                 intensity_payload = None
                 if session_id and thread_id:
@@ -1743,7 +1769,7 @@ def chat():
                     'reason': analysis.get('reason'),
                     'severity': analysis.get('severity'),
                     'guiderMessage': intervention_message,
-                    # Extra debug fields (Flutter ignores; visible in logs/Firestore)
+                    # extra debug fields (Flutter ignores; in logs/firestore)
                     'focusItemId': (focus_payload or {}).get("itemId") if focus_payload else None,
                     'focusReason': (focus_payload or {}).get("reason") if focus_payload else None,
                     'intensityNow': (intensity_payload or {}).get("intensity") if intensity_payload else None,
@@ -1807,9 +1833,9 @@ def chat():
 @app.route('/sessions/end_analyze', methods=['POST'])
 def end_analyze_session():
     """
-    Compute end-of-session intensity + summary and write them to:
+    compute end-of-session intensity + summary and write them to:
       users/{uid}/sessions/{sessionId}
-    Also logs an agent run and updates per-character checklist focus.
+    also logs an agent run and updates per-character checklist focus item
     """
     try:
         if not os.getenv('OPENAI_API_KEY'):
@@ -1844,7 +1870,7 @@ def end_analyze_session():
         except Exception as e:
             logger.info(json.dumps({"event": "end_analyze_read_failed", "ts": _now_iso(), "uid": uid, "threadId": thread_id, "error": str(e)}, ensure_ascii=False))
 
-        # always produce some output, even if msgs is empty.
+        # always produce some output, even if msgs is empty
         intensity_score = score_intensity_with_llm(character_id, msgs)
         summary = summarize_session_with_llm(character_id, msgs)
 
@@ -1891,7 +1917,7 @@ def end_analyze_session():
             merge=True,
         )
 
-        # Update character plan metrics (very simple rolling baseline)
+        # update character plan metrics
         ensure_character_checklist(uid, character_id)
         plan_ref = _character_plan_ref(uid, character_id)
         plan_ref.set(
@@ -1904,7 +1930,7 @@ def end_analyze_session():
             merge=True,
         )
 
-        # Update focus/checklist based on end score
+        # update focus/checklist based on end score
         evidence = (msgs[-1].get("content") if msgs else "")[:200]
         plan_diff = _update_character_plan_from_score(uid, character_id, intensity_score, evidence=evidence)
 
@@ -1943,7 +1969,7 @@ def end_analyze_session():
             )
         )
 
-        # Evaluate whether this character now qualifies for "stable" state.
+        # evaluate whether this character now qualifies for "stable" state
         stability_result = _apply_stable_state_if_eligible(uid, character_id)
         if stability_result.get("changed"):
             logger.info(
@@ -2037,9 +2063,9 @@ NEVER start your response with labels like "[Guider]:" or "The Guider:" - just s
 
 
 def decide_who_responds(messages: List[Dict], character_name: str) -> str:
-    """Use AI to decide who should respond based on conversation context."""
+    """using AI to decide who should respond based on conversation context"""
     try:
-        # Get last few messages for context
+        # get last few messages for context
         recent = messages[-6:] if len(messages) > 6 else messages
         
         context_text = ""
@@ -2080,13 +2106,13 @@ def build_guider_in_chat_prompt(
     guider_memory: str,
 ) -> str:
     """
-    Build system prompt for Guider participating in character chat.
+    building system prompt for Guider participating in character chat
     Includes per-character checklist + recent session summaries so Guider can
-    orient to "where the user stands" overall (without dumping it to the user).
+    orient to "where the user stands" overall (without dumping it to the user)
     """
     prompt = GUIDER_IN_CHAT_PROMPT.format(character_name=character_name)
 
-    # Internal context (not to be revealed verbatim)
+    # internal context (not to be revealed verbatim)
     plan_snapshot = _get_character_plan_snapshot(uid, character_id)
     recent_summaries = _get_recent_session_summaries(uid, character_id, limit=4)
     prompt += "\n\n(Internal) Checklist + recent session summaries:\n"
@@ -2109,7 +2135,7 @@ def get_guider_response_in_chat(
     character_message: str,
     guider_memory: str,
 ) -> str:
-    """Generate a natural Guider response for the guided chat."""
+    """generating a natural Guider response for the guided chat"""
     guider_system_prompt = build_guider_in_chat_prompt(
         uid=uid,
         character_id=character_id,
@@ -2117,10 +2143,10 @@ def get_guider_response_in_chat(
         guider_memory=guider_memory,
     )
     
-    # Build conversation context naturally (no weird labels)
+
     guider_messages = [{'role': 'system', 'content': guider_system_prompt}]
     
-    # Add conversation as a natural flow
+    # add conversation as a natural flow
     conversation_context = "Here's the recent conversation:\n\n"
     for msg in messages[-8:]:
         sender = msg.get('sender', msg.get('role', 'user'))
@@ -2132,7 +2158,7 @@ def get_guider_response_in_chat(
         else:
             conversation_context += f"{character_name}: {content}\n\n"
     
-    # Add the character's latest response if provided
+    # add the character's latest response if provided
     if character_message:
         conversation_context += f"{character_name}: {character_message}\n\n"
     
@@ -2149,7 +2175,7 @@ def get_guider_response_in_chat(
     
     guider_message = response.choices[0].message.content.strip()
     
-    # Clean up any accidental labels the AI might add
+    # cleaning up any accidental labels the AI might add
     for prefix in ['[Guider]:', '[The Guider]:', 'Guider:', 'The Guider:', '[You - The Guider]:']:
         if guider_message.startswith(prefix):
             guider_message = guider_message[len(prefix):].strip()
@@ -2159,7 +2185,7 @@ def get_guider_response_in_chat(
 
 @app.route('/chat_guided', methods=['POST'])
 def chat_guided():
-    """Handle a guided chat where character and/or Guider respond based on context."""
+    """handling a guided chat where character and/or Guider respond based on context"""
     try:
         t0 = time.time()
         if not os.getenv('OPENAI_API_KEY'):
@@ -2183,13 +2209,13 @@ def chat_guided():
         thread_id = data.get('threadId')
         messages = data.get('messages') or []
         
-        # --- 1. Decide who should respond ---
+        # 1. decide who should respond
         respondent = decide_who_responds(messages, character_name)
         
         character_message = ''
         guider_message = ''
         
-        # --- 2. Get Character Response if needed ---
+        # 2. get character response if needed
         if respondent in ['character_only', 'both']:
             memory_summary = load_agent_memory_summary(uid, character_id)
             character_system_prompt = build_system_prompt_with_memory(
@@ -2203,7 +2229,7 @@ def chat_guided():
             
             character_message = agent_result.get('assistantMessage', '')
             
-            # Update character memory
+            # update character memory
             updated_char_summary = agent_result.get('memorySummary', '')
             if not updated_char_summary:
                 updated_char_summary = generate_updated_summary(
@@ -2212,7 +2238,7 @@ def chat_guided():
                 )
             save_agent_memory_summary(uid, character_id, updated_char_summary)
         
-        # --- 3. Get Guider Response if needed ---
+        # 3. get guider response if needed
         if respondent in ['guider_only', 'both']:
             guider_memory = load_agent_memory_summary(uid, 'guider')
             guider_message = get_guider_response_in_chat(
@@ -2224,7 +2250,7 @@ def chat_guided():
                 guider_memory=guider_memory,
             )
             
-            # Update guider memory
+            # update guider memory
             all_new_messages = messages.copy()
             if character_message:
                 all_new_messages.append({'role': 'assistant', 'content': character_message})
@@ -2236,8 +2262,7 @@ def chat_guided():
         
         print(f"[guided_chat] {respondent}: char={bool(character_message)}, guider={bool(guider_message)}")
 
-        # Periodic intensity + checklist update (same cadence as /chat).
-        # We guard it so overlapping requests cannot clobber intensity/plan state.
+        # periodic intensity + checklist update (same as /chat)
         turn_for_update = _try_acquire_periodic_update(uid, session_id) if session_id else 0
         if session_id and thread_id and turn_for_update:
             try:
@@ -2369,7 +2394,7 @@ Example bad response: "Your Workaholic is significant because... [long explanati
 
 
 def get_all_character_summaries(uid: str) -> Dict[str, str]:
-    """Fetch memory summaries for all characters the user has chatted with."""
+    """fetching memory summaries for all characters the user has chatted with"""
     summaries = {}
     try:
         memory_ref = db.collection('users').document(uid).collection('agent_memory')
@@ -2386,9 +2411,9 @@ def get_all_character_summaries(uid: str) -> Dict[str, str]:
 
 def get_user_character_states(uid: str) -> List[Dict[str, str]]:
     """
-    Fetch per-character state from `user_characters` for this user.
+    fetch per-character state from `user_characters` for this user
 
-    Expected state values:
+    expected state values:
     - active
     - stable
     - inactive
@@ -2426,7 +2451,7 @@ def get_user_character_states(uid: str) -> List[Dict[str, str]]:
 
 
 def _format_plan_snapshot_for_prompt(plan_snapshot: Dict[str, Any], max_items: int = 4) -> str:
-    """Formats a compact checklist plan snapshot for prompt injection."""
+    """formats a compact checklist plan snapshot for prompt injection"""
     if not plan_snapshot:
         return ""
 
@@ -2462,7 +2487,7 @@ def build_guider_context(
     states: Optional[List[Dict[str, str]]] = None,
     guider_plan_snapshot: Optional[Dict[str, Any]] = None,
 ) -> str:
-    """Build context for the Guider from all character conversations."""
+    """building context for the Guider from all character conversations"""
     states = states if states is not None else get_user_character_states(uid)
     summaries = get_all_character_summaries(uid)
 
@@ -2473,7 +2498,7 @@ def build_guider_context(
 
     if states:
         context_parts.append("Current state snapshot from user_characters:")
-        # Keep deterministic order for prompt stability.
+
         for row in sorted(states, key=lambda x: x.get("displayName", "").lower()):
             context_parts.append(
                 f"- {row.get('displayName')} ({row.get('characterId')}): {row.get('currentState')}"
@@ -2501,7 +2526,7 @@ def build_guider_system_prompt_with_context(
     states: Optional[List[Dict[str, str]]] = None,
     guider_plan_snapshot: Optional[Dict[str, Any]] = None,
 ) -> str:
-    """Build the full system prompt for the Guider with user context."""
+    """building the full system prompt for the Guider with user context"""
     character_context = build_guider_context(
         uid,
         states=states,
@@ -2520,7 +2545,7 @@ def build_guider_system_prompt_with_context(
 
 
 def run_guider_agent_step(system_prompt: str, messages: List[Dict[str, str]]) -> Dict[str, Any]:
-    """Run an agent step for the Guider."""
+    """running an agent step for the Guider"""
     agent_messages = [
         {'role': 'system', 'content': system_prompt},
         {'role': 'system', 'content': (
@@ -2552,7 +2577,7 @@ def run_guider_agent_step(system_prompt: str, messages: List[Dict[str, str]]) ->
 
 @app.route('/chat_guider', methods=['POST'])
 def chat_guider():
-    """Handle a chat request for The Guider agent."""
+    """handle a chat request for The Guider agent"""
     try:
         t0 = time.time()
         if not os.getenv('OPENAI_API_KEY'):
@@ -2569,14 +2594,14 @@ def chat_guider():
                 'error': 'uid is required'
             }), 400
         
-        # Keep guider-only chat inside session tracking as well.
+        # keep guider-only chat inside session tracking as well
         session_id = data.get('sessionId')
         thread_id = data.get('threadId')
         messages = data.get('messages') or []
         character_id = 'guider'
 
-        # Load per-character state snapshot so Guider can ground decisions in
-        # current stabilization status across all parts.
+        # loading per-character state snapshot so Guider can ground decisions in
+        # current stabilization status across all parts
         character_states = get_user_character_states(uid)
         state_counts = {"active": 0, "stable": 0, "inactive": 0}
         for row in character_states:
@@ -2598,11 +2623,11 @@ def chat_guider():
             )
         )
         
-        # Load guider's memory of this user
+        # loading guider's memory of this user
         guider_memory = load_agent_memory_summary(uid, 'guider')
         guider_plan_snapshot = _get_character_plan_snapshot(uid, 'guider')
         
-        # Build system prompt with all character context
+        # building system prompt with all character context
         system_prompt = build_guider_system_prompt_with_context(
             uid,
             guider_memory,
@@ -2610,13 +2635,13 @@ def chat_guider():
             guider_plan_snapshot=guider_plan_snapshot,
         )
         
-        # Run the guider agent
+        # running the guider agent
         agent_result = run_guider_agent_step(system_prompt, messages)
         
         assistant_message = agent_result.get('assistantMessage', '')
         updated_summary = agent_result.get('memorySummary', '')
         
-        # Update guider's memory
+        # updating guider's memory
         if not updated_summary:
             updated_summary = generate_updated_summary(
                 guider_memory,
@@ -2627,8 +2652,8 @@ def chat_guider():
 
         # ---------------------------------------------------------------------
         # Periodic intensity + checklist updates for guider-only sessions.
-        # Cadence: every 3 user turns of this guider session.
-        # Writes:
+        # every 3 user turns of this guider session.
+        # writes:
         # - users/{uid}/sessions/{sessionId}.intensity.*
         # - users/{uid}/character_plans/guider
         # - agent_runs under session + character_plan
@@ -2740,9 +2765,7 @@ def chat_guider():
 @app.route('/character_plans/active', methods=['GET'])
 def get_active_character_plan():
     """
-    Get the per-character checklist plan for a specific characterId.
-    Query params:
-      uid, characterId
+    getting the per-character checklist plan for a specific characterId
     """
     try:
         uid = request.args.get('uid')
@@ -2767,7 +2790,7 @@ def get_active_character_plan():
 # GUIDER INTERVENTION IN CHARACTER CHATS
 # ============================================================================
 
-# Markers that suggest the user may need Guider support
+# markers that suggest the user may need Guider support
 EMOTIONAL_INTENSITY_MARKERS = [
     'i can\'t', 'i cant', 'too much', 'overwhelming', 'scared', 'terrified',
     'hate myself', 'hate my', 'worthless', 'hopeless', 'give up', 'giving up',
@@ -2794,7 +2817,7 @@ def analyze_intervention_need(messages: List[Dict[str, str]], character_id: str)
     if len(messages) < 3:
         return {'shouldIntervene': False}
     
-    # Get recent user messages (last 6)
+    # getting recent user messages (last 6)
     recent_user_messages = [
         m['content'].lower() for m in messages[-6:] 
         if m.get('role') == 'user'
@@ -2805,7 +2828,7 @@ def analyze_intervention_need(messages: List[Dict[str, str]], character_id: str)
     
     combined_text = ' '.join(recent_user_messages)
     
-    # Check for crisis keywords (highest priority)
+    # checking for crisis keywords (highest priority)
     for keyword in CRISIS_KEYWORDS:
         if keyword in combined_text:
             return {
@@ -2815,19 +2838,19 @@ def analyze_intervention_need(messages: List[Dict[str, str]], character_id: str)
                 'message': 'I sense you may be going through something very difficult. Would you like to talk to The Guider? They can help you find support.',
             }
     
-    # Count emotional intensity markers
+    # counting emotional intensity markers
     intensity_count = sum(1 for marker in EMOTIONAL_INTENSITY_MARKERS if marker in combined_text)
     
-    # Check for stuck loop patterns
+    # checking for stuck loop patterns
     stuck_count = sum(1 for phrase in STUCK_LOOP_PHRASES if phrase in combined_text)
     
-    # Check for repetitive themes (same phrases appearing multiple times)
+    # checking for repetitive themes (same phrases appearing multiple times)
     repetition_detected = False
     if len(recent_user_messages) >= 3:
-        # Check if user is repeating similar messages
+        # checking if user is repeating similar messages
         for i in range(len(recent_user_messages) - 1):
             for j in range(i + 1, len(recent_user_messages)):
-                # Simple similarity check
+                # simple similarity check
                 words_i = set(recent_user_messages[i].split())
                 words_j = set(recent_user_messages[j].split())
                 if len(words_i) > 3 and len(words_j) > 3:
@@ -2836,7 +2859,7 @@ def analyze_intervention_need(messages: List[Dict[str, str]], character_id: str)
                         repetition_detected = True
                         break
     
-    # Determine intervention level
+    # determine intervention level
     if intensity_count >= 3 or (intensity_count >= 2 and stuck_count >= 2):
         return {
             'shouldIntervene': True,
@@ -2853,7 +2876,7 @@ def analyze_intervention_need(messages: List[Dict[str, str]], character_id: str)
             'message': 'You seem to be working through something challenging. Would it help to step back and talk with The Guider for a broader perspective?',
         }
     
-    # Check message count - suggest guider after extended sessions
+    # check message count - suggest guider after extended sessions
     total_user_messages = sum(1 for m in messages if m.get('role') == 'user')
     if total_user_messages >= 15 and total_user_messages % 5 == 0:
         return {
@@ -2892,7 +2915,7 @@ def _get_recent_session_summaries(uid: str, character_id: str, limit: int = 5) -
                     "summary": summary,
                 }
             )
-        # Sort newest first if endedAt is available
+
         sessions.sort(key=lambda x: str(x.get("endedAt") or ""), reverse=True)
         return sessions[:limit]
     except Exception:
@@ -2928,7 +2951,7 @@ def generate_guider_intervention_message(
     plan_snapshot = _get_character_plan_snapshot(uid, character_id)
     recent_summaries = _get_recent_session_summaries(uid, character_id, limit=4)
 
-    # Get character display name
+    # character display name
     character_names = {
         'inner_critic': 'The Inner Critic',
         'perfectionist': 'The Perfectionist',
@@ -2941,7 +2964,7 @@ def generate_guider_intervention_message(
     }
     character_name = character_names.get(character_id, 'this inner part')
     
-    # Generate context-aware message using AI
+    # context-aware message using AI
     try:
         focus = (plan_snapshot.get("focus") or {})
         focus_item_id = focus.get("itemId")
@@ -2975,7 +2998,7 @@ Keep it warm and brief. End with an implicit invitation, not a question."""
         return response.choices[0].message.content.strip()
     except Exception as e:
         print(f"[intervention] Error generating message: {e}")
-        # Fallback messages based on reason
+        # fallback messages based on reason
         fallbacks = {
             'crisis_detected': 'I\'m here if you need a calm space. You don\'t have to go through this alone.',
             'emotional_intensity': 'It sounds like a lot is coming up. I\'m here when you need a moment to breathe.',
@@ -2987,7 +3010,7 @@ Keep it warm and brief. End with an implicit invitation, not a question."""
 
 @app.route('/check_intervention', methods=['POST'])
 def check_intervention():
-    """Check if Guider intervention is recommended for a character chat."""
+    """check if Guider intervention is recommended for a character chat"""
     try:
         data = request.json or {}
         uid = data.get('uid')
@@ -3000,7 +3023,7 @@ def check_intervention():
                 'error': 'uid is required'
             }), 400
         
-        # Analyze if intervention is needed
+        # analyze if intervention is needed
         analysis = analyze_intervention_need(messages, character_id)
         
         if not analysis.get('shouldIntervene'):
@@ -3009,7 +3032,7 @@ def check_intervention():
                 'shouldIntervene': False,
             })
         
-        # Generate personalized intervention message
+        # generate personalized intervention message
         intervention_message = generate_guider_intervention_message(
             uid=uid,
             character_id=character_id,

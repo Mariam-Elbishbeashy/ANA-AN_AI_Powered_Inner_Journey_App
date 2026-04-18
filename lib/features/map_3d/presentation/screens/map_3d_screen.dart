@@ -465,7 +465,7 @@ class _Map3DScreenState extends State<Map3DScreen> {
                       top: 50,
                       right: -50,
                       child: WanderingBlob(
-                        color: const Color(0xFFE1BEE7).withOpacity(0.3),
+                        color: const Color(0xFFE1BEE7).withValues(alpha: 0.3),
                         size: 300,
                         wanderRange: 50.0,
                       ),
@@ -474,7 +474,7 @@ class _Map3DScreenState extends State<Map3DScreen> {
                       top: 400,
                       left: -50,
                       child: WanderingBlob(
-                        color: const Color(0xFFC8E6C9).withOpacity(0.3),
+                        color: const Color(0xFFC8E6C9).withValues(alpha: 0.3),
                         size: 400,
                         wanderRange: 80.0,
                       ),
@@ -483,7 +483,7 @@ class _Map3DScreenState extends State<Map3DScreen> {
                       bottom: 100,
                       right: -20,
                       child: WanderingBlob(
-                        color: const Color(0xFFE1BEE7).withOpacity(0.3),
+                        color: const Color(0xFFE1BEE7).withValues(alpha: 0.3),
                         size: 250,
                         wanderRange: 40.0,
                       ),

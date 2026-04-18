@@ -194,7 +194,7 @@ class _QuestionWidgetState extends State<QuestionWidget> {
                   activeTrackColor: const Color(0xFF8E7CFF),
                   inactiveTrackColor: const Color(0xFFE5DEFF),
                   thumbColor: const Color(0xFF8E7CFF),
-                  overlayColor: const Color(0xFF8E7CFF).withOpacity(0.2),
+                  overlayColor: const Color(0xFF8E7CFF).withValues(alpha: 0.2),
                   thumbShape: const RoundSliderThumbShape(
                     enabledThumbRadius: 14,
                   ),
@@ -236,7 +236,7 @@ class _QuestionWidgetState extends State<QuestionWidget> {
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
                     color: isSelected
-                        ? const Color(0xFF8E7CFF).withOpacity(0.1)
+                        ? const Color(0xFF8E7CFF).withValues(alpha: 0.1)
                         : Colors.white,
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(
@@ -248,14 +248,14 @@ class _QuestionWidgetState extends State<QuestionWidget> {
                     boxShadow: isSelected
                         ? [
                             BoxShadow(
-                              color: const Color(0xFF8E7CFF).withOpacity(0.2),
+                              color: const Color(0xFF8E7CFF).withValues(alpha: 0.2),
                               blurRadius: 10,
                               offset: const Offset(0, 4),
                             ),
                           ]
                         : [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.05),
+                              color: Colors.black.withValues(alpha: 0.05),
                               blurRadius: 6,
                               offset: const Offset(0, 2),
                             ),

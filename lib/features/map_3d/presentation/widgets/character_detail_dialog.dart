@@ -37,7 +37,7 @@ class CharacterDetailDialog extends StatelessWidget {
               borderRadius: BorderRadius.circular(30),
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFF6A5CFF).withOpacity(0.2),
+                  color: const Color(0xFF6A5CFF).withValues(alpha: 0.2),
                   blurRadius: 30,
                   offset: const Offset(0, 15),
                 ),
@@ -77,7 +77,7 @@ class CharacterDetailDialog extends StatelessWidget {
                         ),
                         Icon(
                           Icons.insights_rounded,
-                          color: const Color(0xFF6A5CFF).withOpacity(0.5),
+                          color: const Color(0xFF6A5CFF).withValues(alpha: 0.5),
                         ),
                       ],
                     ),
@@ -99,7 +99,7 @@ class CharacterDetailDialog extends StatelessWidget {
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
                               color: _getCharacterColor(character)
-                                  .withOpacity(0.05),
+                                  .withValues(alpha: 0.05),
                             ),
                           ),
 
@@ -123,7 +123,7 @@ class CharacterDetailDialog extends StatelessWidget {
                             width: 150,
                             decoration: BoxDecoration(
                               color: _getCharacterColor(character)
-                                  .withOpacity(0.1),
+                                  .withValues(alpha: 0.1),
                               shape: BoxShape.circle,
                             ),
                             child: Icon(
@@ -236,20 +236,20 @@ class CharacterDetailDialog extends StatelessWidget {
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
-            _getCharacterColor(character).withOpacity(0.15),
-            _getCharacterColor(character).withOpacity(0.08),
+            _getCharacterColor(character).withValues(alpha: 0.15),
+            _getCharacterColor(character).withValues(alpha: 0.08),
           ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: _getCharacterColor(character).withOpacity(0.3),
+          color: _getCharacterColor(character).withValues(alpha: 0.3),
           width: 1,
         ),
         boxShadow: [
           BoxShadow(
-            color: _getCharacterColor(character).withOpacity(0.15),
+            color: _getCharacterColor(character).withValues(alpha: 0.15),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -266,7 +266,7 @@ class CharacterDetailDialog extends StatelessWidget {
               shape: BoxShape.circle,
               boxShadow: [
                 BoxShadow(
-                  color: _getCharacterColor(character).withOpacity(0.5),
+                  color: _getCharacterColor(character).withValues(alpha: 0.5),
                   blurRadius: 4,
                 ),
               ],
@@ -324,10 +324,10 @@ class CharacterDetailDialog extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: stateColor.withOpacity(0.1),
+        color: stateColor.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: stateColor.withOpacity(0.3),
+          color: stateColor.withValues(alpha: 0.3),
         ),
       ),
       child: Row(
@@ -336,7 +336,7 @@ class CharacterDetailDialog extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: stateColor.withOpacity(0.2),
+              color: stateColor.withValues(alpha: 0.2),
               shape: BoxShape.circle,
             ),
             child: Icon(
@@ -364,7 +364,7 @@ class CharacterDetailDialog extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 12,
                     height: 1.4,
-                    color: stateColor.withOpacity(0.8),
+                    color: stateColor.withValues(alpha: 0.8),
                   ),
                 ),
               ],
@@ -395,7 +395,7 @@ class CharacterDetailDialog extends StatelessWidget {
               shape: BoxShape.circle,
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFFA78BFA).withOpacity(0.3),
+                  color: const Color(0xFFA78BFA).withValues(alpha: 0.3),
                   blurRadius: 8,
                   offset: const Offset(0, 3),
                 ),
@@ -642,7 +642,7 @@ class CharacterDetailDialog extends StatelessWidget {
           Icon(
             Icons.calendar_today_rounded,
             size: 16,
-            color: const Color(0xFF6A5CFF).withOpacity(0.7),
+            color: const Color(0xFF6A5CFF).withValues(alpha: 0.7),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -652,7 +652,7 @@ class CharacterDetailDialog extends StatelessWidget {
                   : "Identified: ${_formatDate(character.predictedAt)}",
               style: TextStyle(
                 fontSize: 12,
-                color: const Color(0xFF6A5CFF).withOpacity(0.9),
+                color: const Color(0xFF6A5CFF).withValues(alpha: 0.9),
               ),
             ),
           ),
@@ -680,7 +680,7 @@ class CharacterDetailDialog extends StatelessWidget {
             borderRadius: BorderRadius.circular(15),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFF6A5CFF).withOpacity(0.3),
+                color: const Color(0xFF6A5CFF).withValues(alpha: 0.3),
                 blurRadius: 15,
                 offset: const Offset(0, 5),
               ),

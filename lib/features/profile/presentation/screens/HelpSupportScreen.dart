@@ -262,7 +262,7 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
               color: Colors.white,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
+                  color: Colors.black.withValues(alpha: 0.05),
                   blurRadius: 10,
                   offset: const Offset(0, 4),
                 ),
@@ -306,7 +306,7 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
                       borderRadius: BorderRadius.circular(20),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
+                          color: Colors.black.withValues(alpha: 0.05),
                           blurRadius: 10,
                           offset: const Offset(0, 4),
                         ),
@@ -320,7 +320,7 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
                               width: 40,
                               height: 40,
                               decoration: BoxDecoration(
-                                color: const Color(0xFF8E7CFF).withOpacity(0.1),
+                                color: const Color(0xFF8E7CFF).withValues(alpha: 0.1),
                                 shape: BoxShape.circle,
                               ),
                               child: const Icon(Icons.help_rounded,
@@ -355,7 +355,7 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
                       borderRadius: BorderRadius.circular(20),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
+                          color: Colors.black.withValues(alpha: 0.05),
                           blurRadius: 10,
                           offset: const Offset(0, 4),
                         ),
@@ -559,7 +559,7 @@ class _ContactOption extends StatelessWidget {
         width: 40,
         height: 40,
         decoration: BoxDecoration(
-          color: const Color(0xFF8E7CFF).withOpacity(0.1),
+          color: const Color(0xFF8E7CFF).withValues(alpha: 0.1),
           shape: BoxShape.circle,
         ),
         child: Icon(icon, color: const Color(0xFF8E7CFF), size: 20),

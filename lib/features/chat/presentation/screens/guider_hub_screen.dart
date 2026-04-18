@@ -234,7 +234,7 @@ class _InstructionStep extends StatelessWidget {
             width: 28,
             height: 28,
             decoration: BoxDecoration(
-              color: const Color(0xFFB79CFF).withOpacity(0.18),
+              color: const Color(0xFFB79CFF).withValues(alpha: 0.18),
               shape: BoxShape.circle,
               border: Border.all(color: const Color(0xFFB79CFF)),
             ),
@@ -294,26 +294,26 @@ class _GlassCard extends StatelessWidget {
               end: Alignment.bottomRight,
               colors: [
                 Colors.white,
-                Colors.white.withOpacity(0.98),
-                const Color(0xFFFDFCFF).withOpacity(0.95),
+                Colors.white.withValues(alpha: 0.98),
+                const Color(0xFFFDFCFF).withValues(alpha: 0.95),
               ],
             ),
             borderRadius: BorderRadius.circular(radius),
             border: Border.all(
-              color: accentColor?.withOpacity(0.15) ??
-                  Colors.white.withOpacity(0.95),
+              color: accentColor?.withValues(alpha: 0.15) ??
+                  Colors.white.withValues(alpha: 0.95),
               width: 1.5,
             ),
             boxShadow: [
               BoxShadow(
                 color:
-                (accentColor ?? const Color(0xFF6A5CFF)).withOpacity(0.08),
+                (accentColor ?? const Color(0xFF6A5CFF)).withValues(alpha: 0.08),
                 blurRadius: 20,
                 offset: const Offset(0, 8),
                 spreadRadius: -2,
               ),
               BoxShadow(
-                color: Colors.black.withOpacity(0.04),
+                color: Colors.black.withValues(alpha: 0.04),
                 blurRadius: 10,
                 offset: const Offset(0, 4),
               ),
@@ -366,7 +366,7 @@ class _GuiderCommunicationHub extends StatelessWidget {
                   shape: BoxShape.circle,
                   boxShadow: [
                     BoxShadow(
-                      color: const Color(0xFFA78BFA).withOpacity(0.3),
+                      color: const Color(0xFFA78BFA).withValues(alpha: 0.3),
                       blurRadius: 12,
                       offset: const Offset(0, 4),
                     ),
@@ -467,20 +467,20 @@ class _HubButton extends StatelessWidget {
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: [
-              gradientColors[0].withOpacity(0.12),
-              gradientColors[1].withOpacity(0.08),
+              gradientColors[0].withValues(alpha: 0.12),
+              gradientColors[1].withValues(alpha: 0.08),
             ],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
           borderRadius: BorderRadius.circular(18),
           border: Border.all(
-            color: gradientColors[0].withOpacity(0.25),
+            color: gradientColors[0].withValues(alpha: 0.25),
             width: 1.5,
           ),
           boxShadow: [
             BoxShadow(
-              color: gradientColors[0].withOpacity(0.15),
+              color: gradientColors[0].withValues(alpha: 0.15),
               blurRadius: 12,
               offset: const Offset(0, 4),
             ),
@@ -495,8 +495,8 @@ class _HubButton extends StatelessWidget {
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [
-                    gradientColors[0].withOpacity(0.75),
-                    gradientColors[1].withOpacity(0.75),
+                    gradientColors[0].withValues(alpha: 0.75),
+                    gradientColors[1].withValues(alpha: 0.75),
                   ],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
@@ -504,7 +504,7 @@ class _HubButton extends StatelessWidget {
                 shape: BoxShape.circle,
                 boxShadow: [
                   BoxShadow(
-                    color: gradientColors[0].withOpacity(0.3),
+                    color: gradientColors[0].withValues(alpha: 0.3),
                     blurRadius: 10,
                     offset: const Offset(0, 4),
                   ),
@@ -532,7 +532,7 @@ class _HubButton extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 10.5,
                   fontWeight: FontWeight.w600,
-                  color: gradientColors[1].withOpacity(0.8),
+                  color: gradientColors[1].withValues(alpha: 0.8),
                   height: 1.3,
                 ),
               ),

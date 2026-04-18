@@ -690,19 +690,19 @@ class _GuiderVoiceCallScreenState extends State<GuiderVoiceCallScreen>
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                           decoration: BoxDecoration(
                             color: _guiderActive
-                                ? const Color(0xFFB79CFF).withOpacity(0.15)
+                                ? const Color(0xFFB79CFF).withValues(alpha: 0.15)
                                 : Colors.white,
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(
                               color: _guiderActive
                                   ? const Color(0xFFB79CFF)
-                                  : Colors.grey.withOpacity(0.3),
+                                  : Colors.grey.withValues(alpha: 0.3),
                               width: 1.5,
                             ),
                             boxShadow: _guiderActive
                                 ? [
                               BoxShadow(
-                                color: const Color(0xFFB79CFF).withOpacity(0.25),
+                                color: const Color(0xFFB79CFF).withValues(alpha: 0.25),
                                 blurRadius: 12,
                                 offset: const Offset(0, 4),
                               ),
@@ -718,7 +718,7 @@ class _GuiderVoiceCallScreenState extends State<GuiderVoiceCallScreen>
                                   shape: BoxShape.circle,
                                   boxShadow: [
                                     BoxShadow(
-                                      color: const Color(0xFFB79CFF).withOpacity(0.4),
+                                      color: const Color(0xFFB79CFF).withValues(alpha: 0.4),
                                       blurRadius: 8,
                                       offset: const Offset(0, 2),
                                     ),
@@ -805,17 +805,17 @@ class _GuiderVoiceCallScreenState extends State<GuiderVoiceCallScreen>
                                 margin: const EdgeInsets.symmetric(horizontal: 24),
                                 padding: const EdgeInsets.all(24),
                                 decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.9),
+                                  color: Colors.white.withValues(alpha: 0.9),
                                   borderRadius: BorderRadius.circular(32),
                                   boxShadow: [
                                     BoxShadow(
-                                      color: Colors.black.withOpacity(0.08),
+                                      color: Colors.black.withValues(alpha: 0.08),
                                       blurRadius: 20,
                                       offset: const Offset(0, 8),
                                     ),
                                   ],
                                   border: Border.all(
-                                    color: const Color(0xFFB79CFF).withOpacity(0.3),
+                                    color: const Color(0xFFB79CFF).withValues(alpha: 0.3),
                                     width: 1,
                                   ),
                                 ),
@@ -949,7 +949,7 @@ class _CircleIconButton extends StatelessWidget {
           shape: BoxShape.circle,
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.06),
+              color: Colors.black.withValues(alpha: 0.06),
               blurRadius: 12,
               offset: const Offset(0, 6),
             ),
@@ -988,7 +988,7 @@ class _RoundCircleButton extends StatelessWidget {
           shape: BoxShape.circle,
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.08),
+              color: Colors.black.withValues(alpha: 0.08),
               blurRadius: 12,
               offset: const Offset(0, 6),
             ),

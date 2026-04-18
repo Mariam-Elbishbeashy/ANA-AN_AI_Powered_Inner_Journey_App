@@ -311,7 +311,7 @@ class _CircleIconButton extends StatelessWidget {
           shape: BoxShape.circle,
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.06),
+              color: Colors.black.withValues(alpha: 0.06),
               blurRadius: 12,
               offset: const Offset(0, 6),
             ),
@@ -375,7 +375,7 @@ class _ChatBubble extends StatelessWidget {
                     height: 36,
                     decoration: BoxDecoration(
                       color: isGuider
-                          ? const Color(0xFFB79CFF).withOpacity(0.18)
+                          ? const Color(0xFFB79CFF).withValues(alpha: 0.18)
                           : const Color(0xFFEDE7FF),
                       shape: BoxShape.circle,
                     ),

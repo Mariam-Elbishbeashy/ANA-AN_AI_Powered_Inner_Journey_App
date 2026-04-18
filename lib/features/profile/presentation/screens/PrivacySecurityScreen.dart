@@ -37,7 +37,7 @@ class _PrivacySecurityScreenState extends State<PrivacySecurityScreen> {
               color: Colors.white,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
+                  color: Colors.black.withValues(alpha: 0.05),
                   blurRadius: 10,
                   offset: const Offset(0, 4),
                 ),
@@ -92,7 +92,7 @@ class _PrivacySecurityScreenState extends State<PrivacySecurityScreen> {
                       borderRadius: BorderRadius.circular(20),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
+                          color: Colors.black.withValues(alpha: 0.05),
                           blurRadius: 10,
                           offset: const Offset(0, 4),
                         ),
@@ -149,7 +149,7 @@ class _PrivacySecurityScreenState extends State<PrivacySecurityScreen> {
                       borderRadius: BorderRadius.circular(20),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
+                          color: Colors.black.withValues(alpha: 0.05),
                           blurRadius: 10,
                           offset: const Offset(0, 4),
                         ),
@@ -172,7 +172,7 @@ class _PrivacySecurityScreenState extends State<PrivacySecurityScreen> {
                             width: 40,
                             height: 40,
                             decoration: BoxDecoration(
-                              color: const Color(0xFF8E7CFF).withOpacity(0.1),
+                              color: const Color(0xFF8E7CFF).withValues(alpha: 0.1),
                               shape: BoxShape.circle,
                             ),
                             child: const Icon(Icons.lock_clock_rounded,
@@ -205,7 +205,7 @@ class _PrivacySecurityScreenState extends State<PrivacySecurityScreen> {
                             width: 40,
                             height: 40,
                             decoration: BoxDecoration(
-                              color: const Color(0xFF8E7CFF).withOpacity(0.1),
+                              color: const Color(0xFF8E7CFF).withValues(alpha: 0.1),
                               shape: BoxShape.circle,
                             ),
                             child: const Icon(Icons.delete_rounded,
@@ -245,7 +245,7 @@ class _PrivacySecurityScreenState extends State<PrivacySecurityScreen> {
                       borderRadius: BorderRadius.circular(20),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
+                          color: Colors.black.withValues(alpha: 0.05),
                           blurRadius: 10,
                           offset: const Offset(0, 4),
                         ),
@@ -257,7 +257,7 @@ class _PrivacySecurityScreenState extends State<PrivacySecurityScreen> {
                         width: 40,
                         height: 40,
                         decoration: BoxDecoration(
-                          color: const Color(0xFF8E7CFF).withOpacity(0.1),
+                          color: const Color(0xFF8E7CFF).withValues(alpha: 0.1),
                           shape: BoxShape.circle,
                         ),
                         child: const Icon(Icons.download_rounded,
@@ -535,7 +535,7 @@ class _PrivacyItem extends StatelessWidget {
           width: 40,
           height: 40,
           decoration: BoxDecoration(
-            color: const Color(0xFF8E7CFF).withOpacity(0.1),
+            color: const Color(0xFF8E7CFF).withValues(alpha: 0.1),
             shape: BoxShape.circle,
           ),
           child: Icon(icon, color: const Color(0xFF8E7CFF), size: 20),

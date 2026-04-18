@@ -39,7 +39,7 @@ class MapIsland extends StatelessWidget {
       // Stable character - Green theme
       mainColor = const Color(0xFFA5D6A7);
       sideColor = const Color(0xFF66BB6A);
-      glowColor = const Color(0xFF5CB85C).withOpacity(0.3);
+      glowColor = const Color(0xFF5CB85C).withValues(alpha: 0.3);
       textColor = const Color(0xFF2E7D32);
       print('DEBUG MapIsland: Using GREEN theme (stable) for ${userCharacter?.displayNameEn ?? "empty"}');
     } else if (colorTheme == IslandTheme.grey) {
@@ -54,7 +54,7 @@ class MapIsland extends StatelessWidget {
       // Active character - Purple theme
       mainColor = const Color(0xFFCE93D8);
       sideColor = const Color(0xFFAB47BC);
-      glowColor = const Color(0xFFAB47BC).withOpacity(0.3);
+      glowColor = const Color(0xFFAB47BC).withValues(alpha: 0.3);
       textColor = const Color(0xFF4A148C);
       print('DEBUG MapIsland: Using PURPLE theme (active) for ${userCharacter?.displayNameEn ?? "empty"}');
     }
@@ -98,11 +98,11 @@ class MapIsland extends StatelessWidget {
                       child: Container(
                         padding: const EdgeInsets.all(4),
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.9),
+                          color: Colors.white.withValues(alpha: 0.9),
                           shape: BoxShape.circle,
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.1),
+                              color: Colors.black.withValues(alpha: 0.1),
                               blurRadius: 4,
                             ),
                           ],
@@ -124,7 +124,7 @@ class MapIsland extends StatelessWidget {
                       borderRadius: BorderRadius.circular(25),
                       boxShadow: [
                         BoxShadow(
-                          color: sideColor.withOpacity(0.4),
+                          color: sideColor.withValues(alpha: 0.4),
                           blurRadius: 10,
                           offset: const Offset(0, 5),
                         ),
@@ -142,7 +142,7 @@ class MapIsland extends StatelessWidget {
                         color: mainColor,
                         borderRadius: BorderRadius.circular(25),
                         border: Border.all(
-                          color: Colors.white.withOpacity(0.4),
+                          color: Colors.white.withValues(alpha: 0.4),
                           width: 2,
                         ),
                       ),
@@ -150,7 +150,7 @@ class MapIsland extends StatelessWidget {
                         child: userCharacter == null
                             ? Icon(
                           Icons.spa,
-                          color: Colors.white.withOpacity(0.6),
+                          color: Colors.white.withValues(alpha: 0.6),
                           size: 24,
                         )
                             : null,
@@ -196,7 +196,7 @@ class MapIsland extends StatelessWidget {
                               decoration: BoxDecoration(
                                 color: _getArchetypeColor(
                                   userCharacter!.archetype,
-                                ).withOpacity(0.1),
+                                ).withValues(alpha: 0.1),
                                 shape: BoxShape.circle,
                               ),
                               child: Icon(
@@ -204,7 +204,7 @@ class MapIsland extends StatelessWidget {
                                 size: 50,
                                 color: _getArchetypeColor(
                                   userCharacter!.archetype,
-                                ).withOpacity(
+                                ).withValues(alpha:
                                   colorTheme == IslandTheme.grey ? 0.5 : 1.0,
                                 ),
                               ),
@@ -230,16 +230,16 @@ class MapIsland extends StatelessWidget {
                       vertical: 6,
                     ),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.3),
+                      color: Colors.white.withValues(alpha: 0.3),
                       borderRadius: BorderRadius.circular(15),
                       border: Border.all(
-                        color: Colors.white.withOpacity(0.6),
+                        color: Colors.white.withValues(alpha: 0.6),
                         width: 1.5,
                       ),
                       boxShadow: [
                         if (colorTheme == IslandTheme.green)
                           BoxShadow(
-                            color: const Color(0xFF5CB85C).withOpacity(0.3),
+                            color: const Color(0xFF5CB85C).withValues(alpha: 0.3),
                             blurRadius: 10,
                             spreadRadius: 2,
                           ),
@@ -267,8 +267,8 @@ class MapIsland extends StatelessWidget {
                               style: TextStyle(
                                 fontSize: 10,
                                 fontWeight: FontWeight.w600,
-                                color: _getArchetypeColor(userCharacter!.archetype).withOpacity(
-                                  colorTheme == IslandTheme.grey ? 0.5 : 1.0,
+                                color: _getArchetypeColor(userCharacter!.archetype).withValues(alpha:
+                                colorTheme == IslandTheme.grey ? 0.5 : 1.0,
                                 ),
                               ),
                             ),

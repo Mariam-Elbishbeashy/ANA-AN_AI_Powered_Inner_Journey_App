@@ -175,7 +175,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
               width: 80,
               height: 80,
               decoration: BoxDecoration(
-                color: const Color(0xFF8E7CFF).withOpacity(0.12),
+                color: const Color(0xFF8E7CFF).withValues(alpha: 0.12),
                 shape: BoxShape.circle,
               ),
               child: const Icon(
@@ -474,7 +474,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                     width: 80,
                     height: 80,
                     decoration: BoxDecoration(
-                      color: const Color(0xFF8E7CFF).withOpacity(0.12),
+                      color: const Color(0xFF8E7CFF).withValues(alpha: 0.12),
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(
@@ -715,7 +715,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                         width: 80,
                         height: 80,
                         decoration: BoxDecoration(
-                          color: const Color(0xFF8E7CFF).withOpacity(0.12),
+                          color: const Color(0xFF8E7CFF).withValues(alpha: 0.12),
                           shape: BoxShape.circle,
                         ),
                         child: const Icon(
@@ -823,7 +823,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                         width: 80,
                         height: 80,
                         decoration: BoxDecoration(
-                          color: const Color(0xFF8E7CFF).withOpacity(0.12),
+                          color: const Color(0xFF8E7CFF).withValues(alpha: 0.12),
                           shape: BoxShape.circle,
                         ),
                         child: const Icon(
@@ -933,7 +933,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                       width: 80,
                       height: 80,
                       decoration: BoxDecoration(
-                        color: const Color(0xFF8E7CFF).withOpacity(0.12),
+                        color: const Color(0xFF8E7CFF).withValues(alpha: 0.12),
                         shape: BoxShape.circle,
                       ),
                       child: const Icon(
@@ -1122,7 +1122,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                   'Analysis completed, but no new characters were added or reactivated',
                   'تم اكتمال التحليل، ولكن لم تتم إضافة أو إعادة تفعيل شخصيات جديدة'),
             ),
-            backgroundColor: const Color(0xFF8E7CFF).withOpacity(0.8),
+            backgroundColor: const Color(0xFF8E7CFF).withValues(alpha: 0.8),
             duration: const Duration(seconds: 2),
             behavior: SnackBarBehavior.floating,
           ),
@@ -2033,7 +2033,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                         width: 110,
                         height: 110,
                         decoration: BoxDecoration(
-                          color: const Color(0xFF8E7CFF).withOpacity(0.12),
+                          color: const Color(0xFF8E7CFF).withValues(alpha: 0.12),
                           shape: BoxShape.circle,
                         ),
                         child: const Icon(
@@ -2104,7 +2104,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                     width: 110,
                     height: 110,
                     decoration: BoxDecoration(
-                      color: const Color(0xFF8E7CFF).withOpacity(0.12),
+                      color: const Color(0xFF8E7CFF).withValues(alpha: 0.12),
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(
@@ -2277,7 +2277,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
         border: Border.all(color: const Color(0xFF8E7CFF)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 12,
             offset: const Offset(0, 6),
           ),
@@ -2432,7 +2432,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                     height: 80,
                     margin: const EdgeInsets.only(bottom: 12),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF8E7CFF).withOpacity(0.1),
+                      color: const Color(0xFF8E7CFF).withValues(alpha: 0.1),
                       shape: BoxShape.circle,
                     ),
                     child: Padding(
@@ -2587,7 +2587,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(isPrimary ? 0.1 : 0.05),
+              color: Colors.black.withValues(alpha: isPrimary ? 0.1 : 0.05),
               blurRadius: isPrimary ? 12 : 8,
               offset: const Offset(0, 4),
             ),
@@ -2607,7 +2607,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                   topRight: Radius.circular(16),
                 ),
                 border: isPrimary
-                    ? Border.all(color: const Color(0xFF8E7CFF).withOpacity(0.3))
+                    ? Border.all(color: const Color(0xFF8E7CFF).withValues(alpha: 0.3))
                     : null,
               ),
               child: ClipRRect(
@@ -2669,7 +2669,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                     LinearProgressIndicator(
                       value: charConfidence / 100,
                       backgroundColor: const Color(0xFFE5DEFF),
-                      color: const Color(0xFF8E7CFF).withOpacity(0.7),
+                      color: const Color(0xFF8E7CFF).withValues(alpha: 0.7),
                       minHeight: 4,
                       borderRadius: BorderRadius.circular(2),
                     ),
@@ -2791,7 +2791,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
               return Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: (emotion['color'] as Color).withOpacity(0.1),
+                  color: (emotion['color'] as Color).withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: emotion['color'] as Color),
                 ),
@@ -2828,7 +2828,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                         Expanded(
                           child: LinearProgressIndicator(
                             value: confidence,
-                            backgroundColor: (emotion['color'] as Color).withOpacity(0.2),
+                            backgroundColor: (emotion['color'] as Color).withValues(alpha: 0.2),
                             color: emotion['color'] as Color,
                             minHeight: 4,
                             borderRadius: BorderRadius.circular(2),
@@ -2863,7 +2863,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
             decoration: BoxDecoration(
               color: const Color(0xFFF8F7FF),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0xFF8E7CFF).withOpacity(0.3)),
+              border: Border.all(color: const Color(0xFF8E7CFF).withValues(alpha: 0.3)),
             ),
             child: Column(
               children: [
@@ -2987,7 +2987,7 @@ class _ModeCard extends StatelessWidget {
           boxShadow: enabled
               ? [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.black.withValues(alpha: 0.05),
               blurRadius: 10,
               offset: const Offset(0, 6),
             ),
@@ -3041,7 +3041,7 @@ class _ChatInputCard extends StatelessWidget {
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 12,
             offset: const Offset(0, 6),
           ),
@@ -3058,7 +3058,7 @@ class _ChatInputCard extends StatelessWidget {
               hintText: hint,
               border: InputBorder.none,
               hintStyle: TextStyle(
-                color: const Color(0xFF4B3A66).withOpacity(0.5),
+                color: const Color(0xFF4B3A66).withValues(alpha: 0.5),
               ),
             ),
             style: const TextStyle(
@@ -3141,7 +3141,7 @@ class _VoiceInputCard extends StatelessWidget {
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.05),
+                color: Colors.black.withValues(alpha: 0.05),
                 blurRadius: 12,
                 offset: const Offset(0, 6),
               ),
@@ -3187,7 +3187,7 @@ class _VoiceInputCard extends StatelessWidget {
                           : tr(context, "Speak clearly for best results", "تحدث بوضوح للحصول على أفضل النتائج"),
                       style: TextStyle(
                         fontSize: 12,
-                        color: const Color(0xFF4B3A66).withOpacity(0.7),
+                        color: const Color(0xFF4B3A66).withValues(alpha: 0.7),
                       ),
                     ),
                   ],
@@ -3289,7 +3289,7 @@ class _VideoInputCard extends StatelessWidget {
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.05),
+                color: Colors.black.withValues(alpha: 0.05),
                 blurRadius: 12,
                 offset: const Offset(0, 6),
               ),
@@ -3341,7 +3341,7 @@ class _VideoInputCard extends StatelessWidget {
                           : tr(context, "Look at the camera and speak", "انظر إلى الكاميرا وتحدث"),
                       style: TextStyle(
                         fontSize: 12,
-                        color: const Color(0xFF4B3A66).withOpacity(0.7),
+                        color: const Color(0xFF4B3A66).withValues(alpha: 0.7),
                       ),
                     ),
                   ],
@@ -3410,7 +3410,7 @@ class _VideoInputCard extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                color: Colors.red.withOpacity(0.8),
+                color: Colors.red.withValues(alpha: 0.8),
                 borderRadius: BorderRadius.circular(4),
               ),
               child: Row(

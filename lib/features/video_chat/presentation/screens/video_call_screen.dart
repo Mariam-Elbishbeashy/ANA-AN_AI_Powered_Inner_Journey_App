@@ -1640,9 +1640,9 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   decoration: BoxDecoration(
-                    color: _guiderActive ? const Color(0xFFB79CFF).withOpacity(0.2) : Colors.white,
+                    color: _guiderActive ? const Color(0xFFB79CFF).withValues(alpha: 0.2) : Colors.white,
                     borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: _guiderActive ? const Color(0xFFB79CFF) : Colors.grey.withOpacity(0.3)),
+                    border: Border.all(color: _guiderActive ? const Color(0xFFB79CFF) : Colors.grey.withValues(alpha: 0.3)),
                   ),
                   child: Row(
                     children: [
@@ -1694,10 +1694,10 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.95),
+            color: Colors.white.withValues(alpha: 0.95),
             borderRadius: BorderRadius.circular(24),
             border: Border.all(color: const Color(0xFFB79CFF), width: 2),
-            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 8)],
+            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 8)],
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -1705,7 +1705,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
               Container(
                 width: 32,
                 height: 32,
-                decoration: BoxDecoration(shape: BoxShape.circle, boxShadow: [BoxShadow(color: const Color(0xFFB79CFF).withOpacity(0.5), blurRadius: 8)]),
+                decoration: BoxDecoration(shape: BoxShape.circle, boxShadow: [BoxShadow(color: const Color(0xFFB79CFF).withValues(alpha: 0.5), blurRadius: 8)]),
                 child: ClipOval(
                   child: Image.asset(_guiderGifPath, fit: BoxFit.cover,
                       errorBuilder: (_, __, ___) => Container(
@@ -1744,20 +1744,20 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     final guiderMessage = _intervention.guiderMessage ?? '';
     return Positioned.fill(
       child: Container(
-        color: Colors.black.withOpacity(0.85),
+        color: Colors.black.withValues(alpha: 0.85),
         child: Center(
           child: Container(
             width: screenWidth * 0.85,
             margin: const EdgeInsets.symmetric(horizontal: 20),
             padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(28), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 20, offset: const Offset(0, 10))]),
+            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(28), boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 20, offset: const Offset(0, 10))]),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
                   width: 80,
                   height: 80,
-                  decoration: BoxDecoration(shape: BoxShape.circle, boxShadow: [BoxShadow(color: const Color(0xFFB79CFF).withOpacity(0.6), blurRadius: 20)]),
+                  decoration: BoxDecoration(shape: BoxShape.circle, boxShadow: [BoxShadow(color: const Color(0xFFB79CFF).withValues(alpha: 0.6), blurRadius: 20)]),
                   child: ClipOval(
                     child: Image.asset(_guiderGifPath, fit: BoxFit.cover,
                         errorBuilder: (_, __, ___) => Container(
@@ -1819,20 +1819,20 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     if (isEndCall) {
       return Container(
         width: 70, height: 70,
-        decoration: BoxDecoration(shape: BoxShape.circle, gradient: const LinearGradient(colors: [Color(0xFF7B61FF), Color(0xFF9C8CFF)]), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 8)]),
+        decoration: BoxDecoration(shape: BoxShape.circle, gradient: const LinearGradient(colors: [Color(0xFF7B61FF), Color(0xFF9C8CFF)]), boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 8)]),
         child: Icon(icon, color: Colors.white, size: 30),
       );
     }
     if (!isActive) {
       return Container(
         width: 70, height: 70,
-        decoration: BoxDecoration(shape: BoxShape.circle, color: const Color(0xFF4A2B7A), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 8)]),
+        decoration: BoxDecoration(shape: BoxShape.circle, color: const Color(0xFF4A2B7A), boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 8)]),
         child: Icon(icon, color: Colors.white, size: 30),
       );
     }
     return Container(
       width: 70, height: 70,
-      decoration: BoxDecoration(shape: BoxShape.circle, gradient: const LinearGradient(colors: [Color(0xFF7B61FF), Color(0xFF9C8CFF)]), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 8)]),
+      decoration: BoxDecoration(shape: BoxShape.circle, gradient: const LinearGradient(colors: [Color(0xFF7B61FF), Color(0xFF9C8CFF)]), boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 8)]),
       child: Icon(icon, color: Colors.white, size: 30),
     );
   }
@@ -1888,7 +1888,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
                         height: screenWidth * 0.6,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: const Color(0xFFE6DBFF).withOpacity(0.5),
+                          color: const Color(0xFFE6DBFF).withValues(alpha: 0.5),
                         ),
                       ),
                       Positioned(
@@ -1922,7 +1922,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
                               ),
                               boxShadow: [
                                 BoxShadow(
-                                  color: const Color(0xFFB79CFF).withOpacity(0.3),
+                                  color: const Color(0xFFB79CFF).withValues(alpha: 0.3),
                                   blurRadius: 8,
                                 ),
                               ],
@@ -1961,7 +1961,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
                               ),
                               boxShadow: [
                                 BoxShadow(
-                                  color: Colors.black.withOpacity(0.3),
+                                  color: Colors.black.withValues(alpha: 0.3),
                                   blurRadius: 15,
                                   spreadRadius: 2,
                                 ),
@@ -1973,8 +1973,8 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
                                   ? CameraPreview(_cameraController!)
                                   : Container(
                                 color: _isVideoEnabled
-                                    ? Colors.purple.withOpacity(0.3)
-                                    : const Color(0xFF4A2B7A).withOpacity(0.3),
+                                    ? Colors.purple.withValues(alpha: 0.3)
+                                    : const Color(0xFF4A2B7A).withValues(alpha: 0.3),
                                 child: Center(
                                   child: Column(
                                     mainAxisAlignment: MainAxisAlignment.center,
@@ -2000,7 +2000,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
                                           margin: const EdgeInsets.only(top: 4),
                                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                                           decoration: BoxDecoration(
-                                            color: const Color(0xFF4A2B7A).withOpacity(0.8),
+                                            color: const Color(0xFF4A2B7A).withValues(alpha: 0.8),
                                             borderRadius: BorderRadius.circular(10),
                                           ),
                                           child: Text(
@@ -2036,7 +2036,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
                           borderRadius: BorderRadius.circular(30),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.1),
+                              color: Colors.black.withValues(alpha: 0.1),
                               blurRadius: 10,
                               offset: const Offset(0, -2),
                             ),

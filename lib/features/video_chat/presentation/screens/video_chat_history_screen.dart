@@ -308,7 +308,7 @@ class _CircleIconButton extends StatelessWidget {
           shape: BoxShape.circle,
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.06),
+              color: Colors.black.withValues(alpha: 0.06),
               blurRadius: 12,
               offset: const Offset(0, 6),
             ),
@@ -371,7 +371,7 @@ class _ChatBubble extends StatelessWidget {
                     width: 36,
                     height: 36,
                     color: isGuider
-                        ? const Color(0xFFB79CFF).withOpacity(0.15)
+                        ? const Color(0xFFB79CFF).withValues(alpha: 0.15)
                         : const Color(0xFFEDE7FF),
                     child: Icon(
                       isGuider ? Icons.assistant_navigation : Icons.psychology_alt,

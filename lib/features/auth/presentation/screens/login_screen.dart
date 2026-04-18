@@ -480,14 +480,14 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: Container(
                     padding: const EdgeInsets.fromLTRB(20, 22, 20, 22),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.80),
+                      color: Colors.white.withValues(alpha: 0.80),
                       borderRadius: BorderRadius.circular(26),
                       border: Border.all(
-                        color: const Color(0xFF6A5CFF).withOpacity(0.18),
+                        color: const Color(0xFF6A5CFF).withValues(alpha: 0.18),
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.06),
+                          color: Colors.black.withValues(alpha: 0.06),
                           blurRadius: 18,
                           offset: const Offset(0, 10),
                         ),
@@ -500,7 +500,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           width: 48,
                           height: 48,
                           decoration: BoxDecoration(
-                            color: purple2.withOpacity(0.12),
+                            color: purple2.withValues(alpha: 0.12),
                             shape: BoxShape.circle,
                           ),
                           child: const Icon(
@@ -667,7 +667,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             Expanded(
                               child: Divider(
                                 thickness: 1,
-                                color: Colors.black.withOpacity(0.12),
+                                color: Colors.black.withValues(alpha: 0.12),
                               ),
                             ),
                             const Padding(
@@ -684,7 +684,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             Expanded(
                               child: Divider(
                                 thickness: 1,
-                                color: Colors.black.withOpacity(0.12),
+                                color: Colors.black.withValues(alpha: 0.12),
                               ),
                             ),
                           ],
@@ -775,12 +775,12 @@ class _LoginScreenState extends State<LoginScreen> {
         suffixIcon: suffix,
         hintText: hint,
         filled: true,
-        fillColor: Colors.white.withOpacity(0.70),
+        fillColor: Colors.white.withValues(alpha: 0.70),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(18)),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(18),
           borderSide: BorderSide(
-            color: const Color(0xFF6A5CFF).withOpacity(0.18),
+            color: const Color(0xFF6A5CFF).withValues(alpha: 0.18),
             width: 1.2,
           ),
         ),

@@ -180,7 +180,7 @@ class ProgressCharts extends StatelessWidget {
         borderRadius: BorderRadius.circular(28),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF8E7CFF).withOpacity(0.12),
+            color: const Color(0xFF8E7CFF).withValues(alpha: 0.12),
             blurRadius: 22,
             offset: const Offset(0, 10),
           ),
@@ -244,7 +244,7 @@ class ProgressCharts extends StatelessWidget {
         borderRadius: BorderRadius.circular(28),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF8E7CFF).withOpacity(0.14),
+            color: const Color(0xFF8E7CFF).withValues(alpha: 0.14),
             blurRadius: 24,
             offset: const Offset(0, 12),
           ),
@@ -267,7 +267,7 @@ class ProgressCharts extends StatelessWidget {
         borderRadius: BorderRadius.circular(28),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF8E7CFF).withOpacity(0.12),
+            color: const Color(0xFF8E7CFF).withValues(alpha: 0.12),
             blurRadius: 22,
             offset: const Offset(0, 10),
           ),
@@ -292,7 +292,7 @@ class ProgressCharts extends StatelessWidget {
                 borderRadius: BorderRadius.circular(18),
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFF8E7CFF).withOpacity(0.10),
+                    color: const Color(0xFF8E7CFF).withValues(alpha: 0.10),
                     blurRadius: 8,
                     offset: const Offset(0, 2),
                   ),
@@ -339,8 +339,8 @@ class ProgressCharts extends StatelessWidget {
                       begin: Alignment.bottomCenter,
                       end: Alignment.topCenter,
                       colors: [
-                        const Color(0xFF8E7CFF).withOpacity(0.85),
-                        const Color(0xFFC6BCFF).withOpacity(0.95),
+                        const Color(0xFF8E7CFF).withValues(alpha: 0.85),
+                        const Color(0xFFC6BCFF).withValues(alpha: 0.95),
                       ],
                     ),
                     borderRadius: BorderRadius.circular(20),
@@ -370,7 +370,7 @@ class ProgressCharts extends StatelessWidget {
         border: Border.all(color: const Color(0xFFE5DEFF)),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF8E7CFF).withOpacity(0.1),
+            color: const Color(0xFF8E7CFF).withValues(alpha: 0.1),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
@@ -386,7 +386,7 @@ class ProgressCharts extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: iconColor.withOpacity(0.1),
+                    color: iconColor.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Icon(
@@ -413,7 +413,7 @@ class ProgressCharts extends StatelessWidget {
                         subtitle,
                         style: TextStyle(
                           fontSize: 14,
-                          color: const Color(0xFF7A6A5A).withOpacity(0.8),
+                          color: const Color(0xFF7A6A5A).withValues(alpha: 0.8),
                         ),
                       ),
                     ],
@@ -442,7 +442,7 @@ class ProgressCharts extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: iconColor.withOpacity(0.1),
+                    color: iconColor.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Icon(
@@ -812,7 +812,7 @@ class ProgressCharts extends StatelessWidget {
             return spotIndexes.map((index) {
               return TouchedSpotIndicatorData(
                 FlLine(
-                  color: const Color(0xFF4CAF50).withOpacity(0.25),
+                  color: const Color(0xFF4CAF50).withValues(alpha: 0.25),
                   strokeWidth: 2,
                   dashArray: [4, 4],
                 ),
@@ -875,7 +875,7 @@ class ProgressCharts extends StatelessWidget {
             ),
             belowBarData: BarAreaData(
               show: true,
-              color: const Color(0xFF4CAF50).withOpacity(0.1),
+              color: const Color(0xFF4CAF50).withValues(alpha: 0.1),
             ),
           ),
         ],
@@ -1067,7 +1067,7 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
         border: Border.all(color: const Color(0xFFE9E4FF)),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF8E7CFF).withOpacity(0.14),
+            color: const Color(0xFF8E7CFF).withValues(alpha: 0.14),
             blurRadius: 26,
             offset: const Offset(0, 14),
           ),
@@ -1197,7 +1197,7 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
                 boxShadow: selected
                     ? [
                   BoxShadow(
-                    color: const Color(0xFF8E7CFF).withOpacity(0.22),
+                    color: const Color(0xFF8E7CFF).withValues(alpha: 0.22),
                     blurRadius: 14,
                     offset: const Offset(0, 6),
                   ),
@@ -1747,8 +1747,8 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  lineColor.withOpacity(0.22),
-                  lineColor.withOpacity(0.04),
+                  lineColor.withValues(alpha: 0.22),
+                  lineColor.withValues(alpha: 0.04),
                 ],
               ),
             ),
@@ -2081,7 +2081,7 @@ class _VideoFlowHabitLandCardState extends State<_VideoFlowHabitLandCard> {
         border: Border.all(color: const Color(0xFFE9E4FF)),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF8E7CFF).withOpacity(0.14),
+            color: const Color(0xFF8E7CFF).withValues(alpha: 0.14),
             blurRadius: 26,
             offset: const Offset(0, 14),
           ),

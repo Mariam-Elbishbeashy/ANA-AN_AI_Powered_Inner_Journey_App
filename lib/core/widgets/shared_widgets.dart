@@ -279,14 +279,14 @@ class _CharacterBubble extends StatelessWidget {
             height: 64,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: const Color(0xFF8E7CFF).withOpacity(0.14),
+              color: const Color(0xFF8E7CFF).withValues(alpha: 0.14),
               border: Border.all(
-                color: const Color(0xFF8E7CFF).withOpacity(0.28),
+                color: const Color(0xFF8E7CFF).withValues(alpha: 0.28),
                 width: 2,
               ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.06),
+                  color: Colors.black.withValues(alpha: 0.06),
                   blurRadius: 14,
                   offset: const Offset(0, 8),
                 ),

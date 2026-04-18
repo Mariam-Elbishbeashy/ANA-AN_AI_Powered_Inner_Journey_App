@@ -920,7 +920,7 @@ class _GuiderVideoCallScreenState extends State<GuiderVideoCallScreen> {
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.2),
+              color: Colors.black.withValues(alpha: 0.2),
               blurRadius: 8,
             ),
           ],
@@ -938,7 +938,7 @@ class _GuiderVideoCallScreenState extends State<GuiderVideoCallScreen> {
           color: const Color(0xFF4A2B7A),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.2),
+              color: Colors.black.withValues(alpha: 0.2),
               blurRadius: 8,
             ),
           ],
@@ -957,7 +957,7 @@ class _GuiderVideoCallScreenState extends State<GuiderVideoCallScreen> {
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.2),
+            color: Colors.black.withValues(alpha: 0.2),
             blurRadius: 8,
           ),
         ],
@@ -1065,7 +1065,7 @@ class _GuiderVideoCallScreenState extends State<GuiderVideoCallScreen> {
                         height: screenWidth * 0.6,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: const Color(0xFFE6DBFF).withOpacity(0.5),
+                          color: const Color(0xFFE6DBFF).withValues(alpha: 0.5),
                         ),
                       ),
                       Positioned(
@@ -1087,7 +1087,7 @@ class _GuiderVideoCallScreenState extends State<GuiderVideoCallScreen> {
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                             decoration: BoxDecoration(
-                              color: Colors.black.withOpacity(0.6),
+                              color: Colors.black.withValues(alpha: 0.6),
                               borderRadius: BorderRadius.circular(20),
                             ),
                             child: Row(
@@ -1111,7 +1111,7 @@ class _GuiderVideoCallScreenState extends State<GuiderVideoCallScreen> {
                                   width: 50,
                                   height: 4,
                                   decoration: BoxDecoration(
-                                    color: Colors.grey.withOpacity(0.5),
+                                    color: Colors.grey.withValues(alpha: 0.5),
                                     borderRadius: BorderRadius.circular(2),
                                   ),
                                   child: FractionallySizedBox(
@@ -1135,7 +1135,7 @@ class _GuiderVideoCallScreenState extends State<GuiderVideoCallScreen> {
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                             decoration: BoxDecoration(
-                              color: Colors.black.withOpacity(0.6),
+                              color: Colors.black.withValues(alpha: 0.6),
                               borderRadius: BorderRadius.circular(20),
                             ),
                             child: Row(
@@ -1163,7 +1163,7 @@ class _GuiderVideoCallScreenState extends State<GuiderVideoCallScreen> {
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                             decoration: BoxDecoration(
-                              color: Colors.black.withOpacity(0.6),
+                              color: Colors.black.withValues(alpha: 0.6),
                               borderRadius: BorderRadius.circular(20),
                             ),
                             child: Row(
@@ -1191,7 +1191,7 @@ class _GuiderVideoCallScreenState extends State<GuiderVideoCallScreen> {
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                             decoration: BoxDecoration(
-                              color: Colors.black.withOpacity(0.6),
+                              color: Colors.black.withValues(alpha: 0.6),
                               borderRadius: BorderRadius.circular(20),
                             ),
                             child: Row(
@@ -1231,7 +1231,7 @@ class _GuiderVideoCallScreenState extends State<GuiderVideoCallScreen> {
                               ),
                               boxShadow: [
                                 BoxShadow(
-                                  color: Colors.black.withOpacity(0.3),
+                                  color: Colors.black.withValues(alpha: 0.3),
                                   blurRadius: 15,
                                   spreadRadius: 2,
                                 ),
@@ -1243,8 +1243,8 @@ class _GuiderVideoCallScreenState extends State<GuiderVideoCallScreen> {
                                   ? CameraPreview(_cameraController!)
                                   : Container(
                                 color: _isVideoEnabled
-                                    ? const Color(0xFF7B61FF).withOpacity(0.3)
-                                    : const Color(0xFF4A2B7A).withOpacity(0.3),
+                                    ? const Color(0xFF7B61FF).withValues(alpha: 0.3)
+                                    : const Color(0xFF4A2B7A).withValues(alpha: 0.3),
                                 child: Center(
                                   child: Column(
                                     mainAxisAlignment: MainAxisAlignment.center,
@@ -1268,7 +1268,7 @@ class _GuiderVideoCallScreenState extends State<GuiderVideoCallScreen> {
                                           margin: const EdgeInsets.only(top: 4),
                                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                                           decoration: BoxDecoration(
-                                            color: const Color(0xFF4A2B7A).withOpacity(0.8),
+                                            color: const Color(0xFF4A2B7A).withValues(alpha: 0.8),
                                             borderRadius: BorderRadius.circular(10),
                                           ),
                                           child: const Text(
@@ -1305,7 +1305,7 @@ class _GuiderVideoCallScreenState extends State<GuiderVideoCallScreen> {
                           borderRadius: BorderRadius.circular(30),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.1),
+                              color: Colors.black.withValues(alpha: 0.1),
                               blurRadius: 10,
                               offset: const Offset(0, -2),
                             ),

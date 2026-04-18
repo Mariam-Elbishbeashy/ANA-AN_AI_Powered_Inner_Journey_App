@@ -546,24 +546,24 @@ class _GlassCard extends StatelessWidget {
               end: Alignment.bottomRight,
               colors: [
                 Colors.white,
-                Colors.white.withOpacity(0.98),
-                const Color(0xFFFDFCFF).withOpacity(0.95),
+                Colors.white.withValues(alpha: 0.98),
+                const Color(0xFFFDFCFF).withValues(alpha: 0.95),
               ],
             ),
             borderRadius: BorderRadius.circular(radius),
             border: Border.all(
-              color: accentColor?.withOpacity(0.15) ?? Colors.white.withOpacity(0.95),
+              color: accentColor?.withValues(alpha: 0.15) ?? Colors.white.withValues(alpha: 0.95),
               width: 1.5,
             ),
             boxShadow: [
               BoxShadow(
-                color: (accentColor ?? const Color(0xFF6A5CFF)).withOpacity(0.08),
+                color: (accentColor ?? const Color(0xFF6A5CFF)).withValues(alpha: 0.08),
                 blurRadius: 20,
                 offset: const Offset(0, 8),
                 spreadRadius: -2,
               ),
               BoxShadow(
-                color: Colors.black.withOpacity(0.04),
+                color: Colors.black.withValues(alpha: 0.04),
                 blurRadius: 10,
                 offset: const Offset(0, 4),
               ),
@@ -592,7 +592,7 @@ class _HeroImageCard extends StatelessWidget {
         border: Border.all(color: const Color(0xFFE5DEFF)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.08),
+            color: Colors.black.withValues(alpha: 0.08),
             blurRadius: 18,
             offset: const Offset(0, 10),
           ),
@@ -608,7 +608,7 @@ class _HeroImageCard extends StatelessWidget {
                   end: Alignment.bottomRight,
                   colors: [
                     const Color(0xFFF5F0FF),
-                    const Color(0xFFEDE7FF).withOpacity(0.6),
+                    const Color(0xFFEDE7FF).withValues(alpha: 0.6),
                   ],
                 ),
                 borderRadius: BorderRadius.circular(22),
@@ -653,20 +653,20 @@ class _IdentityCard extends StatelessWidget {
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 colors: [
-                  roleColor.withOpacity(0.15),
-                  roleColor.withOpacity(0.08),
+                  roleColor.withValues(alpha: 0.15),
+                  roleColor.withValues(alpha: 0.08),
                 ],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
               borderRadius: BorderRadius.circular(14),
               border: Border.all(
-                color: roleColor.withOpacity(0.3),
+                color: roleColor.withValues(alpha: 0.3),
                 width: 1,
               ),
               boxShadow: [
                 BoxShadow(
-                  color: roleColor.withOpacity(0.15),
+                  color: roleColor.withValues(alpha: 0.15),
                   blurRadius: 8,
                   offset: const Offset(0, 2),
                 ),
@@ -683,7 +683,7 @@ class _IdentityCard extends StatelessWidget {
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
-                        color: roleColor.withOpacity(0.5),
+                        color: roleColor.withValues(alpha: 0.5),
                         blurRadius: 4,
                       ),
                     ],
@@ -774,7 +774,7 @@ class _InfoSection extends StatelessWidget {
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
-                        color: const Color(0xFFA78BFA).withOpacity(0.3),
+                        color: const Color(0xFFA78BFA).withValues(alpha: 0.3),
                         blurRadius: 8,
                         offset: const Offset(0, 3),
                       ),
@@ -878,15 +878,15 @@ class _InfoSection extends StatelessWidget {
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: [
-                          colorPair[0].withOpacity(0.12),
-                          colorPair[1].withOpacity(0.08),
+                          colorPair[0].withValues(alpha: 0.12),
+                          colorPair[1].withValues(alpha: 0.08),
                         ],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
                       borderRadius: BorderRadius.circular(14),
                       border: Border.all(
-                        color: colorPair[0].withOpacity(0.25),
+                        color: colorPair[0].withValues(alpha: 0.25),
                         width: 1,
                       ),
                     ),
@@ -908,7 +908,7 @@ class _InfoSection extends StatelessWidget {
                             style: TextStyle(
                               fontSize: 12.5,
                               fontWeight: FontWeight.w700,
-                              color: colorPair[1].withOpacity(0.9),
+                              color: colorPair[1].withValues(alpha: 0.9),
                             ),
                           ),
                         ),
@@ -1014,8 +1014,8 @@ class _InfoCarouselState extends State<_InfoCarousel> {
                               decoration: BoxDecoration(
                                 gradient: LinearGradient(
                                   colors: [
-                                    colorPair[0].withOpacity(0.75),
-                                    colorPair[1].withOpacity(0.75),
+                                    colorPair[0].withValues(alpha: 0.75),
+                                    colorPair[1].withValues(alpha: 0.75),
                                   ],
                                   begin: Alignment.topLeft,
                                   end: Alignment.bottomRight,
@@ -1023,7 +1023,7 @@ class _InfoCarouselState extends State<_InfoCarousel> {
                                 shape: BoxShape.circle,
                                 boxShadow: [
                                   BoxShadow(
-                                    color: colorPair[0].withOpacity(0.25),
+                                    color: colorPair[0].withValues(alpha: 0.25),
                                     blurRadius: 10,
                                     offset: const Offset(0, 4),
                                   ),
@@ -1070,7 +1070,7 @@ class _InfoCarouselState extends State<_InfoCarousel> {
                                       ),
                                       borderRadius: BorderRadius.circular(12),
                                       border: Border.all(
-                                        color: colorPair[0].withOpacity(0.15),
+                                        color: colorPair[0].withValues(alpha: 0.15),
                                         width: 1,
                                       ),
                                     ),
@@ -1119,15 +1119,15 @@ class _InfoCarouselState extends State<_InfoCarousel> {
                                         decoration: BoxDecoration(
                                           gradient: LinearGradient(
                                             colors: [
-                                              colorPair[0].withOpacity(0.12),
-                                              colorPair[1].withOpacity(0.08),
+                                              colorPair[0].withValues(alpha: 0.12),
+                                              colorPair[1].withValues(alpha: 0.08),
                                             ],
                                             begin: Alignment.topLeft,
                                             end: Alignment.bottomRight,
                                           ),
                                           borderRadius: BorderRadius.circular(12),
                                           border: Border.all(
-                                            color: colorPair[0].withOpacity(0.25),
+                                            color: colorPair[0].withValues(alpha: 0.25),
                                             width: 1,
                                           ),
                                         ),
@@ -1136,7 +1136,7 @@ class _InfoCarouselState extends State<_InfoCarousel> {
                                           style: TextStyle(
                                             fontSize: 12,
                                             fontWeight: FontWeight.w700,
-                                            color: colorPair[1].withOpacity(0.9),
+                                            color: colorPair[1].withValues(alpha: 0.9),
                                           ),
                                         ),
                                       ),
@@ -1220,7 +1220,7 @@ class _TimelineSection extends StatelessWidget {
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
-                        color: const Color(0xFFA78BFA).withOpacity(0.3),
+                        color: const Color(0xFFA78BFA).withValues(alpha: 0.3),
                         blurRadius: 8,
                         offset: const Offset(0, 3),
                       ),
@@ -1271,8 +1271,8 @@ class _TimelineSection extends StatelessWidget {
                           decoration: BoxDecoration(
                             gradient: LinearGradient(
                               colors: [
-                                colorPair[0].withOpacity(0.7),
-                                colorPair[1].withOpacity(0.7),
+                                colorPair[0].withValues(alpha: 0.7),
+                                colorPair[1].withValues(alpha: 0.7),
                               ],
                               begin: Alignment.topLeft,
                               end: Alignment.bottomRight,
@@ -1280,7 +1280,7 @@ class _TimelineSection extends StatelessWidget {
                             shape: BoxShape.circle,
                             boxShadow: [
                               BoxShadow(
-                                color: colorPair[0].withOpacity(0.2),
+                                color: colorPair[0].withValues(alpha: 0.2),
                                 blurRadius: 6,
                                 offset: const Offset(0, 2),
                               ),
@@ -1304,8 +1304,8 @@ class _TimelineSection extends StatelessWidget {
                             decoration: BoxDecoration(
                               gradient: LinearGradient(
                                 colors: [
-                                  colorPair[0].withOpacity(0.3),
-                                  colorPair[1].withOpacity(0.1),
+                                  colorPair[0].withValues(alpha: 0.3),
+                                  colorPair[1].withValues(alpha: 0.1),
                                 ],
                                 begin: Alignment.topCenter,
                                 end: Alignment.bottomCenter,
@@ -1330,12 +1330,12 @@ class _TimelineSection extends StatelessWidget {
                           ),
                           borderRadius: BorderRadius.circular(16),
                           border: Border.all(
-                            color: colorPair[0].withOpacity(0.2),
+                            color: colorPair[0].withValues(alpha: 0.2),
                             width: 1.5,
                           ),
                           boxShadow: [
                             BoxShadow(
-                              color: colorPair[0].withOpacity(0.08),
+                              color: colorPair[0].withValues(alpha: 0.08),
                               blurRadius: 8,
                               offset: const Offset(0, 2),
                             ),
@@ -1464,7 +1464,7 @@ class _CommunicationHub extends StatelessWidget {
                   shape: BoxShape.circle,
                   boxShadow: [
                     BoxShadow(
-                      color: const Color(0xFFA78BFA).withOpacity(0.3),
+                      color: const Color(0xFFA78BFA).withValues(alpha: 0.3),
                       blurRadius: 12,
                       offset: const Offset(0, 4),
                     ),
@@ -1564,20 +1564,20 @@ class _HubButton extends StatelessWidget {
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: [
-              gradientColors[0].withOpacity(0.12),
-              gradientColors[1].withOpacity(0.08),
+              gradientColors[0].withValues(alpha: 0.12),
+              gradientColors[1].withValues(alpha: 0.08),
             ],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
           borderRadius: BorderRadius.circular(18),
           border: Border.all(
-            color: gradientColors[0].withOpacity(0.25),
+            color: gradientColors[0].withValues(alpha: 0.25),
             width: 1.5,
           ),
           boxShadow: [
             BoxShadow(
-              color: gradientColors[0].withOpacity(0.15),
+              color: gradientColors[0].withValues(alpha: 0.15),
               blurRadius: 12,
               offset: const Offset(0, 4),
             ),
@@ -1592,8 +1592,8 @@ class _HubButton extends StatelessWidget {
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [
-                    gradientColors[0].withOpacity(0.75),
-                    gradientColors[1].withOpacity(0.75),
+                    gradientColors[0].withValues(alpha: 0.75),
+                    gradientColors[1].withValues(alpha: 0.75),
                   ],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
@@ -1601,7 +1601,7 @@ class _HubButton extends StatelessWidget {
                 shape: BoxShape.circle,
                 boxShadow: [
                   BoxShadow(
-                    color: gradientColors[0].withOpacity(0.3),
+                    color: gradientColors[0].withValues(alpha: 0.3),
                     blurRadius: 10,
                     offset: const Offset(0, 4),
                   ),
@@ -1629,7 +1629,7 @@ class _HubButton extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 10.5,
                   fontWeight: FontWeight.w600,
-                  color: gradientColors[1].withOpacity(0.8),
+                  color: gradientColors[1].withValues(alpha: 0.8),
                   height: 1.3,
                 ),
               ),
@@ -1659,7 +1659,7 @@ class _CircleIconButton extends StatelessWidget {
           shape: BoxShape.circle,
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.06),
+              color: Colors.black.withValues(alpha: 0.06),
               blurRadius: 12,
               offset: const Offset(0, 6),
             ),

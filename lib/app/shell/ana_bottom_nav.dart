@@ -48,7 +48,7 @@ class AnaBottomNav extends StatelessWidget {
               ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.08),
+                  color: Colors.black.withValues(alpha: 0.08),
                   blurRadius: 18,
                   offset: const Offset(0, -2),
                 ),
@@ -118,7 +118,7 @@ class AnaBottomNav extends StatelessWidget {
                       color: const Color(0xFFB79CFF),
                       boxShadow: [
                         BoxShadow(
-                          color: const Color(0xFFB79CFF).withOpacity(0.45),
+                          color: const Color(0xFFB79CFF).withValues(alpha: 0.45),
                           blurRadius: 24,
                           spreadRadius: 2,
                           offset: const Offset(0, 10),

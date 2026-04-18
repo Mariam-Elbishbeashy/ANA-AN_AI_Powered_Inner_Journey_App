@@ -110,7 +110,7 @@ class AppTheme {
         ),
         trackColor: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) {
-            return primary.withOpacity(0.4);
+            return primary.withValues(alpha: 0.4);
           }
           return border;
         }),
@@ -126,7 +126,7 @@ class AppTheme {
         activeTrackColor: primary,
         inactiveTrackColor: border,
         thumbColor: primary,
-        overlayColor: primary.withOpacity(0.2),
+        overlayColor: primary.withValues(alpha: 0.2),
       ),
       bottomNavigationBarTheme: const BottomNavigationBarThemeData(
         backgroundColor: background,
@@ -140,7 +140,7 @@ class AppTheme {
       ),
       chipTheme: ChipThemeData(
         backgroundColor: surfaceAlt,
-        selectedColor: primary.withOpacity(0.15),
+        selectedColor: primary.withValues(alpha: 0.15),
         labelStyle: const TextStyle(color: textSecondary),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),

@@ -482,7 +482,7 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(12),
                                 side: BorderSide(
-                                  color: const Color(0xFF6A5CFF).withOpacity(0.3),
+                                  color: const Color(0xFF6A5CFF).withValues(alpha: 0.3),
                                 ),
                               ),
                               padding: const EdgeInsets.symmetric(vertical: 16),

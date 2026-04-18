@@ -347,7 +347,7 @@ class _CircleIconButton extends StatelessWidget {
           shape: BoxShape.circle,
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.06),
+              color: Colors.black.withValues(alpha: 0.06),
               blurRadius: 12,
               offset: const Offset(0, 6),
             ),
@@ -381,7 +381,7 @@ class _HeaderCard extends StatelessWidget {
         children: [
           CircleAvatar(
             radius: 26,
-            backgroundColor: const Color(0xFFB79CFF).withOpacity(0.18),
+            backgroundColor: const Color(0xFFB79CFF).withValues(alpha: 0.18),
             child: ClipOval(
               child: Image.asset(
                 'assets/images/guider.png',
@@ -461,7 +461,7 @@ class _SessionTile extends StatelessWidget {
               height: 40,
               decoration: BoxDecoration(
                 color: isActive
-                    ? const Color(0xFF8E7CFF).withOpacity(0.18)
+                    ? const Color(0xFF8E7CFF).withValues(alpha: 0.18)
                     : const Color(0xFFEDE7FF),
                 shape: BoxShape.circle,
               ),
@@ -490,7 +490,7 @@ class _SessionTile extends StatelessWidget {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFB79CFF).withOpacity(0.12),
+                          color: const Color(0xFFB79CFF).withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Row(
@@ -531,8 +531,8 @@ class _SessionTile extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
                 color: isActive
-                    ? const Color(0xFF8E7CFF).withOpacity(0.12)
-                    : const Color(0xFF6B5C82).withOpacity(0.10),
+                    ? const Color(0xFF8E7CFF).withValues(alpha: 0.12)
+                    : const Color(0xFF6B5C82).withValues(alpha: 0.10),
                 borderRadius: BorderRadius.circular(999),
               ),
               child: Text(

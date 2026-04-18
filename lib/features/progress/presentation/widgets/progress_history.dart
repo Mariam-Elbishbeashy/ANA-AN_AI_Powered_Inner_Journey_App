@@ -212,7 +212,7 @@ class _ProgressHistoryState extends State<ProgressHistory> {
       ) {
     showDialog(
       context: context,
-      barrierColor: Colors.black.withOpacity(0.18),
+      barrierColor: Colors.black.withValues(alpha: 0.18),
       builder: (dialogContext) {
         final isAr = isArabic(dialogContext);
         final characterName = isAr
@@ -229,7 +229,7 @@ class _ProgressHistoryState extends State<ProgressHistory> {
               borderRadius: BorderRadius.circular(28),
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFF59A874).withOpacity(0.16),
+                  color: const Color(0xFF59A874).withValues(alpha: 0.16),
                   blurRadius: 28,
                   offset: const Offset(0, 14),
                 ),
@@ -307,7 +307,7 @@ class _ProgressHistoryState extends State<ProgressHistory> {
 
     showDialog(
       context: context,
-      barrierColor: Colors.black.withOpacity(0.18),
+      barrierColor: Colors.black.withValues(alpha: 0.18),
       builder: (dialogContext) => Dialog(
         backgroundColor: Colors.transparent,
         insetPadding: const EdgeInsets.symmetric(horizontal: 28),
@@ -318,7 +318,7 @@ class _ProgressHistoryState extends State<ProgressHistory> {
             borderRadius: BorderRadius.circular(28),
             boxShadow: [
               BoxShadow(
-                color: badgeStyle.mainColor.withOpacity(0.14),
+                color: badgeStyle.mainColor.withValues(alpha: 0.14),
                 blurRadius: 28,
                 offset: const Offset(0, 14),
               ),
@@ -508,7 +508,7 @@ class _LoadingHistoryCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.82),
+        color: Colors.white.withValues(alpha: 0.82),
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: const Color(0xFFE7E3FF)),
       ),
@@ -549,7 +549,7 @@ class _EmptyHistoryCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.82),
+        color: Colors.white.withValues(alpha: 0.82),
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: const Color(0xFFE7E3FF)),
       ),
@@ -610,12 +610,12 @@ class _StableCharacterHistoryCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.88),
+          color: Colors.white.withValues(alpha: 0.88),
           borderRadius: BorderRadius.circular(24),
           border: Border.all(color: const Color(0xFFD6EEDD)),
           boxShadow: [
             BoxShadow(
-              color: const Color(0xFF59A874).withOpacity(0.08),
+              color: const Color(0xFF59A874).withValues(alpha: 0.08),
               blurRadius: 18,
               offset: const Offset(0, 8),
             ),
@@ -812,14 +812,14 @@ class _AchievementBadgeCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.fromLTRB(8, 10, 8, 12),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.66),
+          color: Colors.white.withValues(alpha: 0.66),
           borderRadius: BorderRadius.circular(22),
           border: Border.all(
-            color: Colors.white.withOpacity(0.45),
+            color: Colors.white.withValues(alpha: 0.45),
           ),
           boxShadow: [
             BoxShadow(
-              color: style.mainColor.withOpacity(0.08),
+              color: style.mainColor.withValues(alpha: 0.08),
               blurRadius: 14,
               offset: const Offset(0, 6),
             ),
@@ -873,8 +873,8 @@ class _AchievementBadgeStyle {
       mainColor: base,
       darkColor: _shade(base, -0.10),
       lightColor: _shade(base, 0.08),
-      rayColor: Colors.white.withOpacity(0.07),
-      glowColor: base.withOpacity(0.16),
+      rayColor: Colors.white.withValues(alpha: 0.07),
+      glowColor: base.withValues(alpha: 0.16),
     );
   }
 
@@ -985,7 +985,7 @@ class _TrophyMedallion extends StatelessWidget {
         shape: BoxShape.circle,
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFFFFD45C).withOpacity(0.16),
+            color: const Color(0xFFFFD45C).withValues(alpha: 0.16),
             blurRadius: 8,
             offset: const Offset(0, 3),
           ),
@@ -999,7 +999,7 @@ class _TrophyMedallion extends StatelessWidget {
             height: size * 0.94,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: const Color(0xFFFFE7A1).withOpacity(0.95),
+              color: const Color(0xFFFFE7A1).withValues(alpha: 0.95),
             ),
           ),
           Container(

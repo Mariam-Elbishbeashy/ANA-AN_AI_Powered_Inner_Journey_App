@@ -470,12 +470,12 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
     return Container(
       padding: const EdgeInsets.all(6),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFFFFF).withOpacity(0.88),
+        color: const Color(0xFFFFFFFF).withValues(alpha: 0.88),
         borderRadius: BorderRadius.circular(28),
         border: Border.all(color: const Color(0xFFE7E5FF)),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF8E7CFF).withOpacity(0.08),
+            color: const Color(0xFF8E7CFF).withValues(alpha: 0.08),
             blurRadius: 18,
             offset: const Offset(0, 8),
           ),
@@ -542,12 +542,12 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 18, 16, 14),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.78),
+        color: Colors.white.withValues(alpha: 0.78),
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: const Color(0xFFE6E3FF)),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF8E7CFF).withOpacity(0.10),
+            color: const Color(0xFF8E7CFF).withValues(alpha: 0.10),
             blurRadius: 22,
             offset: const Offset(0, 10),
           ),
@@ -613,7 +613,7 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
                             boxShadow: isToday
                                 ? [
                               BoxShadow(
-                                color: palette.border.withOpacity(0.20),
+                                color: palette.border.withValues(alpha: 0.20),
                                 blurRadius: 12,
                                 offset: const Offset(0, 4),
                               ),
@@ -621,7 +621,7 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
                                 : hasMood
                                 ? [
                               BoxShadow(
-                                color: palette.border.withOpacity(0.10),
+                                color: palette.border.withValues(alpha: 0.10),
                                 blurRadius: 8,
                                 offset: const Offset(0, 3),
                               ),
@@ -799,7 +799,7 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
         ),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF8E7CFF).withOpacity(0.18),
+            color: const Color(0xFF8E7CFF).withValues(alpha: 0.18),
             blurRadius: 28,
             offset: const Offset(0, 14),
           ),
@@ -815,7 +815,7 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
               height: 126,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: const Color(0xFFF5C9EF).withOpacity(0.55),
+                color: const Color(0xFFF5C9EF).withValues(alpha: 0.55),
               ),
             ),
           ),
@@ -827,7 +827,7 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
               height: 150,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: const Color(0xFFF8D4C8).withOpacity(0.45),
+                color: const Color(0xFFF8D4C8).withValues(alpha: 0.45),
               ),
             ),
           ),
@@ -839,7 +839,7 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
               height: 88,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(80),
-                color: const Color(0xFFE8C8F7).withOpacity(0.45),
+                color: const Color(0xFFE8C8F7).withValues(alpha: 0.45),
               ),
             ),
           ),
@@ -869,7 +869,7 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
                         ),
                         style: TextStyle(
                           fontSize: 12,
-                          color: Colors.white.withOpacity(0.85),
+                          color: Colors.white.withValues(alpha: 0.85),
                           fontWeight: FontWeight.w500,
                         ),
                       ),
@@ -987,7 +987,7 @@ class _ProgressRing extends StatelessWidget {
               strokeWidth: 9,
               backgroundColor: Colors.transparent,
               valueColor: AlwaysStoppedAnimation<Color>(
-                Colors.white.withOpacity(0.22),
+                Colors.white.withValues(alpha: 0.22),
               ),
             ),
           ),
@@ -1009,7 +1009,7 @@ class _ProgressRing extends StatelessWidget {
             height: 70,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: const Color(0xFF7D7AE9).withOpacity(0.96),
+              color: const Color(0xFF7D7AE9).withValues(alpha: 0.96),
             ),
             alignment: Alignment.center,
             child: Text(

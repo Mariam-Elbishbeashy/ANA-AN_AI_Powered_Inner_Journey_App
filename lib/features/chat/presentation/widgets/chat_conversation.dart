@@ -24,24 +24,22 @@ class ChatConversation extends StatefulWidget {
   final bool showHeader;
   final InnerCharacterProfile? characterProfile;
 
-  /// When provided, the conversation will open an existing thread instead of
+  /// when provided, the conversation will open an existing thread instead of
   /// auto-creating/finding the active thread.
-  ///
-  /// This is the key for the new "sessions" flow:
-  /// - Session history item => open its `threadId`
-  /// - Start new session => create session+thread => open its `threadId`
+
+  /// - start new session => create session+thread => open its `threadId`
   final String? threadId;
 
-  /// When true, the user can *only view* messages (no sending).
+  /// when true, the user can *only view* messages (no sending).
   ///
-  /// Used for "ended" sessions: user can open a past session and read it,
+  /// used for "ended" sessions: user can open a past session and read it,
   /// but cannot add messages to it.
   final bool readOnly;
 
-  /// Whether the Guider is currently in the conversation (controlled by parent)
+  /// whether the guider is currently in the conversation
   final bool isGuiderInChat;
 
-  /// Callback when user wants to invite/remove the Guider
+  /// callback when user wants to invite/remove the guider
   final ValueChanged<bool>? onGuiderStateChanged;
 
   const ChatConversation({
@@ -723,7 +721,7 @@ class _GuiderJoinedBanner extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFFEDE7FF),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFB79CFF).withOpacity(0.3)),
+        border: Border.all(color: const Color(0xFFB79CFF).withValues(alpha: 0.3)),
       ),
       child: Row(
         children: [
@@ -1086,7 +1084,7 @@ class _GuiderInterventionCard extends StatelessWidget {
         border: Border.all(color: borderColor, width: 1.5),
         boxShadow: [
           BoxShadow(
-            color: borderColor.withOpacity(0.2),
+            color: borderColor.withValues(alpha: 0.2),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -1120,7 +1118,7 @@ class _GuiderInterventionCard extends StatelessWidget {
                 onTap: onContinueAlone,
                 child: Icon(
                   Icons.close_rounded,
-                  color: iconColor.withOpacity(0.6),
+                  color: iconColor.withValues(alpha: 0.6),
                   size: 20,
                 ),
               ),

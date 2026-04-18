@@ -272,10 +272,10 @@ class _QuestionnaireResultsScreenState
                   padding: const EdgeInsets.all(20),
                   margin: const EdgeInsets.only(bottom: 20),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF8E7CFF).withOpacity(0.1),
+                    color: const Color(0xFF8E7CFF).withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
-                      color: const Color(0xFF8E7CFF).withOpacity(0.2),
+                      color: const Color(0xFF8E7CFF).withValues(alpha: 0.2),
                     ),
                   ),
                   child: Column(
@@ -477,7 +477,7 @@ class _QuestionnaireResultsScreenState
         border: Border.all(color: const Color(0xFFE5DEFF)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -517,7 +517,7 @@ class _QuestionnaireResultsScreenState
                   vertical: 6,
                 ),
                 decoration: BoxDecoration(
-                  color: archetypeColor.withOpacity(0.1),
+                  color: archetypeColor.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(color: archetypeColor),
                 ),
@@ -813,8 +813,8 @@ class _QuestionnaireResultsScreenState
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            archetypeColor.withOpacity(0.05),
-            archetypeColor.withOpacity(0.15),
+            archetypeColor.withValues(alpha: 0.05),
+            archetypeColor.withValues(alpha: 0.15),
           ],
         ),
         borderRadius: BorderRadius.circular(16),
@@ -850,8 +850,8 @@ class _QuestionnaireResultsScreenState
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            archetypeColor.withOpacity(0.05),
-            archetypeColor.withOpacity(0.15),
+            archetypeColor.withValues(alpha: 0.05),
+            archetypeColor.withValues(alpha: 0.15),
           ],
         ),
         borderRadius: BorderRadius.circular(16),
@@ -863,7 +863,7 @@ class _QuestionnaireResultsScreenState
             Icon(
               _getCharacterIcon(character.archetype),
               size: 60,
-              color: archetypeColor.withOpacity(0.4),
+              color: archetypeColor.withValues(alpha: 0.4),
             ),
             const SizedBox(height: 12),
             Text(

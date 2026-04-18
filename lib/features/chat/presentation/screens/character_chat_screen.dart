@@ -245,7 +245,7 @@ class _CircleIconButton extends StatelessWidget {
           shape: BoxShape.circle,
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.06),
+              color: Colors.black.withValues(alpha: 0.06),
               blurRadius: 12,
               offset: const Offset(0, 6),
             ),
@@ -282,8 +282,8 @@ class _GuiderIconButton extends StatelessWidget {
           boxShadow: [
             BoxShadow(
               color: isGuiderInChat
-                  ? const Color(0xFFB79CFF).withOpacity(0.3)
-                  : Colors.black.withOpacity(0.06),
+                  ? const Color(0xFFB79CFF).withValues(alpha: 0.3)
+                  : Colors.black.withValues(alpha: 0.06),
               blurRadius: 12,
               offset: const Offset(0, 6),
             ),
@@ -329,7 +329,7 @@ class _GuiderModal extends StatelessWidget {
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFFB79CFF).withOpacity(0.2),
+            color: const Color(0xFFB79CFF).withValues(alpha: 0.2),
             blurRadius: 20,
             offset: const Offset(0, -4),
           ),

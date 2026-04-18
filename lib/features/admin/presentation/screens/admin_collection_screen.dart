@@ -272,7 +272,7 @@ class _AdminCollectionScreenState extends State<AdminCollectionScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
                 color: isAdmin
-                    ? const Color(0xFF8E7CFF).withOpacity(0.15)
+                    ? const Color(0xFF8E7CFF).withValues(alpha: 0.15)
                     : const Color(0xFFEDE7FF),
                 borderRadius: BorderRadius.circular(12),
               ),
@@ -632,8 +632,8 @@ class _AdminCollectionScreenState extends State<AdminCollectionScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
                 color: isHealed
-                    ? const Color(0xFF5CB85C).withOpacity(0.15)
-                    : const Color(0xFF8E7CFF).withOpacity(0.12),
+                    ? const Color(0xFF5CB85C).withValues(alpha: 0.15)
+                    : const Color(0xFF8E7CFF).withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Text(
@@ -1209,7 +1209,7 @@ class _AdminCollectionScreenState extends State<AdminCollectionScreen> {
                         border: Border.all(color: const Color(0xFFE5DEFF)),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withOpacity(0.05),
+                            color: Colors.black.withValues(alpha: 0.05),
                             blurRadius: 6,
                             offset: const Offset(0, 3),
                           ),

@@ -93,7 +93,7 @@ class _ProgressBackgroundState extends State<ProgressBackground>
 
         // Very subtle white overlay to keep content readable
         Container(
-          color: Colors.white.withOpacity(0.2),
+          color: Colors.white.withValues(alpha: 0.2),
         ),
 
         // Main content
@@ -123,11 +123,11 @@ class _ProgressBackgroundState extends State<ProgressBackground>
 
     // Soft colors matching progress page theme
     final colors = [
-      const Color(0xFF8E7CFF).withOpacity(opacity), // Soft purple
-      const Color(0xFFF9C1C1).withOpacity(opacity), // Soft pink/red
-      const Color(0xFFB8A9FF).withOpacity(opacity), // Light purple
-      const Color(0xFFA8E6CF).withOpacity(opacity), // Soft mint
-      const Color(0xFFFFD3B6).withOpacity(opacity), // Soft peach
+      const Color(0xFF8E7CFF).withValues(alpha: opacity), // Soft purple
+      const Color(0xFFF9C1C1).withValues(alpha: opacity), // Soft pink/red
+      const Color(0xFFB8A9FF).withValues(alpha: opacity), // Light purple
+      const Color(0xFFA8E6CF).withValues(alpha: opacity), // Soft mint
+      const Color(0xFFFFD3B6).withValues(alpha: opacity), // Soft peach
     ];
 
     return Positioned(
@@ -141,7 +141,7 @@ class _ProgressBackgroundState extends State<ProgressBackground>
           color: colors[index % colors.length],
           boxShadow: [
             BoxShadow(
-              color: colors[index % colors.length].withOpacity(0.1),
+              color: colors[index % colors.length].withValues(alpha: 0.1),
               blurRadius: 40,
               spreadRadius: 20,
             ),
@@ -215,10 +215,10 @@ class _ProgressBackgroundState extends State<ProgressBackground>
         height: size,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: const Color(0xFF9283FB).withOpacity(opacity),
+          color: const Color(0xFF9283FB).withValues(alpha: opacity),
           boxShadow: [
             BoxShadow(
-              color: const Color(0xFF9383FC).withOpacity(opacity * 0.5),
+              color: const Color(0xFF9383FC).withValues(alpha: opacity * 0.5),
               blurRadius: 4,
               spreadRadius: 1,
             ),
@@ -245,7 +245,7 @@ class _SoftWavePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = color.withOpacity(0.2)
+      ..color = color.withValues(alpha: 0.2)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.5
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2.0);
@@ -269,7 +269,7 @@ class _SoftWavePainter extends CustomPainter {
 
     // Draw a second, more subtle wave for depth
     final paint2 = Paint()
-      ..color = color.withOpacity(0.1)
+      ..color = color.withValues(alpha: 0.1)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.0
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3.0);

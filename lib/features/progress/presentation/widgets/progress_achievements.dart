@@ -254,7 +254,7 @@ class _ProgressAchievementsState extends State<ProgressAchievements> {
 
     showDialog(
       context: context,
-      barrierColor: Colors.black.withOpacity(0.18),
+      barrierColor: Colors.black.withValues(alpha: 0.18),
       builder: (context) => Dialog(
         backgroundColor: Colors.transparent,
         insetPadding: const EdgeInsets.symmetric(horizontal: 28),
@@ -265,7 +265,7 @@ class _ProgressAchievementsState extends State<ProgressAchievements> {
             borderRadius: BorderRadius.circular(28),
             boxShadow: [
               BoxShadow(
-                color: accent.withOpacity(0.18),
+                color: accent.withValues(alpha: 0.18),
                 blurRadius: 28,
                 offset: const Offset(0, 14),
               ),
@@ -493,16 +493,16 @@ class _AchievementCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: milestone.isAchieved
               ? achievedTint
-              : Colors.white.withOpacity(0.85),
+              : Colors.white.withValues(alpha: 0.85),
           borderRadius: BorderRadius.circular(24),
           border: Border.all(
             color: milestone.isAchieved
-                ? color.withOpacity(0.28)
+                ? color.withValues(alpha: 0.28)
                 : const Color(0xFFE7E3FF),
           ),
           boxShadow: [
             BoxShadow(
-              color: color.withOpacity(milestone.isAchieved ? 0.12 : 0.08),
+              color: color.withValues(alpha: milestone.isAchieved ? 0.12 : 0.08),
               blurRadius: 18,
               offset: const Offset(0, 8),
             ),
@@ -513,7 +513,7 @@ class _AchievementCard extends StatelessWidget {
             _HexagonIconBadge(
               icon: _getAchievementIcon(milestone),
               backgroundColor:
-              milestone.isAchieved ? color.withOpacity(0.14) : softColor,
+              milestone.isAchieved ? color.withValues(alpha: 0.14) : softColor,
               iconColor: color,
               size: 58,
             ),
@@ -565,7 +565,7 @@ class _AchievementCard extends StatelessWidget {
                       children: [
                         _SoftChip(
                           text: tr(context, 'Completed', 'مكتمل'),
-                          background: color.withOpacity(0.12),
+                          background: color.withValues(alpha: 0.12),
                           color: color,
                           icon: Icons.check_rounded,
                         ),
@@ -678,16 +678,16 @@ class _StreakAchievementCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: isActuallyAchieved
               ? streakAchievedTint
-              : Colors.white.withOpacity(0.85),
+              : Colors.white.withValues(alpha: 0.85),
           borderRadius: BorderRadius.circular(24),
           border: Border.all(
             color: isActuallyAchieved
-                ? streakColor.withOpacity(0.28)
+                ? streakColor.withValues(alpha: 0.28)
                 : const Color(0xFFE7E3FF),
           ),
           boxShadow: [
             BoxShadow(
-              color: streakColor.withOpacity(isActuallyAchieved ? 0.14 : 0.10),
+              color: streakColor.withValues(alpha: isActuallyAchieved ? 0.14 : 0.10),
               blurRadius: 18,
               offset: const Offset(0, 8),
             ),
@@ -698,7 +698,7 @@ class _StreakAchievementCard extends StatelessWidget {
             _HexagonIconBadge(
               icon: Icons.local_fire_department_rounded,
               backgroundColor: isActuallyAchieved
-                  ? streakColor.withOpacity(0.14)
+                  ? streakColor.withValues(alpha: 0.14)
                   : streakSoft,
               iconColor: streakColor,
               size: 58,
@@ -749,7 +749,7 @@ class _StreakAchievementCard extends StatelessWidget {
                         if (shouldBeAchieved)
                           _SoftChip(
                             text: tr(context, 'Ready', 'جاهز'),
-                            background: streakColor.withOpacity(0.14),
+                            background: streakColor.withValues(alpha: 0.14),
                             color: streakColor,
                             icon: Icons.auto_awesome_rounded,
                           ),
@@ -760,7 +760,7 @@ class _StreakAchievementCard extends StatelessWidget {
                       children: [
                         _SoftChip(
                           text: tr(context, 'Completed', 'مكتمل'),
-                          background: streakColor.withOpacity(0.12),
+                          background: streakColor.withValues(alpha: 0.12),
                           color: streakColor,
                           icon: Icons.check_rounded,
                         ),
