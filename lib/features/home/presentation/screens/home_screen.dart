@@ -2105,7 +2105,17 @@ class _HomeScreenState extends State<HomeScreen>
                                   else
                                     LayoutBuilder(
                                       builder: (context, constraints) {
-                                        final cardWidth = 150.0;
+                                        const spacing = 12.0;
+                                        final canUseTwoColumns =
+                                            constraints.maxWidth >= 300;
+                                        final computedTwoColumnWidth =
+                                            (constraints.maxWidth - spacing) / 2;
+                                        final responsiveCardWidth =
+                                            canUseTwoColumns
+                                                ? (computedTwoColumnWidth < 150
+                                                    ? computedTwoColumnWidth
+                                                    : 150.0)
+                                                : constraints.maxWidth;
                                         Widget buildCard(
                                             UserCharacter character) {
                                           final color = _getCharacterColor(
@@ -2115,7 +2125,7 @@ class _HomeScreenState extends State<HomeScreen>
                                             character.characterName,
                                           );
                                           return SizedBox(
-                                            width: cardWidth,
+                                            width: responsiveCardWidth,
                                             child: _CharacterCard(
                                               character: character,
                                               color: color,
@@ -2158,43 +2168,9 @@ class _HomeScreenState extends State<HomeScreen>
                                           );
                                         }
 
-                                        if (_characters.length == 1) {
-                                          return Center(
-                                              child: buildCard(_characters[0]));
-                                        }
-
-                                        if (_characters.length == 2) {
-                                          return Row(
-                                            mainAxisAlignment:
-                                            MainAxisAlignment.spaceEvenly,
-                                            children: [
-                                              buildCard(_characters[0]),
-                                              buildCard(_characters[1]),
-                                            ],
-                                          );
-                                        }
-
-                                        if (_characters.length == 3) {
-                                          return Column(
-                                            children: [
-                                              Row(
-                                                mainAxisAlignment:
-                                                MainAxisAlignment.spaceEvenly,
-                                                children: [
-                                                  buildCard(_characters[0]),
-                                                  buildCard(_characters[1]),
-                                                ],
-                                              ),
-                                              const SizedBox(height: 16),
-                                              Center(child: buildCard(
-                                                  _characters[2])),
-                                            ],
-                                          );
-                                        }
-
                                         return Wrap(
-                                          spacing: 12,
-                                          runSpacing: 12,
+                                          spacing: spacing,
+                                          runSpacing: spacing,
                                           alignment: WrapAlignment.center,
                                           children: _characters
                                               .map((c) => buildCard(c))

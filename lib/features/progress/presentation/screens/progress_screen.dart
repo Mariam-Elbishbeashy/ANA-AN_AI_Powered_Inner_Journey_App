@@ -663,28 +663,34 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
             }),
           ),
           const SizedBox(height: 10),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(
-                Icons.touch_app_rounded,
-                size: 14,
-                color: Color(0xFF9A87CC),
-              ),
-              const SizedBox(width: 6),
-              Text(
-                tr(
-                  context,
-                  'Only today with an automatic mood can be updated',
-                  'يمكن تحديث اليوم فقط عند وجود مزاج تلقائي',
-                ),
-                style: const TextStyle(
-                  fontSize: 12,
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.touch_app_rounded,
+                  size: 14,
                   color: Color(0xFF9A87CC),
-                  fontWeight: FontWeight.w500,
                 ),
-              ),
-            ],
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    tr(
+                      context,
+                      'Only today with an automatic mood can be updated',
+                      'يمكن تحديث اليوم فقط عند وجود مزاج تلقائي',
+                    ),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFF9A87CC),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
