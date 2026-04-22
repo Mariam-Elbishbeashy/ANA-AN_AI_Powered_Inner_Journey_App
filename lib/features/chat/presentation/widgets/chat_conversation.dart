@@ -160,6 +160,7 @@ class _ChatConversationState extends State<ChatConversation> {
               context,
               'This session has ended. You can view it, but you can’t send new messages.',
               'انتهت هذه الجلسة. يمكنك عرضها، لكن لا يمكنك إرسال رسائل جديدة.',
+              listen: false,
             ),
           ),
         ),
@@ -235,11 +236,17 @@ class _ChatConversationState extends State<ChatConversation> {
                     context,
                     'This is taking too long. Please try again.',
                     'الرد يستغرق وقتًا طويلًا. حاول مرة أخرى.',
+                    listen: false,
                   )
                 : 'Chat error: $error',
           ),
           action: SnackBarAction(
-            label: tr(context, 'Retry', 'إعادة المحاولة'),
+            label: tr(
+              context,
+              'Retry',
+              'إعادة المحاولة',
+              listen: false,
+            ),
             onPressed: _retryLastTurn,
           ),
         ),
