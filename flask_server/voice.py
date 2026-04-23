@@ -1427,4 +1427,4 @@ if __name__ == '__main__':
     print("\n🚀 Starting server...")
     print("=" * 60)
 
-    app.run(host='0.0.0.0', port=5000, debug=True, threaded=True)
+    app.run(host='0.0.0.0', port=5005, debug=True, threaded=True)

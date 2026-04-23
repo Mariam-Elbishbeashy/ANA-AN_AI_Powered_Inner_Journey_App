@@ -40,6 +40,7 @@ class _GuiderChatSessionScreenState extends State<GuiderChatSessionScreen> {
   bool _isInitializing = true;
   bool _isSending = false;
   bool _ending = false;
+  int _lastRenderedMessageCount = 0;
 
   bool get _isActiveSession => widget.session.isActive && !widget.readOnly;
 
@@ -47,7 +48,6 @@ class _GuiderChatSessionScreenState extends State<GuiderChatSessionScreen> {
   void initState() {
     super.initState();
     _initializeChat();
-    _messageController.addListener(_handleTyping);
     _inputFocusNode.addListener(_handleFocusChange);
   }
 
@@ -211,8 +211,6 @@ class _GuiderChatSessionScreenState extends State<GuiderChatSessionScreen> {
           },
         );
       }
-
-      _scrollToBottom();
     } catch (error) {
       if (!mounted) return;
       final message = error is TimeoutException
@@ -234,22 +232,60 @@ class _GuiderChatSessionScreenState extends State<GuiderChatSessionScreen> {
     }
   }
 
-  void _scrollToBottom() {
+  void _scrollToBottom({bool animate = true}) {
     if (!_scrollController.hasClients) return;
-    _scrollController.animateTo(
-      _scrollController.position.maxScrollExtent + 200,
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeOut,
-    );
+    final position = _scrollController.position;
+    final target = position.maxScrollExtent;
+    final distance = (target - position.pixels).abs();
+
+    // Avoid tiny repeated animations that feel like jitter.
+    if (distance < 8) return;
+
+    if (animate) {
+      _scrollController.animateTo(
+        target,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOut,
+      );
+    } else {
+      _scrollController.jumpTo(target);
+    }
   }
 
-  void _handleTyping() {
-    _scrollToBottom();
+  bool _isNearBottom({double threshold = 120}) {
+    if (!_scrollController.hasClients) return true;
+    final position = _scrollController.position;
+    final distanceFromBottom = position.maxScrollExtent - position.pixels;
+    return distanceFromBottom <= threshold;
+  }
+
+  void _autoScrollAfterBuildIfNeeded(List<ChatMessageModel> messages) {
+    final currentCount = messages.length;
+
+    // Initialize counter without scrolling on first paint.
+    if (_lastRenderedMessageCount == 0) {
+      _lastRenderedMessageCount = currentCount;
+      return;
+    }
+
+    final hasNewMessages = currentCount > _lastRenderedMessageCount;
+    final userIsNearBottom = _isNearBottom();
+    _lastRenderedMessageCount = currentCount;
+
+    if (!hasNewMessages || !userIsNearBottom) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _scrollToBottom();
+    });
   }
 
   void _handleFocusChange() {
     if (_inputFocusNode.hasFocus) {
-      _scrollToBottom();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _scrollToBottom(animate: false);
+      });
     }
   }
 
@@ -409,6 +445,7 @@ class _GuiderChatSessionScreenState extends State<GuiderChatSessionScreen> {
             ),
             builder: (context, snapshot) {
               final messages = snapshot.data ?? [];
+              _autoScrollAfterBuildIfNeeded(messages);
               if (messages.isEmpty) {
                 return _buildEmptyState(context);
               }

@@ -160,6 +160,7 @@ class _ChatConversationState extends State<ChatConversation> {
               context,
               'This session has ended. You can view it, but you can’t send new messages.',
               'انتهت هذه الجلسة. يمكنك عرضها، لكن لا يمكنك إرسال رسائل جديدة.',
+              listen: false,
             ),
           ),
         ),
@@ -221,7 +222,6 @@ class _ChatConversationState extends State<ChatConversation> {
       }
 
       _lastSendError = null;
-      _scrollToBottom();
     } catch (error) {
       if (!mounted) return;
       _lastSendError = error;
@@ -235,11 +235,17 @@ class _ChatConversationState extends State<ChatConversation> {
                     context,
                     'This is taking too long. Please try again.',
                     'الرد يستغرق وقتًا طويلًا. حاول مرة أخرى.',
+                    listen: false,
                   )
                 : 'Chat error: $error',
           ),
           action: SnackBarAction(
-            label: tr(context, 'Retry', 'إعادة المحاولة'),
+            label: tr(
+              context,
+              'Retry',
+              'إعادة المحاولة',
+              listen: false,
+            ),
             onPressed: _retryLastTurn,
           ),
         ),
@@ -288,7 +294,6 @@ class _ChatConversationState extends State<ChatConversation> {
       }
 
       _lastSendError = null;
-      _scrollToBottom();
     } catch (error) {
       if (!mounted) return;
       _lastSendError = error;
@@ -482,13 +487,24 @@ class _ChatConversationState extends State<ChatConversation> {
   }
 
   //Scroll to the bottom of the chat conversation.
-  void _scrollToBottom() {
+  void _scrollToBottom({bool animate = true}) {
     if (!_scrollController.hasClients) return;
-    _scrollController.animateTo(
-      _scrollController.position.maxScrollExtent + 200,
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeOut,
-    );
+    final position = _scrollController.position;
+    final target = position.maxScrollExtent;
+    final distance = (target - position.pixels).abs();
+
+    // Avoid repeated tiny animations that feel like screen jitter.
+    if (distance < 8) return;
+
+    if (animate) {
+      _scrollController.animateTo(
+        target,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOut,
+      );
+    } else {
+      _scrollController.jumpTo(target);
+    }
   }
 
   bool _isNearBottom({double threshold = 120}) {
@@ -522,7 +538,10 @@ class _ChatConversationState extends State<ChatConversation> {
   //Handle focus change in the chat conversation.
   void _handleFocusChange() {
     if (_inputFocusNode.hasFocus) {
-      _scrollToBottom();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _scrollToBottom(animate: false);
+      });
     }
   }
 
@@ -604,9 +623,17 @@ class _ChatConversationState extends State<ChatConversation> {
                 itemBuilder: (context, index) {
                   if (_isSending && index == items.length) {
                     return _TypingBubble(
-                      label: widget.isGuiderInChat
-                          ? tr(context, 'Thinking', 'يفكرون')
-                          : headerTitle,
+                      text: widget.isGuiderInChat
+                          ? tr(
+                              context,
+                              'Your character and the Guider are thinking...',
+                              'شخصيتك والمُرشد يفكران الآن...',
+                            )
+                          : tr(
+                              context,
+                              '$headerTitle is thinking...',
+                              '$headerTitle يفكر الآن...',
+                            ),
                     );
                   }
                   final item = items[index];
@@ -964,9 +991,9 @@ class _GuiderNoteBubbleState extends State<_GuiderNoteBubble> {
 
 //Typing bubble for the chat conversation.
 class _TypingBubble extends StatelessWidget {
-  final String label;
+  final String text;
 
-  const _TypingBubble({required this.label});
+  const _TypingBubble({required this.text});
 
   @override
   Widget build(BuildContext context) {
@@ -975,7 +1002,7 @@ class _TypingBubble extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 6),
         child: Text(
-          '$label is thinking...',
+          text,
           style: const TextStyle(color: Color(0xFF6B5C82)),
         ),
       ),

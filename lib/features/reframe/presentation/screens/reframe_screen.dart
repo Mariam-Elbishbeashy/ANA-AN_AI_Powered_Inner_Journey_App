@@ -29,7 +29,7 @@ class ReframeScreen extends StatefulWidget {
     required this.onLogout,
     required this.onRetakeQuestionnaire,
     this.onSwitchLanguage,
-    this.serverUrl = 'http://192.168.100.7:5000',
+    this.serverUrl = 'http://10.0.2.2:5005',
     this.onNavigateToHome,
   });
 
