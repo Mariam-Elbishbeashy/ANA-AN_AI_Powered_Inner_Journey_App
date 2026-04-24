@@ -139,14 +139,26 @@ class ProgressCharts extends StatelessWidget {
           return _buildIntensityLoadingCard(context);
         }
 
-        final points = snapshot.data ?? [];
+        final rawPoints = snapshot.data ?? [];
+        final points = type == _VideoFlowCardType.emotion
+            ? rawPoints.where((point) => point.sessionType == 'video').toList()
+            : rawPoints
+            .where((point) => point.sessionType == 'voice' || point.sessionType == 'video')
+            .toList();
+
         if (points.isEmpty) {
           return _buildEmptyVideoFlowCard(context, type: type);
         }
 
-        return _VideoFlowHabitLandCard(
+        if (type == _VideoFlowCardType.emotion) {
+          return _VideoFlowHabitLandCard(
+            allPoints: points,
+            type: type,
+          );
+        }
+
+        return _ToneFlowHabitLandCard(
           allPoints: points,
-          type: type,
         );
       },
     );
@@ -1013,6 +1025,8 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
   int _selectedCharacterIndex = 0;
   int _pageOffset = 0;
   bool _isWeekView = true;
+  final GlobalKey _intensityDayChartKey = GlobalKey();
+  OverlayEntry? _intensityDayPopupEntry;
 
   static const Color _tabIndicatorPurple = Color(0xFF8E7CFF);
   static const Color _chatLineColor = Color(0xFFE57A91);
@@ -1028,6 +1042,12 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
   static const Color _videoStartDotFill = Color(0xFFE8E0FF);
   static const Color _videoStartDotStroke = Color(0xFFC4B5F5);
   static const Color _videoEndDotFill = Color(0xFF8E7CFF);
+
+  @override
+  void dispose() {
+    _hideIntensityDayPopup();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1140,12 +1160,14 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
     return Row(
       children: [
         tab(tr(context, 'Day', 'اليوم'), !_isWeekView, () {
+          _hideIntensityDayPopup();
           setState(() {
             _isWeekView = false;
             _pageOffset = 0;
           });
         }),
         tab(tr(context, 'Week', 'الأسبوع'), _isWeekView, () {
+          _hideIntensityDayPopup();
           setState(() {
             _isWeekView = true;
             _pageOffset = 0;
@@ -1172,6 +1194,7 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
 
           return GestureDetector(
             onTap: () {
+              _hideIntensityDayPopup();
               setState(() {
                 _selectedCharacterIndex = index;
                 _pageOffset = 0;
@@ -1197,7 +1220,7 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
                 boxShadow: selected
                     ? [
                   BoxShadow(
-                    color: const Color(0xFF8E7CFF).withValues(alpha: 0.22),
+                    color: const Color(0xFF8E7CFF).withValues(alpha: 0.20),
                     blurRadius: 14,
                     offset: const Offset(0, 6),
                   ),
@@ -1233,6 +1256,7 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
           onTap: !canGoBack
               ? null
               : () {
+            _hideIntensityDayPopup();
             setState(() {
               _pageOffset += 1;
             });
@@ -1270,6 +1294,7 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
           onTap: !canGoForward
               ? null
               : () {
+            _hideIntensityDayPopup();
             setState(() {
               _pageOffset -= 1;
             });
@@ -1311,6 +1336,8 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
                   color: Color(0xFF2A1E3B),
                 ),
               ),
+              const SizedBox(height: 7),
+              _buildIntensitySessionLegend(context),
             ],
           ),
         ),        Expanded(
@@ -1339,6 +1366,73 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
         ),
       ],
     );
+  }
+
+  Widget _buildIntensitySessionLegend(BuildContext context) {
+    return Align(
+      alignment: AlignmentDirectional.centerStart,
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 5,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          _buildIntensityLegendItem(
+            color: _chatLineColor,
+            label: tr(context, 'Chat session', 'جلسة دردشة'),
+          ),
+          _buildIntensityLegendItem(
+            color: _voiceLineColor,
+            label: tr(context, 'Voice session', 'جلسة صوتية'),
+          ),
+          _buildIntensityLegendItem(
+            color: _videoLineColor,
+            label: tr(context, 'Video session', 'جلسة فيديو'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildIntensityLegendItem({
+    required Color color,
+    required String label,
+  }) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 7,
+          height: 7,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+          ),
+        ),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            fontSize: 9,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF8D84A6),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Color _sessionTypeColor(String sessionType) {
+    if (sessionType == 'chat') {
+      return _chatLineColor;
+    }
+
+    if (sessionType == 'voice') {
+      return _voiceLineColor;
+    }
+
+    return _videoLineColor;
   }
 
   String _intensityLabel(
@@ -1427,12 +1521,201 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
             style: const TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w800,
-              color: Color(0xFF6F5BFF),
+              color: Color(0xFF4B2D73),
             ),
           ),
         ],
       ),
     );
+  }
+
+  void _showWeeklyIntensitySessionsPopup(
+      BuildContext context,
+      WeeklyDayIntensitySummary summary,
+      ) {
+    final sortedSessions = List<CharacterSessionIntensity>.from(summary.sessions)
+      ..sort((a, b) => a.date.compareTo(b.date));
+
+    final latestSessions = sortedSessions.length <= 3
+        ? sortedSessions
+        : sortedSessions.sublist(sortedSessions.length - 3);
+
+    showDialog<void>(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.20),
+      builder: (dialogContext) {
+        return Dialog(
+          insetPadding: const EdgeInsets.symmetric(horizontal: 34, vertical: 24),
+          backgroundColor: Colors.transparent,
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 340),
+            padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: const Color(0xFFE9E4FF)),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF2A1E3B).withValues(alpha: 0.14),
+                  blurRadius: 22,
+                  offset: const Offset(0, 12),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _formatMonthDay(context, summary.date),
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF2A1E3B),
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '${tr(context, 'Latest 3 sessions', 'آخر ٣ جلسات')} • ${tr(context, 'Avg', 'المتوسط')} ${summary.averagePercent.round()}%',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF9CA3AF),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    InkWell(
+                      onTap: () => Navigator.of(dialogContext).pop(),
+                      borderRadius: BorderRadius.circular(999),
+                      child: const Padding(
+                        padding: EdgeInsets.all(4),
+                        child: Icon(
+                          Icons.close_rounded,
+                          size: 19,
+                          color: Color(0xFF9CA3AF),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: latestSessions.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 7),
+                  itemBuilder: (context, index) {
+                    final originalIndex = sortedSessions.length - latestSessions.length + index + 1;
+                    return _buildWeeklyIntensitySessionPopupRow(
+                      context,
+                      latestSessions[index],
+                      originalIndex,
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildWeeklyIntensitySessionPopupRow(
+      BuildContext context,
+      CharacterSessionIntensity session,
+      int index,
+      ) {
+    final color = _sessionTypeColor(session.sessionType);
+    final average = session.averagePercent.round();
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFBFAFF),
+        borderRadius: BorderRadius.circular(15),
+        border: Border.all(color: const Color(0xFFEDE8FF)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${_sessionLabel(context, index)} • ${_sessionTypeShortLabel(context, session.sessionType)}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF2A1E3B),
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  '${tr(context, 'Start', 'البداية')} ${session.startPercent.round()}%  →  ${tr(context, 'End', 'النهاية')} ${session.endPercent.round()}%',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF9CA3AF),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              '$average%',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w900,
+                color: color,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _sessionTypeShortLabel(BuildContext context, String sessionType) {
+    if (sessionType == 'chat') return tr(context, 'Chat', 'دردشة');
+    if (sessionType == 'voice') return tr(context, 'Voice', 'صوت');
+    return tr(context, 'Video', 'فيديو');
+  }
+
+  String _sessionTypeLabel(BuildContext context, String sessionType) {
+    if (sessionType == 'chat') return tr(context, 'Chat session', 'جلسة دردشة');
+    if (sessionType == 'voice') return tr(context, 'Voice session', 'جلسة صوتية');
+    return tr(context, 'Video session', 'جلسة فيديو');
   }
 
   Widget _buildWeeklyCompletionBarChart(
@@ -1447,7 +1730,19 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
         groupsSpace: 12,
         borderData: FlBorderData(show: false),
         barTouchData: BarTouchData(
-          enabled: false,
+          enabled: true,
+          handleBuiltInTouches: false,
+          touchCallback: (event, response) {
+            if (event is! FlTapUpEvent) return;
+
+            final groupIndex = response?.spot?.touchedBarGroupIndex;
+            if (groupIndex == null || groupIndex < 0 || groupIndex > 6) return;
+
+            final item = periodData.dayItems[groupIndex];
+            if (item == null || item.sessions.isEmpty) return;
+
+            _showWeeklyIntensitySessionsPopup(context, item);
+          },
         ),
         gridData: FlGridData(
           show: true,
@@ -1536,30 +1831,11 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
           final overallY = item?.averagePercent ?? 0;
           final hasData = item != null && overallY > 0;
 
-          // REPLACE this entire color logic block:
           Color barColor;
-          String? tooltipLabel;
-          if (hasData && item != null) {
-            final hasChat = item.sessions.any((s) => s.sessionType == 'chat');
-            final hasVideo = item.sessions.any((s) => s.sessionType == 'video');
-            final hasVoice = item.sessions.any((s) => s.sessionType == 'voice');
-
-            if (hasChat && !hasVideo && !hasVoice) {
-              barColor = _chatLineColor;   // Chat only - Pink
-              tooltipLabel = 'Chat';
-            } else if (hasVoice && !hasChat && !hasVideo) {
-              barColor = _voiceLineColor;  // Voice only - Blue
-              tooltipLabel = 'Voice';
-            } else if (hasVideo && !hasChat && !hasVoice) {
-              barColor = _videoLineColor;  // Video only - Purple
-              tooltipLabel = 'Video';
-            } else if (hasChat && hasVoice && !hasVideo) {
-              barColor = _chatLineColor;   // Chat + Voice mix - Pink
-              tooltipLabel = 'Chat + Voice';
-            } else {
-              barColor = _videoLineColor;  // Any mix including video - Purple
-              tooltipLabel = 'Mixed';
-            }
+          if (hasData && item != null && item.sessions.isNotEmpty) {
+            final latestSession = List<CharacterSessionIntensity>.from(item.sessions)
+              ..sort((a, b) => a.date.compareTo(b.date));
+            barColor = _sessionTypeColor(latestSession.last.sessionType);
           } else {
             barColor = _videoLineColor;
           }
@@ -1607,156 +1883,510 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
       );
     }
 
+    final startPointLabel = tr(context, 'Start', 'البداية');
+    final endPointLabel = tr(context, 'End', 'النهاية');
+    final sessionLabels = List.generate(
+      sessions.length,
+          (index) => _sessionLabel(context, index + 1),
+    );
+    final sessionTypeLabels = List.generate(
+      sessions.length,
+          (index) => _sessionTypeShortLabel(context, sessions[index].sessionType),
+    );
+
+    const leftReservedSize = 42.0;
+    const bottomReservedSize = 40.0;
+    const edgePointPadding = 0.65;
     final maxX = (sessions.length * 2 - 1).toDouble();
+    final chartMinX = -edgePointPadding;
+    final chartMaxX = maxX + edgePointPadding;
+    final needsHorizontalScroll = sessions.length > 6;
 
-    return LineChart(
-      LineChartData(
-        minY: 0,
-        maxY: 100,
-        minX: 0,
-        maxX: maxX,
-        clipData: FlClipData.all(),
-        borderData: FlBorderData(show: false),
-        gridData: FlGridData(
-          show: true,
-          drawVerticalLine: false,
-          horizontalInterval: 25,
-          getDrawingHorizontalLine: (value) {
-            if (value == 0) {
-              return FlLine(color: Colors.transparent, strokeWidth: 0);
-            }
-            final isMid = value == 75;
-            return FlLine(
-              color: const Color(0xFFE8E0F5),
-              strokeWidth: isMid ? 1.4 : 1,
-              dashArray: const [4, 4],
-            );
-          },
-        ),
-        titlesData: FlTitlesData(
-          topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          leftTitles: AxisTitles(
-            sideTitles: SideTitles(
-              reservedSize: 42,
-              showTitles: true,
-              interval: 25,
-              getTitlesWidget: (value, meta) {
-                if (value == 0) return const SizedBox.shrink();
-                return Padding(
-                  padding: const EdgeInsets.only(right: 6),
-                  child: Text(
-                    '${value.toInt()}%',
-                    textAlign: TextAlign.right,
-                    style: const TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w500,
-                      color: Color(0xFF9CA3AF),
-                    ),
-                  ),
-                );
-              },
-            ),
+    LineChart buildChart({
+      required double width,
+      required bool showLeftTitles,
+    }) {
+      return LineChart(
+        LineChartData(
+          minY: 0,
+          maxY: 100,
+          minX: chartMinX,
+          maxX: chartMaxX,
+          clipData: FlClipData.all(),
+          borderData: FlBorderData(show: false),
+          gridData: FlGridData(
+            show: true,
+            drawVerticalLine: false,
+            horizontalInterval: 25,
+            getDrawingHorizontalLine: (value) {
+              if (value == 0) {
+                return FlLine(color: Colors.transparent, strokeWidth: 0);
+              }
+              final isMid = value == 75;
+              return FlLine(
+                color: const Color(0xFFE8E0F5),
+                strokeWidth: isMid ? 1.4 : 1,
+                dashArray: const [4, 4],
+              );
+            },
           ),
-          bottomTitles: AxisTitles(
-            sideTitles: SideTitles(
-              reservedSize: 36,
-              showTitles: true,
-              interval: 1,
-              getTitlesWidget: (value, meta) {
-                final index = value.toInt();
-                if (index.isOdd) return const SizedBox.shrink();
-                final sessionIndex = index ~/ 2;
-                if (sessionIndex >= sessions.length) {
-                  return const SizedBox.shrink();
-                }
-                return Padding(
-                  padding: const EdgeInsets.only(top: 10),
-                  child: Text(
-                    _sessionLabel(context, sessionIndex + 1),
-                    style: const TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF9B93AF),
+          titlesData: FlTitlesData(
+            topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            leftTitles: AxisTitles(
+              sideTitles: SideTitles(
+                reservedSize: showLeftTitles ? leftReservedSize : 0,
+                showTitles: showLeftTitles,
+                interval: 25,
+                getTitlesWidget: (value, meta) {
+                  if (value == 0) return const SizedBox.shrink();
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: Text(
+                      '${value.toInt()}%',
+                      textAlign: TextAlign.right,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                        color: Color(0xFF9CA3AF),
+                      ),
                     ),
-                  ),
-                );
-              },
-            ),
-          ),
-        ),
-        lineTouchData: LineTouchData(
-          enabled: false,
-        ),
-        // Find the lineBarsData generation section and REPLACE:
-        lineBarsData: List.generate(sessions.length, (i) {
-          final s = sessions[i];
-          final x0 = (i * 2).toDouble();
-          final x1 = x0 + 1;
-
-          // REPLACE this entire color assignment block:
-          Color lineColor;
-          Color startDotFill;
-          Color startDotStroke;
-          Color endDotFill;
-
-          if (s.sessionType == 'chat') {
-            // Chat - Pink
-            lineColor = _chatLineColor;
-            startDotFill = _chatStartDotFill;
-            startDotStroke = _chatStartDotStroke;
-            endDotFill = _chatEndDotFill;
-          } else if (s.sessionType == 'voice') {
-            // Voice - Blue
-            lineColor = _voiceLineColor;
-            startDotFill = _voiceStartDotFill;
-            startDotStroke = _voiceStartDotStroke;
-            endDotFill = _voiceEndDotFill;
-          } else {
-            // Video - Purple (original)
-            lineColor = _videoLineColor;
-            startDotFill = _videoStartDotFill;
-            startDotStroke = _videoStartDotStroke;
-            endDotFill = _videoEndDotFill;
-          }
-
-          return LineChartBarData(
-            spots: [
-              FlSpot(x0, s.startPercent),
-              FlSpot(x1, s.endPercent),
-            ],
-            isCurved: false,
-            barWidth: 2.5,
-            color: lineColor,
-            dotData: FlDotData(
-              show: true,
-              checkToShowDot: (spot, barData) => true,
-              getDotPainter: (spot, percent, barData, index) {
-                final isStart = index == 0;
-                return FlDotCirclePainter(
-                  radius: isStart ? 4.5 : 5.5,
-                  color: isStart ? startDotFill : endDotFill,
-                  strokeWidth: 2,
-                  strokeColor: isStart ? startDotStroke : Colors.white,
-                );
-              },
-            ),
-            belowBarData: BarAreaData(
-              show: true,
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  lineColor.withValues(alpha: 0.22),
-                  lineColor.withValues(alpha: 0.04),
-                ],
+                  );
+                },
               ),
             ),
+            bottomTitles: AxisTitles(
+              sideTitles: SideTitles(
+                reservedSize: bottomReservedSize,
+                showTitles: true,
+                interval: 1,
+                getTitlesWidget: (value, meta) {
+                  // Only draw labels on exact session-start x positions.
+                  // This prevents duplicated labels like S1 caused by the
+                  // fractional minX padding used to give edge points space.
+                  final roundedValue = value.roundToDouble();
+                  if ((value - roundedValue).abs() > 0.001) {
+                    return const SizedBox.shrink();
+                  }
+
+                  final index = roundedValue.toInt();
+                  if (index.isOdd) return const SizedBox.shrink();
+                  final sessionIndex = index ~/ 2;
+                  if (sessionIndex < 0 || sessionIndex >= sessions.length) {
+                    return const SizedBox.shrink();
+                  }
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: SizedBox(
+                      width: 44,
+                      child: Center(
+                        child: Text(
+                          sessionLabels[sessionIndex],
+                          maxLines: 1,
+                          overflow: TextOverflow.visible,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF9B93AF),
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+          lineTouchData: LineTouchData(
+            enabled: true,
+            handleBuiltInTouches: false,
+            touchSpotThreshold: 24,
+            touchCallback: (event, response) {
+              if (event is! FlTapUpEvent) return;
+
+              final touchedSpots = response?.lineBarSpots;
+              if (touchedSpots == null || touchedSpots.isEmpty) {
+                _hideIntensityDayPopup();
+                return;
+              }
+
+              final spot = touchedSpots.first;
+              final sessionIndex = spot.barIndex;
+              if (sessionIndex < 0 || sessionIndex >= sessions.length) return;
+
+              final tapPosition = event.localPosition;
+              if (tapPosition == null) return;
+
+              final session = sessions[sessionIndex];
+              final isStart = spot.spotIndex == 0;
+              final sessionColor = _sessionTypeColor(session.sessionType);
+              final pointLabel = isStart ? startPointLabel : endPointLabel;
+              final text = '${sessionLabels[sessionIndex]} • ${sessionTypeLabels[sessionIndex]}\n'
+                  '$pointLabel: ${spot.y.round()}%';
+              final chartHeight = (_intensityDayChartKey.currentContext?.findRenderObject() as RenderBox?)
+                  ?.size
+                  .height ??
+                  240.0;
+
+              final localPosition = _intensityDaySpotLocalPosition(
+                spot,
+                Size(width, chartHeight),
+                minX: chartMinX,
+                maxX: chartMaxX,
+                minY: 0,
+                maxY: 100,
+                leftReservedSize: showLeftTitles ? leftReservedSize : 0,
+                bottomReservedSize: bottomReservedSize,
+              );
+
+              // Show the popup only when the user taps directly on a dot,
+              // not when tapping the connecting line or empty chart space.
+              if ((tapPosition - localPosition).distance > 16) {
+                _hideIntensityDayPopup();
+                return;
+              }
+
+              _showIntensityDayPointPopup(
+                context,
+                text,
+                localPosition,
+                sessionColor,
+              );
+            },
+            getTouchedSpotIndicator: (barData, spotIndexes) {
+              return spotIndexes.map((index) {
+                final pointColor = barData.color ?? _videoLineColor;
+                return TouchedSpotIndicatorData(
+                  FlLine(
+                    color: pointColor.withValues(alpha: 0.25),
+                    strokeWidth: 1.5,
+                    dashArray: const [4, 4],
+                  ),
+                  FlDotData(
+                    show: true,
+                    getDotPainter: (spot, percent, barData, index) {
+                      return FlDotCirclePainter(
+                        radius: 6,
+                        color: Colors.white,
+                        strokeWidth: 2.6,
+                        strokeColor: pointColor,
+                      );
+                    },
+                  ),
+                );
+              }).toList();
+            },
+            touchTooltipData: LineTouchTooltipData(
+              getTooltipItems: (_) => const [],
+            ),
+          ),
+          lineBarsData: List.generate(sessions.length, (i) {
+            final s = sessions[i];
+            final x0 = (i * 2).toDouble();
+            final x1 = x0 + 1;
+
+            Color lineColor;
+            Color startDotFill;
+            Color startDotStroke;
+            Color endDotFill;
+
+            if (s.sessionType == 'chat') {
+              lineColor = _chatLineColor;
+              startDotFill = _chatStartDotFill;
+              startDotStroke = _chatStartDotStroke;
+              endDotFill = _chatEndDotFill;
+            } else if (s.sessionType == 'voice') {
+              lineColor = _voiceLineColor;
+              startDotFill = _voiceStartDotFill;
+              startDotStroke = _voiceStartDotStroke;
+              endDotFill = _voiceEndDotFill;
+            } else {
+              lineColor = _videoLineColor;
+              startDotFill = _videoStartDotFill;
+              startDotStroke = _videoStartDotStroke;
+              endDotFill = _videoEndDotFill;
+            }
+
+            return LineChartBarData(
+              spots: [
+                FlSpot(x0, s.startPercent),
+                FlSpot(x1, s.endPercent),
+              ],
+              isCurved: false,
+              barWidth: 2.5,
+              color: lineColor,
+              dotData: FlDotData(
+                show: true,
+                checkToShowDot: (spot, barData) => true,
+                getDotPainter: (spot, percent, barData, index) {
+                  final isStart = index == 0;
+                  return FlDotCirclePainter(
+                    radius: isStart ? 4.5 : 5.5,
+                    color: isStart ? startDotFill : endDotFill,
+                    strokeWidth: 2,
+                    strokeColor: isStart ? startDotStroke : Colors.white,
+                  );
+                },
+              ),
+              belowBarData: BarAreaData(
+                show: true,
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    lineColor.withValues(alpha: 0.20),
+                    lineColor.withValues(alpha: 0.04),
+                  ],
+                ),
+              ),
+            );
+          }),
+        ),
+        duration: Duration.zero,
+      );
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (!needsHorizontalScroll) {
+          return SizedBox(
+            key: _intensityDayChartKey,
+            child: buildChart(
+              width: constraints.maxWidth,
+              showLeftTitles: true,
+            ),
           );
-        }),
-      ),
-      duration: Duration.zero,
+        }
+
+        final availableChartWidth = math.max(
+          1.0,
+          constraints.maxWidth - leftReservedSize,
+        );
+        final scrollChartWidth = math.max(
+          availableChartWidth,
+          sessions.length * 72.0 + 44.0,
+        );
+
+        return Row(
+          children: [
+            _buildFixedIntensityPercentAxis(),
+            Expanded(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(),
+                child: SizedBox(
+                  key: _intensityDayChartKey,
+                  width: scrollChartWidth,
+                  child: buildChart(
+                    width: scrollChartWidth,
+                    showLeftTitles: false,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
+  }
+
+  Widget _buildFixedIntensityPercentAxis() {
+    const bottomReservedSize = 40.0;
+    const labels = [100, 75, 50, 25];
+
+    return SizedBox(
+      width: 42,
+      height: 240,
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: bottomReservedSize),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: labels.map((value) {
+            return Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: Text(
+                '$value%',
+                textAlign: TextAlign.right,
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                  color: Color(0xFF9CA3AF),
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
+
+  Offset _intensityDaySpotLocalPosition(
+      LineBarSpot spot,
+      Size chartSize, {
+        required double minX,
+        required double maxX,
+        required double minY,
+        required double maxY,
+        required double leftReservedSize,
+        required double bottomReservedSize,
+      }) {
+    final plotLeft = leftReservedSize;
+    final plotRight = chartSize.width;
+    final plotTop = 0.0;
+    final plotBottom = chartSize.height - bottomReservedSize;
+
+    final plotWidth = math.max(1.0, plotRight - plotLeft);
+    final plotHeight = math.max(1.0, plotBottom - plotTop);
+    final xRange = math.max(0.0001, maxX - minX);
+    final yRange = math.max(0.0001, maxY - minY);
+
+    final dx = plotLeft + ((spot.x - minX) / xRange).clamp(0.0, 1.0) * plotWidth;
+    final dy = plotBottom - ((spot.y - minY) / yRange).clamp(0.0, 1.0) * plotHeight;
+
+    return Offset(dx, dy);
+  }
+
+  void _hideIntensityDayPopup() {
+    _intensityDayPopupEntry?.remove();
+    _intensityDayPopupEntry = null;
+  }
+
+  void _showIntensityDayPointPopup(
+      BuildContext context,
+      String text,
+      Offset localPosition,
+      Color accentColor,
+      ) {
+    _hideIntensityDayPopup();
+
+    final overlay = Overlay.of(context);
+    final chartBox = _intensityDayChartKey.currentContext?.findRenderObject() as RenderBox?;
+    final overlayBox = overlay.context.findRenderObject() as RenderBox?;
+
+    if (chartBox == null || overlayBox == null) return;
+
+    final globalPoint = chartBox.localToGlobal(localPosition);
+    final overlayPoint = overlayBox.globalToLocal(globalPoint);
+
+    const popupWidth = 124.0;
+    const horizontalPadding = 8.0;
+    const verticalGap = 10.0;
+    const arrowSize = 10.0;
+    const estimatedHeight = 58.0;
+
+    final left = (overlayPoint.dx - popupWidth / 2).clamp(
+      horizontalPadding,
+      overlayBox.size.width - popupWidth - horizontalPadding,
+    );
+    final top = (overlayPoint.dy - estimatedHeight - verticalGap).clamp(
+      horizontalPadding,
+      overlayBox.size.height - estimatedHeight - horizontalPadding,
+    );
+
+    final arrowLeft = (overlayPoint.dx - left - arrowSize / 2).clamp(
+      8.0,
+      popupWidth - arrowSize - 8.0,
+    );
+
+    _intensityDayPopupEntry = OverlayEntry(
+      builder: (_) {
+        return Stack(
+          children: [
+            Positioned.fill(
+              child: ModalBarrier(
+                dismissible: true,
+                onDismiss: _hideIntensityDayPopup,
+                color: Colors.transparent,
+              ),
+            ),
+            Positioned(
+              left: left,
+              top: top,
+              child: Material(
+                color: Colors.transparent,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () {},
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        width: popupWidth,
+                        padding: const EdgeInsets.fromLTRB(9, 7, 6, 7),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF4B2D73),
+                          borderRadius: BorderRadius.circular(10),
+                          boxShadow: [
+                            BoxShadow(
+                              color: const Color(0xFF2A1E3B).withValues(alpha: 0.20),
+                              blurRadius: 12,
+                              offset: const Offset(0, 6),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                text,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 9.5,
+                                  fontWeight: FontWeight.w800,
+                                  height: 1.25,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: _hideIntensityDayPopup,
+                              child: const Padding(
+                                padding: EdgeInsets.all(1.5),
+                                child: Icon(
+                                  Icons.close_rounded,
+                                  size: 13,
+                                  color: Color(0xFFEDE8FF),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      SizedBox(
+                        width: popupWidth,
+                        height: arrowSize,
+                        child: Stack(
+                          children: [
+                            Positioned(
+                              left: arrowLeft,
+                              top: -1,
+                              child: CustomPaint(
+                                size: const Size(arrowSize, arrowSize),
+                                painter: _IntensityTooltipTrianglePainter(
+                                  color: const Color(0xFF4B2D73),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    overlay.insert(_intensityDayPopupEntry!);
   }
 
   Map<String, List<CharacterSessionIntensity>> _groupByCharacter(
@@ -1969,6 +2599,33 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
   }
 }
 
+class _IntensityTooltipTrianglePainter extends CustomPainter {
+  final Color color;
+
+  const _IntensityTooltipTrianglePainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+
+    final path = Path()
+      ..moveTo(0, 0)
+      ..lineTo(size.width, 0)
+      ..lineTo(size.width / 2, size.height)
+      ..close();
+
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _IntensityTooltipTrianglePainter oldDelegate) {
+    return oldDelegate.color != color;
+  }
+}
+
+
 class _CharacterPeriodData {
   final String title;
   final String subtitle;
@@ -2037,12 +2694,15 @@ class _VideoFlowHabitLandCard extends StatefulWidget {
 }
 
 class _VideoFlowHabitLandCardState extends State<_VideoFlowHabitLandCard> {
+  final GlobalKey _flowChartKey = GlobalKey();
+  OverlayEntry? _flowPointPopupEntry;
   int _selectedCharacterIndex = 0;
   int _pageOffset = 0;
   bool _isWeekView = true;
 
   static const Color _purple = Color(0xFF8E7CFF);
   static const Color _purpleDark = Color(0xFF6F5BFF);
+  static const Color _voiceBlue = Color(0xFF2F80ED);
 
   static const List<_FlowAxisItem> _emotionAxis = [
     _FlowAxisItem('happy', 'Happy', 'سعيد'),
@@ -2054,6 +2714,13 @@ class _VideoFlowHabitLandCardState extends State<_VideoFlowHabitLandCard> {
   ];
 
   static const List<_FlowAxisItem> _toneAxis = _emotionAxis;
+
+  @override
+  void dispose() {
+    _flowPointPopupEntry?.remove();
+    _flowPointPopupEntry = null;
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2096,6 +2763,7 @@ class _VideoFlowHabitLandCardState extends State<_VideoFlowHabitLandCard> {
           _buildHeader(context, periodData),
           const SizedBox(height: 14),
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
                 child: _buildStatBlock(
@@ -2104,6 +2772,9 @@ class _VideoFlowHabitLandCardState extends State<_VideoFlowHabitLandCard> {
                       ? tr(context, 'Latest emotion', 'آخر شعور')
                       : tr(context, 'Latest tone', 'آخر نبرة'),
                   latestLabel,
+                  footer: widget.type == _VideoFlowCardType.tone
+                      ? _buildToneSessionLegend(context)
+                      : null,
                 ),
               ),
               Expanded(
@@ -2121,7 +2792,7 @@ class _VideoFlowHabitLandCardState extends State<_VideoFlowHabitLandCard> {
             height: 260,
             child: Padding(
               padding: const EdgeInsets.only(left: 8, right: 6, top: 8, bottom: 2),
-              child: _buildFlowChart(context, periodData),
+              child: _buildScrollableFlowChart(context, periodData),
             ),
           ),
         ],
@@ -2303,7 +2974,13 @@ class _VideoFlowHabitLandCardState extends State<_VideoFlowHabitLandCard> {
     );
   }
 
-  Widget _buildStatBlock(BuildContext context, String label, String value, {bool alignEnd = false}) {
+  Widget _buildStatBlock(
+      BuildContext context,
+      String label,
+      String value, {
+        bool alignEnd = false,
+        Widget? footer,
+      }) {
     return Column(
       crossAxisAlignment: alignEnd ? CrossAxisAlignment.end : CrossAxisAlignment.start,
       children: [
@@ -2325,11 +3002,160 @@ class _VideoFlowHabitLandCardState extends State<_VideoFlowHabitLandCard> {
           ),
           textAlign: alignEnd ? TextAlign.end : TextAlign.start,
         ),
+        if (footer != null) ...[
+          const SizedBox(height: 6),
+          footer,
+        ],
       ],
     );
   }
 
-  Widget _buildFlowChart(BuildContext context, _FlowPeriodData periodData) {
+
+  Widget _buildToneSessionLegend(BuildContext context) {
+    return Align(
+      alignment: AlignmentDirectional.centerStart,
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 5,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          _buildToneLegendItem(
+            color: _voiceBlue,
+            label: tr(context, 'Voice session', 'جلسة صوتية'),
+          ),
+          _buildToneLegendItem(
+            color: _purple,
+            label: tr(context, 'Video session', 'جلسة فيديو'),
+          ),
+        ],
+      ),
+    );
+  }
+
+
+  Widget _buildToneLegendItem({
+    required Color color,
+    required String label,
+  }) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 7,
+          height: 7,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+          ),
+        ),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            fontSize: 9,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF8D84A6),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Color _sessionColor(VideoSessionFlowPoint point) {
+    if (widget.type == _VideoFlowCardType.tone && point.sessionType == 'voice') {
+      return _voiceBlue;
+    }
+    return _purple;
+  }
+
+  Widget _buildScrollableFlowChart(BuildContext context, _FlowPeriodData periodData) {
+    final sessionIds = <String>{};
+    for (final point in periodData.points) {
+      sessionIds.add(point.sessionId);
+    }
+
+    // Emotion Week: when there are more than 8 sessions, keep the
+    // emotions axis fixed and let only the session points/date labels swipe.
+    // Week spacing is compact, while Day view keeps its wider spacing.
+    final needsScrollableEmotionWeek =
+        _isWeekView && widget.type == _VideoFlowCardType.emotion && sessionIds.length > 8;
+    final needsScrollableDay = !_isWeekView && sessionIds.length > 6;
+
+    if (!needsScrollableEmotionWeek && !needsScrollableDay) {
+      return _buildFlowChart(context, periodData);
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const axisWidth = 52.0;
+        final availableChartWidth = math.max(
+          1.0,
+          constraints.maxWidth - axisWidth,
+        );
+        final pointSpacing = needsScrollableEmotionWeek ? 42.0 : 72.0;
+        final extraEdgeSpace = needsScrollableEmotionWeek ? 34.0 : 44.0;
+        final chartWidth = math.max(
+          availableChartWidth,
+          sessionIds.length * pointSpacing + extraEdgeSpace,
+        );
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _buildFixedFlowAxis(context),
+            Expanded(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(),
+                child: SizedBox(
+                  width: chartWidth,
+                  child: _buildFlowChart(
+                    context,
+                    periodData,
+                    showLeftTitles: false,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+  Widget _buildFixedFlowAxis(BuildContext context) {
+    return SizedBox(
+      width: 52,
+      child: Padding(
+        padding: const EdgeInsets.only(top: 8, bottom: 44, right: 4),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: _axisItems.reversed.map((item) {
+            return Text(
+              item.label(context),
+              textAlign: TextAlign.right,
+              maxLines: 1,
+              overflow: TextOverflow.visible,
+              style: const TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF8D84A6),
+                height: 1.0,
+              ),
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFlowChart(
+      BuildContext context,
+      _FlowPeriodData periodData, {
+        bool showLeftTitles = true,
+      }) {
     if (periodData.points.isEmpty) {
       return Center(
         child: Text(
@@ -2345,10 +3171,10 @@ class _VideoFlowHabitLandCardState extends State<_VideoFlowHabitLandCard> {
 
     final labels = <String>[];
     final dayStartXValues = <double>[];
-    const double xStartOffset = 0.1;
+    const double xStartOffset = 0.0;
 
-    final bool showAllDates = periodData.points.length <= 7;
     final List<LineChartBarData> lineBarsData = [];
+    final Map<String, String> tooltipTextBySpot = {};
     int visualPointCount = 0;
 
     if (_isWeekView) {
@@ -2364,6 +3190,11 @@ class _VideoFlowHabitLandCardState extends State<_VideoFlowHabitLandCard> {
             _indexFor(point).toDouble(),
           ),
         );
+        tooltipTextBySpot['0_$i'] = _flowPointTooltipText(
+          context,
+          point,
+          i + 1,
+        );
 
         final bool isFirstPointForDay =
             i == 0 || !_isSameDay(periodData.points[i - 1].date, point.date);
@@ -2372,11 +3203,9 @@ class _VideoFlowHabitLandCardState extends State<_VideoFlowHabitLandCard> {
           dayStartXValues.add(x);
         }
 
-        if (showAllDates) {
-          labels.add(_formatMonthDay(context, point.date));
-        } else {
-          labels.add(isFirstPointForDay ? _formatMonthDay(context, point.date) : '');
-        }
+        // Show each date only once per day to avoid duplicated labels
+        // when multiple sessions/points happen on the same date.
+        labels.add(isFirstPointForDay ? _formatMonthDay(context, point.date) : '');
       }
 
       visualPointCount = spots.length;
@@ -2395,7 +3224,7 @@ class _VideoFlowHabitLandCardState extends State<_VideoFlowHabitLandCard> {
                 radius: 4,
                 color: Colors.white,
                 strokeWidth: 2,
-                strokeColor: _purple,
+                strokeColor: _sessionColor(periodData.points[index]),
               );
             },
           ),
@@ -2427,8 +3256,21 @@ class _VideoFlowHabitLandCardState extends State<_VideoFlowHabitLandCard> {
         final endX = startX + 1;
 
         dayStartXValues.add(startX);
-        labels.add(_sessionLabel(context, i + 1));
+        final label = _sessionLabel(context, i + 1);
+        labels.add(label);
         labels.add('');
+
+        final barIndex = lineBarsData.length;
+        tooltipTextBySpot['${barIndex}_0'] = _flowPointTooltipText(
+          context,
+          startPoint,
+          i + 1,
+        );
+        tooltipTextBySpot['${barIndex}_1'] = _flowPointTooltipText(
+          context,
+          endPoint,
+          i + 1,
+        );
 
         lineBarsData.add(
           LineChartBarData(
@@ -2437,18 +3279,18 @@ class _VideoFlowHabitLandCardState extends State<_VideoFlowHabitLandCard> {
               FlSpot(endX, _indexFor(endPoint).toDouble()),
             ],
             isCurved: false,
-            color: _purple,
+            color: _sessionColor(startPoint),
             barWidth: 2.6,
             isStrokeCapRound: true,
             dotData: FlDotData(
               show: true,
               getDotPainter: (spot, percent, barData, index) {
-                final isStart = index == 0;
+                final sessionColor = _sessionColor(startPoint);
                 return FlDotCirclePainter(
-                  radius: isStart ? 4.5 : 5,
-                  color: isStart ? Colors.white : _purpleDark,
+                  radius: 5,
+                  color: sessionColor,
                   strokeWidth: 2,
-                  strokeColor: _purple,
+                  strokeColor: sessionColor,
                 );
               },
             ),
@@ -2462,120 +3304,329 @@ class _VideoFlowHabitLandCardState extends State<_VideoFlowHabitLandCard> {
 
     final maxX = math.max(0, visualPointCount - 1).toDouble();
     final maxY = (_axisItems.length - 1).toDouble();
+    // Add edge breathing room in Day view too, so the first session
+    // start point and the last session end point are not pressed against
+    // the chart borders. Bottom labels are still rendered only for exact
+    // integer x-values, so this does not create duplicate S1 labels.
+    const dayEdgePointPadding = 0.65;
+    const weekEdgePointPadding = 0.65;
+    final chartMinX = _isWeekView ? -weekEdgePointPadding : -dayEdgePointPadding;
+    final chartMaxX = _isWeekView ? maxX + weekEdgePointPadding : maxX + dayEdgePointPadding;
+    const chartMinY = -0.35;
+    final chartMaxY = maxY + 0.15;
 
-    return LineChart(
-      LineChartData(
-        minX: 0,
-        maxX: maxX,
-        minY: -0.35,
-        maxY: maxY + 0.15,
-        clipData: FlClipData.none(),
-        borderData: FlBorderData(show: false),
-        gridData: FlGridData(
-          show: true,
-          drawVerticalLine: true,
-          verticalInterval: 1,
-          horizontalInterval: 1,
-          checkToShowVerticalLine: (value) {
-            return dayStartXValues.any((x) => (x - value).abs() < 0.2);
-          },
-          getDrawingVerticalLine: (value) => FlLine(
-            color: const Color(0xFFD9CFFF),
-            strokeWidth: 1.2,
-            dashArray: const [4, 4],
+    return KeyedSubtree(
+      key: _flowChartKey,
+      child: LineChart(
+        LineChartData(
+          minX: chartMinX,
+          maxX: chartMaxX,
+          minY: chartMinY,
+          maxY: chartMaxY,
+          clipData: FlClipData.none(),
+          borderData: FlBorderData(show: false),
+          gridData: FlGridData(
+            show: true,
+            drawVerticalLine: true,
+            verticalInterval: 1,
+            horizontalInterval: 1,
+            checkToShowVerticalLine: (value) {
+              return dayStartXValues.any((x) => (x - value).abs() < 0.2);
+            },
+            getDrawingVerticalLine: (value) => FlLine(
+              color: const Color(0xFFD9CFFF),
+              strokeWidth: 1.2,
+              dashArray: const [4, 4],
+            ),
+            getDrawingHorizontalLine: (value) => FlLine(
+              color: const Color(0xFFE8E0F5),
+              strokeWidth: 1,
+              dashArray: const [4, 4],
+            ),
           ),
-          getDrawingHorizontalLine: (value) => FlLine(
-            color: const Color(0xFFE8E0F5),
-            strokeWidth: 1,
-            dashArray: const [4, 4],
-          ),
-        ),
-        titlesData: FlTitlesData(
-          topTitles: AxisTitles(
-            sideTitles: SideTitles(showTitles: false),
-          ),
-          rightTitles: AxisTitles(
-            sideTitles: SideTitles(showTitles: false),
-          ),
-          leftTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              interval: 1,
-              reservedSize: 52,
-              getTitlesWidget: (value, meta) {
-                final roundedValue = value.roundToDouble();
+          titlesData: FlTitlesData(
+            topTitles: AxisTitles(
+              sideTitles: SideTitles(showTitles: false),
+            ),
+            rightTitles: AxisTitles(
+              sideTitles: SideTitles(showTitles: false),
+            ),
+            leftTitles: AxisTitles(
+              sideTitles: SideTitles(
+                showTitles: showLeftTitles,
+                interval: 1,
+                reservedSize: showLeftTitles ? 52 : 0,
+                getTitlesWidget: (value, meta) {
+                  if (!showLeftTitles) return const SizedBox.shrink();
+                  final roundedValue = value.roundToDouble();
 
-                if ((value - roundedValue).abs() > 0.001) {
-                  return const SizedBox.shrink();
-                }
+                  if ((value - roundedValue).abs() > 0.001) {
+                    return const SizedBox.shrink();
+                  }
 
-                final index = roundedValue.toInt();
-                if (index < 0 || index >= _axisItems.length) {
-                  return const SizedBox.shrink();
-                }
+                  final index = roundedValue.toInt();
+                  if (index < 0 || index >= _axisItems.length) {
+                    return const SizedBox.shrink();
+                  }
 
-                return Align(
-                  alignment: Alignment.centerRight,
-                  child: Padding(
-                    padding: const EdgeInsets.only(right: 4),
+                  return Align(
+                    alignment: Alignment.centerRight,
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 4),
+                      child: Text(
+                        _axisItems[index].label(context),
+                        textAlign: TextAlign.right,
+                        maxLines: 1,
+                        overflow: TextOverflow.visible,
+                        style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF8D84A6),
+                          height: 1.0,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            bottomTitles: AxisTitles(
+              sideTitles: SideTitles(
+                reservedSize: 44,
+                showTitles: true,
+                interval: 1,
+                getTitlesWidget: (value, meta) {
+                  // Avoid duplicated date labels caused by fractional title ticks.
+                  final roundedValue = value.roundToDouble();
+                  if ((value - roundedValue).abs() > 0.001) {
+                    return const SizedBox.shrink();
+                  }
+
+                  final index = roundedValue.toInt();
+                  if (index < 0 || index >= labels.length) {
+                    return const SizedBox.shrink();
+                  }
+
+                  final label = labels[index];
+                  if (label.isEmpty) {
+                    return const SizedBox.shrink();
+                  }
+
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 10),
                     child: Text(
-                      _axisItems[index].label(context),
-                      textAlign: TextAlign.right,
+                      label,
+                      textAlign: TextAlign.center,
                       maxLines: 1,
-                      overflow: TextOverflow.visible,
+                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.w600,
                         color: Color(0xFF8D84A6),
-                        height: 1.0,
                       ),
                     ),
-                  ),
-                );
-              },
+                  );
+                },
+              ),
             ),
           ),
-          bottomTitles: AxisTitles(
-            sideTitles: SideTitles(
-              reservedSize: 44,
-              showTitles: true,
-              interval: 1,
-              getTitlesWidget: (value, meta) {
-                final index = value.toInt();
-                if (index < 0 || index >= labels.length) {
-                  return const SizedBox.shrink();
-                }
+          lineTouchData: LineTouchData(
+            enabled: true,
+            handleBuiltInTouches: false,
+            touchSpotThreshold: 9,
+            touchCallback: (event, response) {
+              if (event is! FlTapUpEvent) return;
 
-                final label = labels[index];
-                if (label.isEmpty) {
-                  return const SizedBox.shrink();
-                }
+              final spots = response?.lineBarSpots;
+              if (spots == null || spots.isEmpty) return;
 
-                return Padding(
-                  padding: const EdgeInsets.only(top: 10),
-                  child: Text(
-                    label,
-                    textAlign: TextAlign.center,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF8D84A6),
-                    ),
+              final touchedSpot = spots.first;
+              final key = '${touchedSpot.barIndex}_${touchedSpot.spotIndex}';
+              final text = tooltipTextBySpot[key];
+              if (text == null || text.trim().isEmpty) return;
+
+              final tapPosition = event.localPosition;
+              if (tapPosition == null) return;
+
+              // Anchor the popup to the real chart point center in both
+              // Week and Day views, not to the user's finger position. This keeps
+              // the triangle tip exactly on the clicked point.
+              final chartBox = _flowChartKey.currentContext?.findRenderObject() as RenderBox?;
+              final popupPosition = chartBox != null
+                  ? _flowSpotLocalPosition(
+                touchedSpot,
+                chartBox.size,
+                minX: chartMinX,
+                maxX: chartMaxX,
+                minY: chartMinY,
+                maxY: chartMaxY,
+                leftReservedSize: showLeftTitles ? 52 : 0,
+                bottomReservedSize: 44,
+              )
+                  : tapPosition;
+
+              _showFlowPointPopup(context, text, popupPosition);
+            },
+            getTouchedSpotIndicator: (barData, spotIndexes) {
+              return spotIndexes.map((index) {
+                return TouchedSpotIndicatorData(
+                  FlLine(
+                    color: _purple.withValues(alpha: 0.20),
+                    strokeWidth: 1.4,
+                    dashArray: const [4, 4],
+                  ),
+                  FlDotData(
+                    show: true,
+                    getDotPainter: (spot, percent, barData, index) {
+                      final pointColor = barData.color ?? _purple;
+                      return FlDotCirclePainter(
+                        radius: 6,
+                        color: Colors.white,
+                        strokeWidth: 2.4,
+                        strokeColor: pointColor,
+                      );
+                    },
                   ),
                 );
-              },
+              }).toList();
+            },
+            touchTooltipData: LineTouchTooltipData(
+              getTooltipItems: (_) => const [],
             ),
           ),
+          lineBarsData: lineBarsData,
         ),
-        lineTouchData: LineTouchData(
-          enabled: false,
-          handleBuiltInTouches: false,
-        ),
-        lineBarsData: lineBarsData,
       ),
     );
+  }
+
+  Offset _flowSpotLocalPosition(
+      LineBarSpot spot,
+      Size chartSize, {
+        required double minX,
+        required double maxX,
+        required double minY,
+        required double maxY,
+        required double leftReservedSize,
+        required double bottomReservedSize,
+      }) {
+    final plotLeft = leftReservedSize;
+    final plotRight = chartSize.width;
+    final plotTop = 0.0;
+    final plotBottom = chartSize.height - bottomReservedSize;
+
+    final plotWidth = math.max(1.0, plotRight - plotLeft);
+    final plotHeight = math.max(1.0, plotBottom - plotTop);
+    final xRange = math.max(0.0001, maxX - minX);
+    final yRange = math.max(0.0001, maxY - minY);
+
+    final dx = plotLeft + ((spot.x - minX) / xRange).clamp(0.0, 1.0) * plotWidth;
+    final dy = plotBottom - ((spot.y - minY) / yRange).clamp(0.0, 1.0) * plotHeight;
+
+    return Offset(dx, dy);
+  }
+
+  void _showFlowPointPopup(
+      BuildContext context,
+      String text,
+      Offset localPosition,
+      ) {
+    _flowPointPopupEntry?.remove();
+    _flowPointPopupEntry = null;
+
+    final overlay = Overlay.of(context);
+    final chartBox = _flowChartKey.currentContext?.findRenderObject() as RenderBox?;
+    final overlayBox = overlay.context.findRenderObject() as RenderBox?;
+
+    if (chartBox == null || overlayBox == null) return;
+
+    final globalPoint = chartBox.localToGlobal(localPosition);
+    final overlayPoint = overlayBox.globalToLocal(globalPoint);
+
+    const popupWidth = 158.0;
+    const horizontalPadding = 8.0;
+    const verticalGap = 10.0;
+    const arrowSize = 10.0;
+
+    final estimatedHeight = text.contains('\n') ? 50.0 : 40.0;
+    final left = (overlayPoint.dx - popupWidth / 2).clamp(
+      horizontalPadding,
+      overlayBox.size.width - popupWidth - horizontalPadding,
+    );
+    final top = (overlayPoint.dy - estimatedHeight - verticalGap).clamp(
+      horizontalPadding,
+      overlayBox.size.height - estimatedHeight - horizontalPadding,
+    );
+
+    // Keep the triangle tip aligned exactly with the tapped chart point,
+    // even when the popup is clamped near the screen edges.
+    final arrowLeft = (overlayPoint.dx - left - arrowSize / 2).clamp(
+      8.0,
+      popupWidth - arrowSize - 8.0,
+    );
+
+    _flowPointPopupEntry = OverlayEntry(
+      builder: (overlayContext) {
+        return Positioned.fill(
+          child: Material(
+            color: Colors.transparent,
+            child: Stack(
+              children: [
+                GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onTap: () {
+                    _flowPointPopupEntry?.remove();
+                    _flowPointPopupEntry = null;
+                  },
+                  child: const SizedBox.expand(),
+                ),
+                Positioned(
+                  left: left,
+                  top: top,
+                  width: popupWidth,
+                  child: _SmallFlowPointPopup(
+                    text: text,
+                    arrowLeft: arrowLeft,
+                    onClose: () {
+                      _flowPointPopupEntry?.remove();
+                      _flowPointPopupEntry = null;
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    overlay.insert(_flowPointPopupEntry!);
+  }
+
+  String _flowPointTooltipText(
+      BuildContext context,
+      VideoSessionFlowPoint point,
+      int sessionNumber,
+      ) {
+    final isAr = isArabic(context);
+    final sessionType = _flowSessionTypeLabel(context, point.sessionType);
+    final valueLabel = widget.type == _VideoFlowCardType.emotion
+        ? point.emotionLabel(isAr)
+        : point.toneLabel(isAr);
+    final metricLabel = widget.type == _VideoFlowCardType.emotion
+        ? tr(context, 'Emotion', 'الشعور')
+        : tr(context, 'Tone', 'النبرة');
+    final stageLabel = point.isSessionStart
+        ? tr(context, 'Start', 'البداية')
+        : tr(context, 'End', 'النهاية');
+
+    return '${_sessionLabel(context, sessionNumber)} • $sessionType\n${_formatMonthDay(context, point.date)} • $stageLabel $metricLabel: $valueLabel';
+  }
+
+  String _flowSessionTypeLabel(BuildContext context, String sessionType) {
+    if (sessionType == 'voice') return tr(context, 'Voice session', 'جلسة صوتية');
+    if (sessionType == 'video') return tr(context, 'Video session', 'جلسة فيديو');
+    return tr(context, 'Chat session', 'جلسة دردشة');
   }
 
   bool _isSameDay(DateTime a, DateTime b) {
@@ -2590,12 +3641,23 @@ class _VideoFlowHabitLandCardState extends State<_VideoFlowHabitLandCard> {
 
   Map<String, List<VideoSessionFlowPoint>> _groupByCharacter(List<VideoSessionFlowPoint> points) {
     final Map<String, List<VideoSessionFlowPoint>> grouped = {};
+
     for (final point in points) {
-      final key = point.characterName.trim().toLowerCase();
+      final key = point.characterId.trim().toLowerCase().isNotEmpty
+          ? point.characterId.trim().toLowerCase()
+          : point.characterName.trim().toLowerCase();
       grouped.putIfAbsent(key, () => []);
       grouped[key]!.add(point);
     }
-    return {for (final entry in grouped.entries) entry.key: entry.value};
+
+    final entries = grouped.entries.toList()
+      ..sort((a, b) {
+        final lastA = a.value.map((e) => e.date).reduce((x, y) => x.isAfter(y) ? x : y);
+        final lastB = b.value.map((e) => e.date).reduce((x, y) => x.isAfter(y) ? x : y);
+        return lastB.compareTo(lastA);
+      });
+
+    return {for (final entry in entries) entry.key: entry.value};
   }
 
   _FlowPeriodData _buildWeekData(List<VideoSessionFlowPoint> points) {
@@ -2732,6 +3794,92 @@ class _VideoFlowHabitLandCardState extends State<_VideoFlowHabitLandCard> {
   }
 }
 
+
+class _SmallFlowPointPopup extends StatelessWidget {
+  final String text;
+  final double arrowLeft;
+  final VoidCallback onClose;
+
+  const _SmallFlowPointPopup({
+    required this.text,
+    required this.arrowLeft,
+    required this.onClose,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Container(
+          width: 158,
+          padding: const EdgeInsets.fromLTRB(9, 7, 7, 7),
+          decoration: BoxDecoration(
+            color: const Color(0xFF4B2D73),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.18),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF2A1E3B).withValues(alpha: 0.20),
+                blurRadius: 12,
+                offset: const Offset(0, 7),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  text,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 8.8,
+                    fontWeight: FontWeight.w800,
+                    height: 1.22,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 5),
+              InkWell(
+                onTap: onClose,
+                borderRadius: BorderRadius.circular(999),
+                child: Padding(
+                  padding: const EdgeInsets.all(1.5),
+                  child: Icon(
+                    Icons.close_rounded,
+                    size: 13,
+                    color: Colors.white.withValues(alpha: 0.78),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Positioned(
+          left: arrowLeft,
+          bottom: -5,
+          child: Transform.rotate(
+            angle: math.pi / 4,
+            child: Container(
+              width: 10,
+              height: 10,
+              decoration: const BoxDecoration(
+                color: Color(0xFF4B2D73),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _FlowAxisItem {
   final String key;
   final String en;
@@ -2750,6 +3898,1165 @@ class _FlowPeriodData {
   final int sessionCount;
 
   const _FlowPeriodData({
+    required this.title,
+    required this.subtitle,
+    required this.points,
+    required this.canGoBack,
+    required this.sessionCount,
+  });
+}
+
+class _ToneFlowHabitLandCard extends StatefulWidget {
+  final List<VideoSessionFlowPoint> allPoints;
+
+  const _ToneFlowHabitLandCard({
+    required this.allPoints,
+  });
+
+  @override
+  State<_ToneFlowHabitLandCard> createState() => _ToneFlowHabitLandCardState();
+}
+
+class _ToneFlowHabitLandCardState extends State<_ToneFlowHabitLandCard> {
+  final GlobalKey _toneChartKey = GlobalKey();
+  OverlayEntry? _tonePointPopupEntry;
+  int _selectedCharacterIndex = 0;
+  int _pageOffset = 0;
+  bool _isWeekView = true;
+
+  @override
+  void dispose() {
+    _tonePointPopupEntry?.remove();
+    _tonePointPopupEntry = null;
+    super.dispose();
+  }
+
+  static const Color _purple = Color(0xFF8E7CFF);
+  static const Color _voiceBlue = Color(0xFF2F80ED);
+
+  static const List<_FlowAxisItem> _toneAxis = [
+    _FlowAxisItem('happy', 'Happy', 'سعيد'),
+    _FlowAxisItem('neutral', 'Neutral', 'محايد'),
+    _FlowAxisItem('surprise', 'Surprise', 'مفاجأة'),
+    _FlowAxisItem('fear', 'Fear', 'خوف'),
+    _FlowAxisItem('sad', 'Sad', 'حزين'),
+    _FlowAxisItem('angry', 'Angry', 'غاضب'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final grouped = _groupByCharacter(widget.allPoints);
+    final characterIds = grouped.keys.toList();
+    if (characterIds.isEmpty) return const SizedBox.shrink();
+
+    if (_selectedCharacterIndex >= characterIds.length) {
+      _selectedCharacterIndex = 0;
+    }
+
+    final selectedId = characterIds[_selectedCharacterIndex];
+    final points = List<VideoSessionFlowPoint>.from(grouped[selectedId] ?? const [])
+      ..sort((a, b) => a.date.compareTo(b.date));
+    final periodData = _isWeekView ? _buildWeekData(points) : _buildDayData(points);
+    final latestLabel = periodData.points.isEmpty
+        ? '—'
+        : periodData.points.last.toneLabel(isArabic(context));
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(30),
+        border: Border.all(color: const Color(0xFFE9E4FF)),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF8E7CFF).withValues(alpha: 0.14),
+            blurRadius: 26,
+            offset: const Offset(0, 14),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          _buildTopSegment(context),
+          const SizedBox(height: 18),
+          _buildCharacterSelector(context, characterIds, grouped),
+          const SizedBox(height: 16),
+          _buildHeader(context, periodData),
+          const SizedBox(height: 14),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: _buildStatBlock(
+                  context,
+                  tr(context, 'Latest tone', 'آخر نبرة'),
+                  latestLabel,
+                  footer: _buildToneSessionLegend(context),
+                ),
+              ),
+              Expanded(
+                child: _buildStatBlock(
+                  context,
+                  tr(context, 'Sessions', 'الجلسات'),
+                  _localizedNumber(context, periodData.sessionCount),
+                  alignEnd: true,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 250,
+            child: Padding(
+              padding: const EdgeInsets.only(left: 0, right: 4, top: 2, bottom: 2),
+              child: _buildScrollableToneChart(context, periodData),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTopSegment(BuildContext context) {
+    const activeColor = Color(0xFF2A1E3B);
+    const inactiveColor = Color(0xFF9CA3AF);
+
+    Widget tab(String label, bool selected, VoidCallback onTap) {
+      return Expanded(
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(8),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                    color: selected ? activeColor : inactiveColor,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeOutCubic,
+                  height: 3,
+                  width: selected ? 28 : 0,
+                  decoration: BoxDecoration(
+                    color: selected ? _purple : Colors.transparent,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Row(
+      children: [
+        tab(tr(context, 'Day', 'اليوم'), !_isWeekView, () {
+          setState(() {
+            _isWeekView = false;
+            _pageOffset = 0;
+          });
+        }),
+        tab(tr(context, 'Week', 'الأسبوع'), _isWeekView, () {
+          setState(() {
+            _isWeekView = true;
+            _pageOffset = 0;
+          });
+        }),
+      ],
+    );
+  }
+
+  Widget _buildCharacterSelector(
+      BuildContext context,
+      List<String> characterIds,
+      Map<String, List<VideoSessionFlowPoint>> grouped,
+      ) {
+    return SizedBox(
+      height: 38,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: characterIds.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final id = characterIds[index];
+          final name = grouped[id]!.first.characterName;
+          final selected = index == _selectedCharacterIndex;
+
+          return GestureDetector(
+            onTap: () {
+              setState(() {
+                _selectedCharacterIndex = index;
+                _pageOffset = 0;
+              });
+            },
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 220),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(18),
+                gradient: selected
+                    ? const LinearGradient(
+                  colors: [Color(0xFF8E7CFF), Color(0xFFA797FF)],
+                )
+                    : null,
+                color: selected ? null : const Color(0xFFF7F5FF),
+                border: Border.all(
+                  color: selected ? Colors.transparent : const Color(0xFFE7E1FF),
+                ),
+              ),
+              child: Center(
+                child: Text(
+                  name,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: selected ? Colors.white : const Color(0xFF6D6486),
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildHeader(BuildContext context, _ToneFlowPeriodData periodData) {
+    final canGoBack = periodData.canGoBack;
+    final canGoForward = _pageOffset > 0;
+
+    return Row(
+      children: [
+        _PeriodNavArrow(
+          icon: Icons.chevron_left_rounded,
+          enabled: canGoBack,
+          onTap: canGoBack
+              ? () {
+            setState(() {
+              _pageOffset += 1;
+            });
+          }
+              : null,
+        ),
+        Expanded(
+          child: Column(
+            children: [
+              Text(
+                periodData.title,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF2A1E3B),
+                  letterSpacing: -0.2,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                periodData.subtitle,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  color: Color(0xFF9CA3AF),
+                ),
+              ),
+            ],
+          ),
+        ),
+        _PeriodNavArrow(
+          icon: Icons.chevron_right_rounded,
+          enabled: canGoForward,
+          onTap: canGoForward
+              ? () {
+            setState(() {
+              _pageOffset -= 1;
+            });
+          }
+              : null,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatBlock(
+      BuildContext context,
+      String label,
+      String value, {
+        bool alignEnd = false,
+        Widget? footer,
+      }) {
+    return Column(
+      crossAxisAlignment: alignEnd ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF9CA3AF),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF2A1E3B),
+          ),
+          textAlign: alignEnd ? TextAlign.end : TextAlign.start,
+        ),
+        if (footer != null) ...[
+          const SizedBox(height: 5),
+          footer,
+        ],
+      ],
+    );
+  }
+
+  Widget _buildToneSessionLegend(BuildContext context) {
+    return Align(
+      alignment: AlignmentDirectional.centerStart,
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 5,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          _buildToneLegendItem(
+            color: _voiceBlue,
+            label: tr(context, 'Voice session', 'جلسة صوتية'),
+          ),
+          _buildToneLegendItem(
+            color: _purple,
+            label: tr(context, 'Video session', 'جلسة فيديو'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildToneLegendItem({
+    required Color color,
+    required String label,
+  }) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 7,
+          height: 7,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+          ),
+        ),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            fontSize: 9,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF8D84A6),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildScrollableToneChart(BuildContext context, _ToneFlowPeriodData periodData) {
+    final daySessionCount = _isWeekView ? 0 : _sessionEntriesForDay(periodData.points).length;
+
+    if (!_isWeekView && daySessionCount <= 6) {
+      return _buildToneChart(context, periodData);
+    }
+
+    final sessionCount = _isWeekView
+        ? periodData.points.length.clamp(1, 20)
+        : math.max(1, daySessionCount);
+    final availableWidth = math.max(MediaQuery.of(context).size.width - 88, 180.0);
+    final chartWidth = _isWeekView
+        ? math.max(availableWidth - 48, 78.0 + (sessionCount * 38.0))
+        : math.max(availableWidth - 48, sessionCount * 72.0 + 44.0);
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildFixedToneAxis(context),
+        Expanded(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            child: SizedBox(
+              width: chartWidth,
+              child: _buildToneChart(
+                context,
+                periodData,
+                showLeftTitles: false,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFixedToneAxis(BuildContext context) {
+    return SizedBox(
+      width: 48,
+      child: Padding(
+        padding: EdgeInsets.only(top: 8, bottom: _isWeekView ? 40 : 44, right: 4),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: _toneAxis.reversed.map((item) {
+            return Text(
+              item.label(context),
+              textAlign: TextAlign.right,
+              maxLines: 1,
+              overflow: TextOverflow.visible,
+              style: const TextStyle(
+                fontSize: 8,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF8D84A6),
+                height: 1.0,
+              ),
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildToneChart(
+      BuildContext context,
+      _ToneFlowPeriodData periodData, {
+        bool showLeftTitles = true,
+      }) {
+    if (periodData.points.isEmpty) {
+      return Center(
+        child: Text(
+          tr(context, 'No sessions in this period', 'لا توجد جلسات في هذه الفترة'),
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF9CA3AF),
+          ),
+        ),
+      );
+    }
+
+    final labels = <String>[];
+    final dayStartXValues = <double>[];
+    final List<LineChartBarData> lineBarsData = [];
+    final Map<String, String> tooltipTextBySpot = {};
+    int visualPointCount = 0;
+
+    if (_isWeekView) {
+      final sessions = List<VideoSessionFlowPoint>.from(periodData.points)
+        ..sort((a, b) {
+          final dateCompare = a.date.compareTo(b.date);
+          if (dateCompare != 0) return dateCompare;
+          return a.sessionId.compareTo(b.sessionId);
+        });
+
+      final visibleSessions = sessions.length > 20
+          ? sessions.sublist(sessions.length - 20)
+          : sessions;
+
+      for (int i = 0; i < visibleSessions.length; i++) {
+        final point = visibleSessions[i];
+        final sessionColor = _colorForSessionType(point.sessionType);
+        final x = i.toDouble();
+
+        final isFirstPointForDay =
+            i == 0 || !_isSameDay(visibleSessions[i - 1].date, point.date);
+
+        // Week view uses real day/date labels like the emotion chart,
+        // for example Apr 24, instead of S1, S2, etc.
+        // If there is more than one session on the same day, only the first
+        // one gets the date label to avoid duplicate labels.
+        labels.add(isFirstPointForDay ? _formatMonthDay(context, point.date) : '');
+        if (isFirstPointForDay) {
+          dayStartXValues.add(x);
+        }
+
+        final barIndex = lineBarsData.length;
+        tooltipTextBySpot['${barIndex}_0'] = _tonePointTooltipText(
+          context,
+          point,
+          i + 1,
+        );
+
+        lineBarsData.add(
+          LineChartBarData(
+            spots: [FlSpot(x, _toneIndexFor(point).toDouble())],
+            isCurved: false,
+            color: sessionColor,
+            barWidth: 0,
+            isStrokeCapRound: true,
+            dotData: FlDotData(
+              show: true,
+              getDotPainter: (spot, percent, barData, index) {
+                return _toneDotPainterForSessionType(point.sessionType, sessionColor);
+              },
+            ),
+            belowBarData: BarAreaData(show: false),
+          ),
+        );
+      }
+
+      visualPointCount = visibleSessions.length;
+    } else {
+      final sessionEntries = _sessionEntriesForDay(periodData.points);
+
+      for (int i = 0; i < sessionEntries.length; i++) {
+        final sessionPoints = List<VideoSessionFlowPoint>.from(sessionEntries[i].value)
+          ..sort((a, b) => a.date.compareTo(b.date));
+
+        final startPoint = _startPointForSession(sessionPoints);
+        final endPoint = _endPointForSession(sessionPoints);
+        final startX = (i * 2).toDouble();
+        final endX = startX + 1;
+        final sessionColor = _colorForSessionType(startPoint.sessionType);
+
+        dayStartXValues.add(startX);
+        labels.add(_sessionLabel(context, i + 1));
+        labels.add('');
+
+        final barIndex = lineBarsData.length;
+        tooltipTextBySpot['${barIndex}_0'] = _tonePointTooltipText(
+          context,
+          startPoint,
+          i + 1,
+        );
+        tooltipTextBySpot['${barIndex}_1'] = _tonePointTooltipText(
+          context,
+          endPoint,
+          i + 1,
+        );
+
+        lineBarsData.add(
+          LineChartBarData(
+            spots: [
+              FlSpot(startX, _toneIndexFor(startPoint).toDouble()),
+              FlSpot(endX, _toneIndexFor(endPoint).toDouble()),
+            ],
+            isCurved: false,
+            color: sessionColor,
+            barWidth: 2.6,
+            isStrokeCapRound: true,
+            dotData: FlDotData(
+              show: true,
+              getDotPainter: (spot, percent, barData, index) {
+                return _toneDotPainterForSessionType(startPoint.sessionType, sessionColor);
+              },
+            ),
+            belowBarData: BarAreaData(show: false),
+          ),
+        );
+      }
+
+      visualPointCount = sessionEntries.length * 2;
+    }
+
+    final maxX = math.max(0, visualPointCount - 1).toDouble();
+    final maxY = (_toneAxis.length - 1).toDouble();
+
+    // Add the same edge spacing used by the intensity day chart in Day view.
+    // Since bottom labels are drawn only on exact integer ticks, this extra
+    // fractional padding does not duplicate S1 or the last session label.
+    const dayEdgePointPadding = 0.65;
+    final chartMinX = _isWeekView ? -0.35 : -dayEdgePointPadding;
+    final chartMaxX = _isWeekView ? maxX + 0.35 : maxX + dayEdgePointPadding;
+    const chartMinY = -0.35;
+    final chartMaxY = maxY + 0.15;
+
+    return KeyedSubtree(
+      key: _toneChartKey,
+      child: LineChart(
+        LineChartData(
+          minX: chartMinX,
+          maxX: chartMaxX,
+          minY: chartMinY,
+          maxY: chartMaxY,
+          clipData: FlClipData.none(),
+          borderData: FlBorderData(show: false),
+          gridData: FlGridData(
+            show: true,
+            drawVerticalLine: true,
+            verticalInterval: 1,
+            horizontalInterval: 1,
+            checkToShowVerticalLine: (value) {
+              return dayStartXValues.any((x) => (x - value).abs() < 0.2);
+            },
+            getDrawingVerticalLine: (value) => FlLine(
+              color: const Color(0xFFD9CFFF),
+              strokeWidth: 1.2,
+              dashArray: const [4, 4],
+            ),
+            getDrawingHorizontalLine: (value) => FlLine(
+              color: const Color(0xFFE8E0F5),
+              strokeWidth: 1,
+              dashArray: const [4, 4],
+            ),
+          ),
+          titlesData: FlTitlesData(
+            topTitles: AxisTitles(
+              sideTitles: SideTitles(showTitles: false),
+            ),
+            rightTitles: AxisTitles(
+              sideTitles: SideTitles(showTitles: false),
+            ),
+            leftTitles: AxisTitles(
+              sideTitles: SideTitles(
+                showTitles: showLeftTitles,
+                interval: 1,
+                reservedSize: showLeftTitles ? 48 : 0,
+                getTitlesWidget: (value, meta) {
+                  if (!showLeftTitles) return const SizedBox.shrink();
+
+                  final roundedValue = value.roundToDouble();
+
+                  if ((value - roundedValue).abs() > 0.001) {
+                    return const SizedBox.shrink();
+                  }
+
+                  final index = roundedValue.toInt();
+                  if (index < 0 || index >= _toneAxis.length) {
+                    return const SizedBox.shrink();
+                  }
+
+                  return Align(
+                    alignment: Alignment.centerRight,
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 4),
+                      child: Text(
+                        _toneAxis[index].label(context),
+                        textAlign: TextAlign.right,
+                        maxLines: 1,
+                        overflow: TextOverflow.visible,
+                        style: const TextStyle(
+                          fontSize: 8,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF8D84A6),
+                          height: 1.0,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            bottomTitles: AxisTitles(
+              sideTitles: SideTitles(
+                reservedSize: _isWeekView ? 40 : 44,
+                showTitles: true,
+                interval: 1,
+                getTitlesWidget: (value, meta) {
+                  if (_isWeekView) {
+                    final roundedValue = value.roundToDouble();
+
+                    // Hide boundary ticks produced by fl_chart at minX/maxX
+                    // (for example -0.35 and maxX + 0.35), so only the
+                    // real middle session labels are shown.
+                    if ((value - roundedValue).abs() > 0.001) {
+                      return const SizedBox.shrink();
+                    }
+
+                    final index = roundedValue.toInt();
+                    if (index < 0 || index >= labels.length) {
+                      return const SizedBox.shrink();
+                    }
+
+                    final label = labels[index];
+                    if (label.isEmpty) {
+                      return const SizedBox.shrink();
+                    }
+
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 10),
+                      child: Text(
+                        label,
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 8,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF8D84A6),
+                        ),
+                      ),
+                    );
+                  }
+
+                  // Only draw labels on exact session-start x positions.
+                  final roundedValue = value.roundToDouble();
+                  if ((value - roundedValue).abs() > 0.001) {
+                    return const SizedBox.shrink();
+                  }
+
+                  final index = roundedValue.toInt();
+                  if (index < 0 || index >= labels.length) {
+                    return const SizedBox.shrink();
+                  }
+
+                  final label = labels[index];
+                  if (label.isEmpty) {
+                    return const SizedBox.shrink();
+                  }
+
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: Text(
+                      label,
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF8D84A6),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+          lineTouchData: LineTouchData(
+            enabled: true,
+            handleBuiltInTouches: false,
+            touchSpotThreshold: 9,
+            touchCallback: (event, response) {
+              if (event is! FlTapUpEvent) return;
+
+              final spots = response?.lineBarSpots;
+              if (spots == null || spots.isEmpty) return;
+
+              final touchedSpot = spots.first;
+              final key = '${touchedSpot.barIndex}_${touchedSpot.spotIndex}';
+              final text = tooltipTextBySpot[key];
+              if (text == null || text.trim().isEmpty) return;
+
+              final tapPosition = event.localPosition;
+              if (tapPosition == null) return;
+
+              // In day view, use the actual chart spot coordinates instead of
+              // the finger tap location, so the popup triangle points exactly
+              // to the selected dot. Week view keeps the existing behavior.
+              final popupAnchor = _isWeekView
+                  ? tapPosition
+                  : _toneSpotToLocalOffset(
+                context,
+                touchedSpot,
+                showLeftTitles: showLeftTitles,
+                minX: chartMinX,
+                maxX: chartMaxX,
+                minY: chartMinY,
+                maxY: chartMaxY,
+              );
+
+              _showTonePointPopup(context, text, popupAnchor);
+            },
+            getTouchedSpotIndicator: (barData, spotIndexes) {
+              return spotIndexes.map((index) {
+                return TouchedSpotIndicatorData(
+                  FlLine(
+                    color: (barData.color ?? _purple).withValues(alpha: 0.20),
+                    strokeWidth: 1.4,
+                    dashArray: const [4, 4],
+                  ),
+                  FlDotData(
+                    show: true,
+                    getDotPainter: (spot, percent, barData, index) {
+                      final pointColor = barData.color ?? _purple;
+                      return FlDotCirclePainter(
+                        radius: 6,
+                        color: Colors.white,
+                        strokeWidth: 2.4,
+                        strokeColor: pointColor,
+                      );
+                    },
+                  ),
+                );
+              }).toList();
+            },
+            touchTooltipData: LineTouchTooltipData(
+              getTooltipItems: (_) => const [],
+            ),
+          ),
+          lineBarsData: lineBarsData,
+        ),
+      ),
+    );
+  }
+
+  Offset _toneSpotToLocalOffset(
+      BuildContext context,
+      LineBarSpot spot, {
+        required bool showLeftTitles,
+        required double minX,
+        required double maxX,
+        required double minY,
+        required double maxY,
+      }) {
+    final chartBox = _toneChartKey.currentContext?.findRenderObject() as RenderBox?;
+    final chartSize = chartBox?.size;
+
+    if (chartSize == null || chartSize.width <= 0 || chartSize.height <= 0) {
+      return Offset.zero;
+    }
+
+    final leftReserved = showLeftTitles ? 48.0 : 0.0;
+    final bottomReserved = _isWeekView ? 40.0 : 44.0;
+    const topReserved = 0.0;
+    const rightReserved = 0.0;
+
+    final plotWidth = math.max(
+      1.0,
+      chartSize.width - leftReserved - rightReserved,
+    );
+    final plotHeight = math.max(
+      1.0,
+      chartSize.height - topReserved - bottomReserved,
+    );
+
+    final xRange = math.max(0.0001, maxX - minX);
+    final yRange = math.max(0.0001, maxY - minY);
+
+    final dx = leftReserved + ((spot.x - minX) / xRange) * plotWidth;
+    final dy = topReserved + ((maxY - spot.y) / yRange) * plotHeight;
+
+    return Offset(
+      dx.clamp(0.0, chartSize.width),
+      dy.clamp(0.0, chartSize.height),
+    );
+  }
+
+  void _showTonePointPopup(
+      BuildContext context,
+      String text,
+      Offset localPosition,
+      ) {
+    _tonePointPopupEntry?.remove();
+    _tonePointPopupEntry = null;
+
+    final overlay = Overlay.of(context);
+    final chartBox = _toneChartKey.currentContext?.findRenderObject() as RenderBox?;
+    final overlayBox = overlay.context.findRenderObject() as RenderBox?;
+
+    if (chartBox == null || overlayBox == null) return;
+
+    final globalPoint = chartBox.localToGlobal(localPosition);
+    final overlayPoint = overlayBox.globalToLocal(globalPoint);
+
+    const popupWidth = 158.0;
+    const horizontalPadding = 8.0;
+    const verticalGap = 10.0;
+    const arrowSize = 10.0;
+
+    final estimatedHeight = text.contains('\n') ? 50.0 : 40.0;
+    final left = (overlayPoint.dx - popupWidth / 2).clamp(
+      horizontalPadding,
+      overlayBox.size.width - popupWidth - horizontalPadding,
+    );
+    final top = (overlayPoint.dy - estimatedHeight - verticalGap).clamp(
+      horizontalPadding,
+      overlayBox.size.height - estimatedHeight - horizontalPadding,
+    );
+
+    // Keep the triangle tip aligned exactly with the tapped chart point,
+    // even when the popup is clamped near the screen edges.
+    final arrowLeft = (overlayPoint.dx - left - arrowSize / 2).clamp(
+      8.0,
+      popupWidth - arrowSize - 8.0,
+    );
+
+    _tonePointPopupEntry = OverlayEntry(
+      builder: (overlayContext) {
+        return Positioned.fill(
+          child: Material(
+            color: Colors.transparent,
+            child: Stack(
+              children: [
+                GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onTap: () {
+                    _tonePointPopupEntry?.remove();
+                    _tonePointPopupEntry = null;
+                  },
+                  child: const SizedBox.expand(),
+                ),
+                Positioned(
+                  left: left,
+                  top: top,
+                  width: popupWidth,
+                  child: _SmallFlowPointPopup(
+                    text: text,
+                    arrowLeft: arrowLeft,
+                    onClose: () {
+                      _tonePointPopupEntry?.remove();
+                      _tonePointPopupEntry = null;
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    overlay.insert(_tonePointPopupEntry!);
+  }
+
+  String _tonePointTooltipText(
+      BuildContext context,
+      VideoSessionFlowPoint point,
+      int sessionNumber,
+      ) {
+    final sessionType = point.sessionType == 'voice'
+        ? tr(context, 'Voice session', 'جلسة صوتية')
+        : tr(context, 'Video session', 'جلسة فيديو');
+    final stageLabel = point.isSessionStart
+        ? tr(context, 'Start', 'البداية')
+        : tr(context, 'End', 'النهاية');
+    final toneLabel = point.toneLabel(isArabic(context));
+
+    return '${_sessionLabel(context, sessionNumber)} • $sessionType\n${_formatMonthDay(context, point.date)} • $stageLabel ${tr(context, 'Tone', 'النبرة')}: $toneLabel';
+  }
+
+  FlDotPainter _toneDotPainterForSessionType(String sessionType, Color color) {
+    if (sessionType == 'voice') {
+      return FlDotCirclePainter(
+        radius: 5.8,
+        color: color,
+        strokeWidth: 2,
+        strokeColor: Colors.white,
+      );
+    }
+
+    return FlDotSquarePainter(
+      size: 10.5,
+      color: color,
+      strokeWidth: 2,
+      strokeColor: Colors.white,
+    );
+  }
+
+  Color _colorForSessionType(String sessionType) {
+    return sessionType == 'voice' ? _voiceBlue : _purple;
+  }
+
+  int _toneIndexFor(VideoSessionFlowPoint point) {
+    final index = _toneAxis.indexWhere((item) => item.key == point.toneKey);
+    final neutralIndex = _toneAxis.indexWhere((item) => item.key == 'neutral');
+    return index >= 0 ? index : neutralIndex.clamp(0, _toneAxis.length - 1);
+  }
+
+  Map<String, List<VideoSessionFlowPoint>> _groupByCharacter(List<VideoSessionFlowPoint> points) {
+    final Map<String, List<VideoSessionFlowPoint>> grouped = {};
+
+    for (final point in points) {
+      final key = point.characterId.trim().toLowerCase().isNotEmpty
+          ? point.characterId.trim().toLowerCase()
+          : point.characterName.trim().toLowerCase();
+      grouped.putIfAbsent(key, () => []);
+      grouped[key]!.add(point);
+    }
+
+    final entries = grouped.entries.toList()
+      ..sort((a, b) {
+        final lastA = a.value.map((e) => e.date).reduce((x, y) => x.isAfter(y) ? x : y);
+        final lastB = b.value.map((e) => e.date).reduce((x, y) => x.isAfter(y) ? x : y);
+        return lastB.compareTo(lastA);
+      });
+
+    return {for (final entry in entries) entry.key: entry.value};
+  }
+
+  List<MapEntry<String, List<VideoSessionFlowPoint>>> _sessionEntriesForDay(
+      List<VideoSessionFlowPoint> points,
+      ) {
+    final Map<String, List<VideoSessionFlowPoint>> pointsBySession = {};
+    for (final point in points) {
+      pointsBySession.putIfAbsent(point.sessionId, () => []);
+      pointsBySession[point.sessionId]!.add(point);
+    }
+
+    return pointsBySession.entries.toList()
+      ..sort((a, b) {
+        final aDate = _startPointForSession(a.value).date;
+        final bDate = _startPointForSession(b.value).date;
+        final timeCompare = aDate.compareTo(bDate);
+        if (timeCompare != 0) return timeCompare;
+        return a.key.compareTo(b.key);
+      });
+  }
+
+  VideoSessionFlowPoint _startPointForSession(List<VideoSessionFlowPoint> sessionPoints) {
+    final sorted = List<VideoSessionFlowPoint>.from(sessionPoints)
+      ..sort((a, b) => a.date.compareTo(b.date));
+    return sorted.firstWhere(
+          (point) => point.isSessionStart,
+      orElse: () => sorted.first,
+    );
+  }
+
+  VideoSessionFlowPoint _endPointForSession(List<VideoSessionFlowPoint> sessionPoints) {
+    final sorted = List<VideoSessionFlowPoint>.from(sessionPoints)
+      ..sort((a, b) => a.date.compareTo(b.date));
+    return sorted.firstWhere(
+          (point) => !point.isSessionStart,
+      orElse: () => sorted.last,
+    );
+  }
+
+  _ToneFlowPeriodData _buildWeekData(List<VideoSessionFlowPoint> points) {
+    final now = DateTime.now();
+    final startOfThisWeek = _startOfWeek(now);
+    final start = startOfThisWeek.subtract(Duration(days: 7 * _pageOffset));
+    final end = start.add(const Duration(days: 6));
+
+    final inWeek = points.where((point) {
+      final d = DateTime(point.date.year, point.date.month, point.date.day);
+      return !d.isBefore(start) && !d.isAfter(end);
+    }).toList()
+      ..sort((a, b) => a.date.compareTo(b.date));
+
+    final Map<String, List<VideoSessionFlowPoint>> bySession = {};
+    for (final point in inWeek) {
+      bySession.putIfAbsent(point.sessionId, () => []);
+      bySession[point.sessionId]!.add(point);
+    }
+
+    final latestSessionPoints = bySession.entries.map((entry) {
+      final sorted = List<VideoSessionFlowPoint>.from(entry.value)
+        ..sort((a, b) => a.date.compareTo(b.date));
+      return sorted.firstWhere(
+            (point) => !point.isSessionStart,
+        orElse: () => sorted.last,
+      );
+    }).toList()
+      ..sort((a, b) => a.date.compareTo(b.date));
+
+    final limitedPoints = latestSessionPoints.length > 20
+        ? latestSessionPoints.sublist(latestSessionPoints.length - 20)
+        : latestSessionPoints;
+    final oldest = points.isEmpty ? null : points.first.date;
+    final canGoBack = oldest != null && _startOfWeek(oldest).isBefore(start);
+
+    return _ToneFlowPeriodData(
+      title: _formatDateRange(context, start, end),
+      subtitle: _localizedNumber(context, start.year),
+      points: limitedPoints,
+      canGoBack: canGoBack,
+      sessionCount: latestSessionPoints.length,
+    );
+  }
+
+  _ToneFlowPeriodData _buildDayData(List<VideoSessionFlowPoint> points) {
+    final Map<DateTime, List<VideoSessionFlowPoint>> dayGroups = {};
+    for (final point in points) {
+      final dayKey = DateTime(point.date.year, point.date.month, point.date.day);
+      dayGroups.putIfAbsent(dayKey, () => []);
+      dayGroups[dayKey]!.add(point);
+    }
+
+    final days = dayGroups.keys.toList()..sort((a, b) => b.compareTo(a));
+    if (days.isEmpty) {
+      final now = DateTime.now();
+      return _ToneFlowPeriodData(
+        title: _formatMonthDay(context, now),
+        subtitle: _localizedNumber(context, now.year),
+        points: const [],
+        canGoBack: false,
+        sessionCount: 0,
+      );
+    }
+
+    final safeOffset = _pageOffset.clamp(0, days.length - 1);
+    final selectedDay = days[safeOffset];
+    final selectedDayPoints = List<VideoSessionFlowPoint>.from(dayGroups[selectedDay] ?? const [])
+      ..sort((a, b) => a.date.compareTo(b.date));
+    final sessionCount = _sessionEntriesForDay(selectedDayPoints).length;
+
+    return _ToneFlowPeriodData(
+      title: _formatMonthDay(context, selectedDay),
+      subtitle: tr(
+        context,
+        'Session start and end in this day',
+        'بداية ونهاية كل جلسة في هذا اليوم',
+      ),
+      points: selectedDayPoints,
+      canGoBack: safeOffset < days.length - 1,
+      sessionCount: sessionCount,
+    );
+  }
+
+  bool _isSameDay(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
+  static DateTime _startOfWeek(DateTime date) {
+    final normalized = DateTime(date.year, date.month, date.day);
+    return normalized.subtract(Duration(days: normalized.weekday - 1));
+  }
+
+  static String _formatDateRange(BuildContext context, DateTime start, DateTime end) {
+    return '${_formatMonthDay(context, start)} - ${_formatMonthDay(context, end)}';
+  }
+
+  static String _formatMonthDay(BuildContext context, DateTime date) {
+    final month = _monthName(context, date.month);
+    final day = _localizedNumber(context, date.day);
+    return isArabic(context) ? '$day $month' : '$month $day';
+  }
+
+  static String _sessionLabel(BuildContext context, int number) {
+    return '${tr(context, 'S', 'ج')}${_localizedNumber(context, number)}';
+  }
+
+  static String _monthName(BuildContext context, int month) {
+    const en = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const ar = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+    return isArabic(context) ? ar[month - 1] : en[month - 1];
+  }
+
+  static String _localizedNumber(BuildContext context, int value) {
+    final text = value.toString();
+    if (!isArabic(context)) return text;
+    const western = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+    const arabic = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+    var result = text;
+    for (int i = 0; i < western.length; i++) {
+      result = result.replaceAll(western[i], arabic[i]);
+    }
+    return result;
+  }
+}
+
+class _ToneFlowPeriodData {
+  final String title;
+  final String subtitle;
+  final List<VideoSessionFlowPoint> points;
+  final bool canGoBack;
+  final int sessionCount;
+
+  const _ToneFlowPeriodData({
     required this.title,
     required this.subtitle,
     required this.points,

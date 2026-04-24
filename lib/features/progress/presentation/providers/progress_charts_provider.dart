@@ -31,6 +31,8 @@ class VideoSessionFlowPoint {
   final String sessionId;
   final String characterId;
   final String characterName;
+  final String sessionType;
+  final bool isSessionStart;
   final DateTime date;
   final String emotionKey;
   final String emotionLabelEn;
@@ -43,6 +45,8 @@ class VideoSessionFlowPoint {
     required this.sessionId,
     required this.characterId,
     required this.characterName,
+    required this.sessionType,
+    required this.isSessionStart,
     required this.date,
     required this.emotionKey,
     required this.emotionLabelEn,
@@ -297,17 +301,23 @@ class ProgressChartsProvider {
       final faceEmotionMap = (data['faceEmotion'] as Map<String, dynamic>?) ?? {};
       final voiceToneMap = (data['voiceTone'] as Map<String, dynamic>?) ?? {};
 
+      final sessionTypeRaw =
+      (data['type'] ?? 'video').toString().trim().toLowerCase();
+      final normalizedSessionType = sessionTypeRaw == 'voice'
+          ? 'voice'
+          : sessionTypeRaw == 'video'
+          ? 'video'
+          : 'chat';
+
       final startEmotionRaw = faceEmotionMap['startEmotion'];
       final endEmotionRaw = faceEmotionMap['endEmotion'];
       final startToneRaw = voiceToneMap['startEmotion'];
       final endToneRaw = voiceToneMap['endEmotion'];
 
-      final hasAnyFlowData = startEmotionRaw != null ||
-          endEmotionRaw != null ||
-          startToneRaw != null ||
-          endToneRaw != null;
+      final hasVideoEmotionData = startEmotionRaw != null || endEmotionRaw != null;
+      final hasToneData = startToneRaw != null || endToneRaw != null;
 
-      if (!hasAnyFlowData) {
+      if (!hasVideoEmotionData && !hasToneData) {
         continue;
       }
 
@@ -319,12 +329,13 @@ class ProgressChartsProvider {
       final sessionDate = _extractSessionDate(data);
 
       final startDate = _extractGenericDate(
-        faceEmotionMap['updatedAt'] ?? voiceToneMap['updatedAt'],
+        data['startedAt'] ?? data['createdAt'] ?? data['timestamp'],
       ) ??
           sessionDate;
 
       final endDate = _extractGenericDate(
-        voiceToneMap['updatedAt'] ??
+        data['endedAt'] ??
+            voiceToneMap['updatedAt'] ??
             faceEmotionMap['updatedAt'] ??
             data['updatedAt'],
       ) ??
@@ -335,6 +346,8 @@ class ProgressChartsProvider {
           sessionId: doc.id,
           characterId: canonicalCharacterId,
           characterName: displayName,
+          sessionType: normalizedSessionType,
+          isSessionStart: true,
           date: startDate,
           emotionKey: startEmotion.key,
           emotionLabelEn: startEmotion.labelEn,
@@ -350,6 +363,8 @@ class ProgressChartsProvider {
           sessionId: doc.id,
           characterId: canonicalCharacterId,
           characterName: displayName,
+          sessionType: normalizedSessionType,
+          isSessionStart: false,
           date: endDate.isAfter(startDate)
               ? endDate
               : startDate.add(const Duration(milliseconds: 1)),
@@ -369,6 +384,10 @@ class ProgressChartsProvider {
 
       final sessionCompare = a.sessionId.compareTo(b.sessionId);
       if (sessionCompare != 0) return sessionCompare;
+
+      if (a.isSessionStart != b.isSessionStart) {
+        return a.isSessionStart ? -1 : 1;
+      }
 
       return a.characterName.compareTo(b.characterName);
     });
