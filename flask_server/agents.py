@@ -1,5 +1,7 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from concurrent.futures import ThreadPoolExecutor
+from threading import Lock
 import os
 import json
 import logging
@@ -15,6 +17,23 @@ from openai import OpenAI
 OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-4o-mini')
 OPENAI_SUMMARY_MODEL = os.getenv('OPENAI_SUMMARY_MODEL', 'gpt-4o-mini')
 openai_client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+CHAT_CONTEXT_MAX_MESSAGES = max(4, int(os.getenv("CHAT_CONTEXT_MAX_MESSAGES", "6")))
+CHAT_CONTEXT_MAX_CHARS_PER_MESSAGE = max(120, int(os.getenv("CHAT_CONTEXT_MAX_CHARS_PER_MESSAGE", "280")))
+MEMORY_PROMPT_MAX_CHARS = max(200, int(os.getenv("MEMORY_PROMPT_MAX_CHARS", "1800")))
+CHAT_REPLY_MAX_TOKENS = max(80, int(os.getenv("CHAT_REPLY_MAX_TOKENS", "120")))
+MEMORY_CACHE_TTL_SEC = max(1, int(os.getenv("MEMORY_CACHE_TTL_SEC", "30")))
+PLAN_FOCUS_CACHE_TTL_SEC = max(1, int(os.getenv("PLAN_FOCUS_CACHE_TTL_SEC", "20")))
+AGENT_JSON_RESPONSE_MODE = str(os.getenv("AGENT_JSON_RESPONSE_MODE", "false")).strip().lower() in {"1", "true", "yes", "on"}
+FAST_MODE_DETERMINISTIC_WRITES = str(os.getenv("FAST_MODE_DETERMINISTIC_WRITES", "true")).strip().lower() in {"1", "true", "yes", "on"}
+FAST_MODE_PROGRESS_INTERVAL_SEC = max(30, int(os.getenv("FAST_MODE_PROGRESS_INTERVAL_SEC", "90")))
+FAST_MODE_TIMELINE_INTERVAL_SEC = max(60, int(os.getenv("FAST_MODE_TIMELINE_INTERVAL_SEC", "300")))
+
+_memory_cache_lock = Lock()
+_memory_summary_cache: Dict[str, Dict[str, Any]] = {}
+_plan_focus_cache: Dict[str, Dict[str, Any]] = {}
+_write_throttle_lock = Lock()
+_last_progress_update_ts: Dict[str, float] = {}
+_last_timeline_event_ts: Dict[str, float] = {}
 
 # -----------------------------------------------------------------------------
 # Logging (terminal visibility)
@@ -27,6 +46,101 @@ if not logger.handlers:
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 logger.setLevel(logging.INFO)
+
+_BACKGROUND_WORKERS = max(2, int(os.getenv("AGENT_BACKGROUND_WORKERS", "6")))
+_background_executor = ThreadPoolExecutor(max_workers=_BACKGROUND_WORKERS)
+
+
+def _run_background(task_name: str, fn, *args, **kwargs) -> None:
+    try:
+        fn(*args, **kwargs)
+    except Exception as e:
+        logger.info(
+            json.dumps(
+                {
+                    "event": "background_task_failed",
+                    "task": task_name,
+                    "ts": _now_iso(),
+                    "error": str(e),
+                },
+                ensure_ascii=False,
+            )
+        )
+
+
+def _submit_background(task_name: str, fn, *args, **kwargs) -> None:
+    _background_executor.submit(_run_background, task_name, fn, *args, **kwargs)
+
+
+def _persist_agent_memory_summary(
+    uid: str,
+    character_id: str,
+    candidate_summary: str,
+    existing_summary: str,
+    messages: List[Dict[str, str]],
+) -> None:
+    if isinstance(candidate_summary, str):
+        summary = candidate_summary.strip()
+    elif isinstance(candidate_summary, list):
+        summary = "\n".join(str(item).strip() for item in candidate_summary if str(item).strip())
+    elif isinstance(candidate_summary, dict):
+        summary = json.dumps(candidate_summary, ensure_ascii=False)
+    else:
+        summary = str(candidate_summary or "").strip()
+    if not summary:
+        summary = (generate_updated_summary(existing_summary, messages) or "").strip()
+    if summary:
+        save_agent_memory_summary(uid, character_id, summary)
+
+
+def _fallback_intervention_message(reason: str, suggested: str = "") -> str:
+    if suggested:
+        return suggested
+    fallbacks = {
+        "crisis_detected": "I sense this feels very heavy right now. The Guider is here to offer a calmer, steady space whenever you want it.",
+        "emotional_intensity": "It sounds like a lot is moving inside. The Guider is available if you want a gentler moment to pause and process.",
+        "stuck_loop": "You may be carrying this in circles. The Guider can help you widen the view when you are ready.",
+        "session_length": "You have done deep work in this session. The Guider is here if you want to reflect and settle what came up.",
+    }
+    return fallbacks.get(reason, "The Guider is here whenever you want a gentle space to reflect.")
+
+
+def _clip_text(value: Any, max_chars: int) -> str:
+    text = str(value or "")
+    if max_chars > 0 and len(text) > max_chars:
+        return text[:max_chars].rstrip() + " ..."
+    return text
+
+
+def _prepare_model_messages(
+    messages: List[Dict[str, str]],
+    max_messages: int = CHAT_CONTEXT_MAX_MESSAGES,
+    max_chars_per_message: int = CHAT_CONTEXT_MAX_CHARS_PER_MESSAGE,
+) -> List[Dict[str, str]]:
+    tail = messages[-max_messages:] if len(messages) > max_messages else messages
+    prepared: List[Dict[str, str]] = []
+    for message in tail:
+        role = message.get("role")
+        content = message.get("content", "")
+        if role in ["user", "assistant"] and content:
+            prepared.append(
+                {
+                    "role": role,
+                    "content": _clip_text(content, max_chars_per_message),
+                }
+            )
+    return prepared
+
+
+def _messages_payload_stats(messages: List[Dict[str, str]]) -> Dict[str, int]:
+    chars = 0
+    for message in messages:
+        chars += len(str(message.get("content", "")))
+    return {
+        "count": len(messages),
+        "chars": chars,
+    }
+
 
 #Initialize Firebase Admin SDK.
 try:
@@ -383,14 +497,15 @@ def build_system_prompt_with_memory(
     plan_focus_hint: str = "",
 ) -> str:
     base_prompt = build_inner_character_prompt(character_profile)
-    if not memory_summary and not plan_focus_hint:
+    clipped_summary = _clip_text(memory_summary, MEMORY_PROMPT_MAX_CHARS)
+    if not clipped_summary and not plan_focus_hint:
         return base_prompt
 
     extras: List[str] = []
-    if memory_summary:
+    if clipped_summary:
         extras.append(
             f"""Memory summary (use only if relevant):
-{memory_summary}"""
+{clipped_summary}"""
         ) # feeding it a hint of the plan focus item
     if plan_focus_hint:
         extras.append(
@@ -406,21 +521,92 @@ def build_system_prompt_with_memory(
 
 #load the memory summary for the inner character
 def load_agent_memory_summary(uid: str, character_id: str) -> str:
-    doc_ref = db.collection('users').document(uid).collection('agent_memory').document(character_id)
-    snapshot = doc_ref.get()
-    if snapshot.exists:
-        data = snapshot.to_dict() or {}
-        return data.get('summary', '') or ''
-    return ''
+    cache_key = f"{uid}:{character_id}"
+    now = time.time()
+    with _memory_cache_lock:
+        cached = _memory_summary_cache.get(cache_key)
+        if cached:
+            summary = str(cached.get("summary", ""))
+            is_stale = (now - float(cached.get("ts", 0))) > MEMORY_CACHE_TTL_SEC
+            is_refreshing = cached.get("refreshing") is True
+            if is_stale and not is_refreshing:
+                cached["refreshing"] = True
+                _submit_background("refresh_memory_summary_cache", _refresh_memory_summary_cache, uid, character_id)
+            return summary
+
+        # cold start: return quickly and fetch in background
+        _memory_summary_cache[cache_key] = {"summary": "", "ts": 0, "refreshing": True}
+    _submit_background("refresh_memory_summary_cache", _refresh_memory_summary_cache, uid, character_id)
+    return ""
 
 
 #save the memory summary for the inner character
 def save_agent_memory_summary(uid: str, character_id: str, summary: str) -> None:
+    cache_key = f"{uid}:{character_id}"
     doc_ref = db.collection('users').document(uid).collection('agent_memory').document(character_id)
     doc_ref.set({
         'summary': summary,
         'updatedAt': firestore.SERVER_TIMESTAMP,
     }, merge=True)
+    with _memory_cache_lock:
+        _memory_summary_cache[cache_key] = {"summary": summary, "ts": time.time(), "refreshing": False}
+
+
+def _refresh_memory_summary_cache(uid: str, character_id: str) -> None:
+    cache_key = f"{uid}:{character_id}"
+    summary = ""
+    try:
+        doc_ref = db.collection('users').document(uid).collection('agent_memory').document(character_id)
+        snapshot = doc_ref.get()
+        if snapshot.exists:
+            data = snapshot.to_dict() or {}
+            summary = data.get('summary', '') or ''
+    finally:
+        with _memory_cache_lock:
+            _memory_summary_cache[cache_key] = {"summary": summary, "ts": time.time(), "refreshing": False}
+
+
+def _get_plan_focus_hint(uid: str, character_id: str) -> str:
+    cache_key = f"{uid}:{character_id}"
+    now = time.time()
+    with _memory_cache_lock:
+        cached = _plan_focus_cache.get(cache_key)
+        if cached:
+            hint = str(cached.get("hint", ""))
+            is_stale = (now - float(cached.get("ts", 0))) > PLAN_FOCUS_CACHE_TTL_SEC
+            is_refreshing = cached.get("refreshing") is True
+            if is_stale and not is_refreshing:
+                cached["refreshing"] = True
+                _submit_background("refresh_plan_focus_cache", _refresh_plan_focus_cache, uid, character_id)
+            return hint
+
+        _plan_focus_cache[cache_key] = {"hint": "", "ts": 0, "refreshing": True}
+    _submit_background("refresh_plan_focus_cache", _refresh_plan_focus_cache, uid, character_id)
+    return ""
+
+
+def _refresh_plan_focus_cache(uid: str, character_id: str) -> None:
+    cache_key = f"{uid}:{character_id}"
+    hint = ""
+    try:
+        snap = _character_plan_ref(uid, character_id).get()
+        if snap.exists:
+            focus = (snap.to_dict() or {}).get("focus") or {}
+            focus_item = focus.get("itemId")
+            focus_reason = focus.get("reason")
+            if focus_item:
+                hint = (
+                    f"Prioritize '{focus_item}' right now"
+                    + (f" ({focus_reason})" if focus_reason else "")
+                    + ". Keep this subtle, natural, and in-character."
+                )
+        else:
+            _submit_background("ensure_character_checklist", ensure_character_checklist, uid, character_id)
+    except Exception:
+        hint = ""
+    finally:
+        with _memory_cache_lock:
+            _plan_focus_cache[cache_key] = {"hint": hint, "ts": time.time(), "refreshing": False}
 
 
 # -----------------------------------------------------------------------------
@@ -1480,35 +1666,68 @@ def set_last_agent_run(uid: str) -> None:
 
 #running an agent step for the inner character
 def run_agent_step(system_prompt: str, messages: List[Dict[str, str]]) -> Dict[str, Any]:
-    agent_messages = [
-        {'role': 'system', 'content': system_prompt},
-        {'role': 'system', 'content': (
-            'Return JSON with keys: "assistantMessage", "toolCalls", "memorySummary". '
-            '"toolCalls" is a list of {name, args}. '
-            'Available tools: update_progress_summary, add_timeline_event, set_last_agent_run. '
-            'For update_progress_summary, valid args are: currentStage, streakDays, '
-            'lastSessionAt, notes. '
-            '"memorySummary" should be under 6 bullet points.'
-        )},
-    ]
-    for message in messages:
-        role = message.get('role')
-        content = message.get('content', '')
-        if role in ['user', 'assistant'] and content:
-            agent_messages.append({'role': role, 'content': content})
+    llm_started_at = time.time()
+    if AGENT_JSON_RESPONSE_MODE:
+        agent_messages = [
+            {'role': 'system', 'content': system_prompt},
+            {'role': 'system', 'content': (
+                'Return JSON with keys: "assistantMessage", "toolCalls", "memorySummary". '
+                '"toolCalls" is a list of {name, args}. '
+                'Available tools: update_progress_summary, add_timeline_event, set_last_agent_run. '
+                'For update_progress_summary, valid args are: currentStage, streakDays, '
+                'lastSessionAt, notes. '
+                '"memorySummary" should be under 6 bullet points.'
+            )},
+        ]
+        agent_messages.extend(_prepare_model_messages(messages))
+    else:
+        agent_messages = [
+            {'role': 'system', 'content': _clip_text(system_prompt, 1200)},
+            {'role': 'system', 'content': (
+                'Reply naturally and briefly in-character (2-4 sentences max). '
+                'Do not output JSON, labels, or metadata.'
+            )},
+        ]
+        agent_messages.extend(_prepare_model_messages(messages))
+    payload_stats = _messages_payload_stats(agent_messages)
 
-    response = openai_client.chat.completions.create(
-        model=OPENAI_MODEL,
-        messages=agent_messages,
-        temperature=0.7,
-        response_format={"type": "json_object"},
-    )
+    if AGENT_JSON_RESPONSE_MODE:
+        response = openai_client.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=agent_messages,
+            temperature=0.7,
+            response_format={"type": "json_object"},
+            max_tokens=CHAT_REPLY_MAX_TOKENS,
+        )
+    else:
+        response = openai_client.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=agent_messages,
+            temperature=0.7,
+            max_tokens=CHAT_REPLY_MAX_TOKENS,
+        )
+    llm_ms = int((time.time() - llm_started_at) * 1000)
 
     raw = response.choices[0].message.content or '{}'
-    try:
-        return json.loads(raw)
-    except Exception:
-        return {'assistantMessage': '', 'toolCalls': [], 'memorySummary': ''}
+    if AGENT_JSON_RESPONSE_MODE:
+        try:
+            parsed = json.loads(raw)
+            if not isinstance(parsed, dict):
+                parsed = {'assistantMessage': '', 'toolCalls': [], 'memorySummary': ''}
+        except Exception:
+            parsed = {'assistantMessage': '', 'toolCalls': [], 'memorySummary': ''}
+    else:
+        parsed = {
+            "assistantMessage": raw.strip(),
+            "toolCalls": [],
+            "memorySummary": "",
+        }
+    parsed["_meta"] = {
+        "llmMs": llm_ms,
+        "payloadMessages": payload_stats["count"],
+        "payloadChars": payload_stats["chars"],
+    }
+    return parsed
 
 
 #run tool calls for the inner character
@@ -1523,6 +1742,58 @@ def run_tool_calls(uid: str, tool_calls: List[Dict[str, Any]]) -> None:
             add_timeline_event(uid, args)
         elif name == 'set_last_agent_run':
             set_last_agent_run(uid)
+
+
+def _should_throttle(map_obj: Dict[str, float], key: str, interval_sec: int) -> bool:
+    now = time.time()
+    with _write_throttle_lock:
+        last = float(map_obj.get(key, 0.0))
+        if now - last < interval_sec:
+            return True
+        map_obj[key] = now
+        return False
+
+
+def _deterministic_fast_mode_writes(
+    uid: str,
+    character_id: str,
+    session_id: Optional[str],
+    thread_id: Optional[str],
+    assistant_message: str,
+    user_message: str,
+) -> None:
+    if not FAST_MODE_DETERMINISTIC_WRITES:
+        return
+    try:
+        set_last_agent_run(uid)
+    except Exception as e:
+        logger.info(json.dumps({"event": "fast_mode_last_agent_run_failed", "ts": _now_iso(), "uid": uid, "error": str(e)}, ensure_ascii=False))
+
+    if user_message and not _should_throttle(_last_progress_update_ts, uid, FAST_MODE_PROGRESS_INTERVAL_SEC):
+        try:
+            update_progress_summary(
+                uid,
+                {
+                    "lastSessionAt": _now_iso(),
+                    "notes": _clip_text(f"user={user_message} | agent={assistant_message}", 420),
+                },
+            )
+        except Exception as e:
+            logger.info(json.dumps({"event": "fast_mode_progress_update_failed", "ts": _now_iso(), "uid": uid, "error": str(e)}, ensure_ascii=False))
+
+    if assistant_message and not _should_throttle(_last_timeline_event_ts, uid, FAST_MODE_TIMELINE_INTERVAL_SEC):
+        try:
+            add_timeline_event(
+                uid,
+                {
+                    "type": "agent_reply",
+                    "title": f"{character_id} response",
+                    "summary": _clip_text(assistant_message, 220),
+                    "refPath": f"sessions/{session_id}" if session_id else (f"threads/{thread_id}" if thread_id else None),
+                },
+            )
+        except Exception as e:
+            logger.info(json.dumps({"event": "fast_mode_timeline_event_failed", "ts": _now_iso(), "uid": uid, "error": str(e)}, ensure_ascii=False))
 
 
 #building a memory summary prompt for the inner character
@@ -1563,6 +1834,12 @@ def generate_updated_summary(
 def chat():
     try:
         t0 = time.time()
+        t_before_llm = t0
+        pre_llm_ms = 0
+        llm_ms = 0
+        post_llm_ms = 0
+        payload_messages = 0
+        payload_chars = 0
         if not os.getenv('OPENAI_API_KEY'):
             return jsonify({
                 'success': False,
@@ -1585,184 +1862,188 @@ def chat():
         check_intervention = data.get('checkIntervention', True)  # Enable by default
 
         memory_summary = load_agent_memory_summary(uid, character_id)
-        char_plan_snapshot = _get_character_plan_snapshot(uid, character_id)
-        plan_focus_hint = ""
-        if char_plan_snapshot:
-            focus = (char_plan_snapshot.get("focus") or {})
-            focus_item = focus.get("itemId")
-            focus_reason = focus.get("reason")
-            if focus_item:
-                plan_focus_hint = (
-                    f"Prioritize '{focus_item}' right now"
-                    + (f" ({focus_reason})" if focus_reason else "")
-                    + ". Keep this subtle, natural, and in-character."
-                )
+        plan_focus_hint = _get_plan_focus_hint(uid, character_id)
         system_prompt = build_system_prompt_with_memory(
             character_profile,
             memory_summary,
             plan_focus_hint=plan_focus_hint,
         )
-        openai_messages = [{'role': 'system', 'content': system_prompt}]
-
-        for message in messages:
-            role = message.get('role')
-            content = message.get('content', '')
-            if role in ['user', 'assistant'] and content:
-                openai_messages.append({'role': role, 'content': content})
-
+        pre_llm_ms = int((time.time() - t0) * 1000)
+        t_before_llm = time.time()
         agent_result = run_agent_step(system_prompt, messages)
+        llm_meta = (agent_result.get("_meta") or {}) if isinstance(agent_result, dict) else {}
+        llm_ms = int(llm_meta.get("llmMs") or 0)
+        payload_messages = int(llm_meta.get("payloadMessages") or 0)
+        payload_chars = int(llm_meta.get("payloadChars") or 0)
+        if isinstance(agent_result, dict):
+            agent_result.pop("_meta", None)
         tool_calls = agent_result.get('toolCalls') or []
-        run_tool_calls(uid, tool_calls)
+        if tool_calls:
+            _submit_background("run_tool_calls_chat", run_tool_calls, uid, tool_calls)
 
         assistant_message = agent_result.get('assistantMessage', '')
         updated_summary = agent_result.get('memorySummary', '')
-        if not updated_summary:
-            updated_summary = generate_updated_summary(
-                memory_summary,
-                messages + [{'role': 'assistant', 'content': assistant_message}],
+        full_messages = messages + [{'role': 'assistant', 'content': assistant_message}]
+        if not AGENT_JSON_RESPONSE_MODE:
+            last_user_message = ""
+            for msg in reversed(messages):
+                if msg.get("role") == "user":
+                    last_user_message = str(msg.get("content", "") or "")
+                    break
+            _submit_background(
+                "deterministic_writes_chat",
+                _deterministic_fast_mode_writes,
+                uid,
+                character_id,
+                session_id,
+                thread_id,
+                assistant_message,
+                last_user_message,
             )
-        save_agent_memory_summary(uid, character_id, updated_summary)
-        print(f"[agent] memory_summary_updated: {bool(updated_summary)}")
+        _submit_background(
+            "persist_character_memory_chat",
+            _persist_agent_memory_summary,
+            uid,
+            character_id,
+            updated_summary,
+            memory_summary,
+            full_messages,
+        )
 
         # ---------------------------------------------------------------------
         # Periodic intensity + checklist updates (every 3 user turns)
         # ---------------------------------------------------------------------
-        turn_for_update = _try_acquire_periodic_update(uid, session_id) if session_id else 0
-        if session_id and thread_id and turn_for_update:
-            try:
-                score = score_intensity_with_llm(character_id, messages + [{'role': 'assistant', 'content': assistant_message}])
-                evidence = (messages[-1].get('content') if messages else '')[:200]
+        if session_id and thread_id:
+            def _periodic_update_task() -> None:
+                turn_for_update = _try_acquire_periodic_update(uid, session_id)
+                if not turn_for_update:
+                    return
+                try:
+                    score = score_intensity_with_llm(character_id, full_messages)
+                    evidence = (messages[-1].get('content') if messages else '')[:200]
 
-                # write intensity to session doc (start set once, latest updated)
-                _write_session_intensity(uid, session_id, score, turn_for_update)
+                    _write_session_intensity(uid, session_id, score, turn_for_update)
+                    plan_diff = _update_character_plan_from_score(uid, character_id, score, evidence=evidence)
 
-                # update per-character checklist (deterministic policy)
-                plan_diff = _update_character_plan_from_score(uid, character_id, score, evidence=evidence)
-
-                # logs (Firestore + terminal)
-                _log_agent_run(
-                    _session_runs_ref(uid, session_id),
-                    {
-                        "trigger": "user_message",
-                        "inputs": {"threadId": thread_id, "characterId": character_id},
-                        "outputs": {
-                            "intensity": score["intensity"],
-                            "blend": score.get("blend") is True,
-                            "signals": score.get("signals") or [],
-                            "focus": plan_diff.get("focus"),
-                            "changedItems": plan_diff.get("changedItems"),
-                        },
-                        "rawModelOutput": score.get("_raw") or {},
-                    },
-                )
-                _log_agent_run(
-                    _plan_runs_ref(uid, character_id),
-                    {
-                        "trigger": "user_message",
-                        "inputs": {"sessionId": session_id, "threadId": thread_id},
-                        "outputs": {"focus": plan_diff.get("focus"), "changedItems": plan_diff.get("changedItems")},
-                        "rawModelOutput": score.get("_raw") or {},
-                    },
-                )
-
-                logger.info(
-                    json.dumps(
+                    _log_agent_run(
+                        _session_runs_ref(uid, session_id),
                         {
-                            "event": "periodic_update",
-                            "ts": _now_iso(),
-                            "uid": uid,
-                            "characterId": character_id,
-                            "sessionId": session_id,
-                            "turn": int(turn_for_update),
-                            "intensity": score["intensity"],
-                            "blend": score.get("blend") is True,
-                            "focus": plan_diff.get("focus"),
+                            "trigger": "user_message",
+                            "inputs": {"threadId": thread_id, "characterId": character_id},
+                            "outputs": {
+                                "intensity": score["intensity"],
+                                "blend": score.get("blend") is True,
+                                "signals": score.get("signals") or [],
+                                "focus": plan_diff.get("focus"),
+                                "changedItems": plan_diff.get("changedItems"),
+                            },
+                            "rawModelOutput": score.get("_raw") or {},
                         },
-                        ensure_ascii=False,
                     )
-                )
-            except Exception as e:
-                logger.info(
-                    json.dumps(
+                    _log_agent_run(
+                        _plan_runs_ref(uid, character_id),
                         {
-                            "event": "periodic_update_failed",
-                            "ts": _now_iso(),
-                            "uid": uid,
-                            "characterId": character_id,
-                            "sessionId": session_id,
-                            "error": str(e),
+                            "trigger": "user_message",
+                            "inputs": {"sessionId": session_id, "threadId": thread_id},
+                            "outputs": {"focus": plan_diff.get("focus"), "changedItems": plan_diff.get("changedItems")},
+                            "rawModelOutput": score.get("_raw") or {},
                         },
-                        ensure_ascii=False,
                     )
-                )
+
+                    logger.info(
+                        json.dumps(
+                            {
+                                "event": "periodic_update",
+                                "ts": _now_iso(),
+                                "uid": uid,
+                                "characterId": character_id,
+                                "sessionId": session_id,
+                                "turn": int(turn_for_update),
+                                "intensity": score["intensity"],
+                                "blend": score.get("blend") is True,
+                                "focus": plan_diff.get("focus"),
+                            },
+                            ensure_ascii=False,
+                        )
+                    )
+                except Exception as e:
+                    logger.info(
+                        json.dumps(
+                            {
+                                "event": "periodic_update_failed",
+                                "ts": _now_iso(),
+                                "uid": uid,
+                                "characterId": character_id,
+                                "sessionId": session_id,
+                                "error": str(e),
+                            },
+                            ensure_ascii=False,
+                        )
+                    )
+
+            _submit_background("periodic_update_chat", _periodic_update_task)
 
         # check for guider intervention if enabled
         intervention = None
         if check_intervention:
-            full_messages = messages + [{'role': 'assistant', 'content': assistant_message}]
             analysis = analyze_intervention_need(full_messages, character_id)
             if analysis.get('shouldIntervene'):
-                # forcing an intensity+checklist update on intervention so the Guider
-                # can be aware of the current stance
-                focus_payload = None
-                intensity_payload = None
                 if session_id and thread_id:
-                    try:
-                        score = score_intensity_with_llm(character_id, full_messages)
-                        evidence = (messages[-1].get('content') if messages else '')[:200]
-                        plan_diff = _update_character_plan_from_score(uid, character_id, score, evidence=evidence)
-                        focus_payload = plan_diff.get("focus")
-                        intensity_payload = {"intensity": score["intensity"], "blend": score.get("blend") is True}
+                    def _intervention_update_task() -> None:
+                        try:
+                            score = score_intensity_with_llm(character_id, full_messages)
+                            evidence = (messages[-1].get('content') if messages else '')[:200]
+                            plan_diff = _update_character_plan_from_score(uid, character_id, score, evidence=evidence)
 
-                        _log_agent_run(
-                            _session_runs_ref(uid, session_id),
-                            {
-                                "trigger": "intervention_check",
-                                "inputs": {"threadId": thread_id, "characterId": character_id},
-                                "outputs": {
-                                    "intensity": score["intensity"],
-                                    "blend": score.get("blend") is True,
-                                    "signals": score.get("signals") or [],
-                                    "focus": focus_payload,
-                                },
-                                "rawModelOutput": score.get("_raw") or {},
-                            },
-                        )
-                        logger.info(
-                            json.dumps(
+                            _log_agent_run(
+                                _session_runs_ref(uid, session_id),
                                 {
-                                    "event": "intervention_update",
-                                    "ts": _now_iso(),
-                                    "uid": uid,
-                                    "characterId": character_id,
-                                    "sessionId": session_id,
-                                    "intensity": score["intensity"],
-                                    "focus": focus_payload,
-                                    "reason": analysis.get("reason"),
+                                    "trigger": "intervention_check",
+                                    "inputs": {"threadId": thread_id, "characterId": character_id},
+                                    "outputs": {
+                                        "intensity": score["intensity"],
+                                        "blend": score.get("blend") is True,
+                                        "signals": score.get("signals") or [],
+                                        "focus": plan_diff.get("focus"),
+                                    },
+                                    "rawModelOutput": score.get("_raw") or {},
                                 },
-                                ensure_ascii=False,
                             )
-                        )
-                    except Exception as e:
-                        logger.info(
-                            json.dumps(
-                                {
-                                    "event": "intervention_update_failed",
-                                    "ts": _now_iso(),
-                                    "uid": uid,
-                                    "characterId": character_id,
-                                    "sessionId": session_id,
-                                    "error": str(e),
-                                },
-                                ensure_ascii=False,
+                            logger.info(
+                                json.dumps(
+                                    {
+                                        "event": "intervention_update",
+                                        "ts": _now_iso(),
+                                        "uid": uid,
+                                        "characterId": character_id,
+                                        "sessionId": session_id,
+                                        "intensity": score["intensity"],
+                                        "focus": plan_diff.get("focus"),
+                                        "reason": analysis.get("reason"),
+                                    },
+                                    ensure_ascii=False,
+                                )
                             )
-                        )
+                        except Exception as e:
+                            logger.info(
+                                json.dumps(
+                                    {
+                                        "event": "intervention_update_failed",
+                                        "ts": _now_iso(),
+                                        "uid": uid,
+                                        "characterId": character_id,
+                                        "sessionId": session_id,
+                                        "error": str(e),
+                                    },
+                                    ensure_ascii=False,
+                                )
+                            )
 
-                intervention_message = generate_guider_intervention_message(
-                    uid=uid,
-                    character_id=character_id,
-                    reason=analysis.get('reason', 'general'),
-                    messages=full_messages,
+                    _submit_background("intervention_update_chat", _intervention_update_task)
+
+                intervention_message = _fallback_intervention_message(
+                    analysis.get('reason', 'general'),
+                    analysis.get('message', ''),
                 )
                 intervention = {
                     'shouldIntervene': True,
@@ -1770,34 +2051,24 @@ def chat():
                     'severity': analysis.get('severity'),
                     'guiderMessage': intervention_message,
                     # extra debug fields (Flutter ignores; in logs/firestore)
-                    'focusItemId': (focus_payload or {}).get("itemId") if focus_payload else None,
-                    'focusReason': (focus_payload or {}).get("reason") if focus_payload else None,
-                    'intensityNow': (intensity_payload or {}).get("intensity") if intensity_payload else None,
-                    'blendNow': (intensity_payload or {}).get("blend") if intensity_payload else None,
+                    'focusItemId': None,
+                    'focusReason': None,
+                    'intensityNow': None,
+                    'blendNow': None,
                 }
                 if session_id:
-                    try:
-                        _record_session_intervention(
-                            uid=uid,
-                            session_id=session_id,
-                            reason=analysis.get("reason", ""),
-                            severity=analysis.get("severity", "low"),
-                        )
-                    except Exception as e:
-                        logger.info(
-                            json.dumps(
-                                {
-                                    "event": "intervention_record_failed",
-                                    "ts": _now_iso(),
-                                    "uid": uid,
-                                    "characterId": character_id,
-                                    "sessionId": session_id,
-                                    "error": str(e),
-                                },
-                                ensure_ascii=False,
-                            )
-                        )
+                    _submit_background(
+                        "record_intervention_chat",
+                        _record_session_intervention,
+                        uid,
+                        session_id,
+                        analysis.get("reason", ""),
+                        analysis.get("severity", "low"),
+                    )
                 print(f"[intervention] Triggered: {analysis.get('reason')} for {character_id}")
+        post_llm_ms = int((time.time() - t_before_llm) * 1000) - llm_ms
+        if post_llm_ms < 0:
+            post_llm_ms = 0
 
         return jsonify({
             'success': True,
@@ -1819,6 +2090,11 @@ def chat():
                         "route": "/chat",
                         "ts": _now_iso(),
                         "ms": int((time.time() - t0) * 1000),
+                        "preLlmMs": pre_llm_ms,
+                        "llmMs": llm_ms,
+                        "postLlmMs": post_llm_ms,
+                        "payloadMessages": payload_messages,
+                        "payloadChars": payload_chars,
                     },
                     ensure_ascii=False,
                 )
@@ -2188,6 +2464,11 @@ def chat_guided():
     """handling a guided chat where character and/or Guider respond based on context"""
     try:
         t0 = time.time()
+        orchestrator_ms = 0
+        character_llm_ms = 0
+        character_payload_messages = 0
+        character_payload_chars = 0
+        guider_in_chat_ms = 0
         if not os.getenv('OPENAI_API_KEY'):
             return jsonify({
                 'success': False,
@@ -2210,7 +2491,9 @@ def chat_guided():
         messages = data.get('messages') or []
         
         # 1. decide who should respond
+        t_orchestrator = time.time()
         respondent = decide_who_responds(messages, character_name)
+        orchestrator_ms = int((time.time() - t_orchestrator) * 1000)
         
         character_message = ''
         guider_message = ''
@@ -2224,23 +2507,34 @@ def chat_guided():
             )
             
             agent_result = run_agent_step(character_system_prompt, messages)
+            llm_meta = (agent_result.get("_meta") or {}) if isinstance(agent_result, dict) else {}
+            character_llm_ms = int(llm_meta.get("llmMs") or 0)
+            character_payload_messages = int(llm_meta.get("payloadMessages") or 0)
+            character_payload_chars = int(llm_meta.get("payloadChars") or 0)
+            if isinstance(agent_result, dict):
+                agent_result.pop("_meta", None)
             tool_calls = agent_result.get('toolCalls') or []
-            run_tool_calls(uid, tool_calls)
+            if tool_calls:
+                _submit_background("run_tool_calls_guided_character", run_tool_calls, uid, tool_calls)
             
             character_message = agent_result.get('assistantMessage', '')
             
             # update character memory
             updated_char_summary = agent_result.get('memorySummary', '')
-            if not updated_char_summary:
-                updated_char_summary = generate_updated_summary(
-                    memory_summary,
-                    messages + [{'role': 'assistant', 'content': character_message}],
-                )
-            save_agent_memory_summary(uid, character_id, updated_char_summary)
+            _submit_background(
+                "persist_character_memory_guided",
+                _persist_agent_memory_summary,
+                uid,
+                character_id,
+                updated_char_summary,
+                memory_summary,
+                messages + [{'role': 'assistant', 'content': character_message}],
+            )
         
         # 3. get guider response if needed
         if respondent in ['guider_only', 'both']:
             guider_memory = load_agent_memory_summary(uid, 'guider')
+            t_guider_in_chat = time.time()
             guider_message = get_guider_response_in_chat(
                 messages=messages,
                 uid=uid,
@@ -2249,6 +2543,7 @@ def chat_guided():
                 character_message=character_message,
                 guider_memory=guider_memory,
             )
+            guider_in_chat_ms = int((time.time() - t_guider_in_chat) * 1000)
             
             # update guider memory
             all_new_messages = messages.copy()
@@ -2257,75 +2552,87 @@ def chat_guided():
             if guider_message:
                 all_new_messages.append({'role': 'assistant', 'content': guider_message})
             
-            updated_guider_summary = generate_updated_summary(guider_memory, all_new_messages)
-            save_agent_memory_summary(uid, 'guider', updated_guider_summary)
+            _submit_background(
+                "persist_guider_memory_guided",
+                _persist_agent_memory_summary,
+                uid,
+                'guider',
+                '',
+                guider_memory,
+                all_new_messages,
+            )
         
         print(f"[guided_chat] {respondent}: char={bool(character_message)}, guider={bool(guider_message)}")
 
         # periodic intensity + checklist update (same as /chat)
-        turn_for_update = _try_acquire_periodic_update(uid, session_id) if session_id else 0
-        if session_id and thread_id and turn_for_update:
-            try:
-                scored_msgs = [
-                    {"role": m.get("role", "user"), "content": m.get("content", "")}
-                    for m in messages
-                    if m.get("content")
-                ]
-                if character_message:
-                    scored_msgs.append({"role": "assistant", "content": character_message})
-                if guider_message:
-                    scored_msgs.append({"role": "assistant", "content": guider_message})
+        if session_id and thread_id:
+            def _periodic_update_guided_task() -> None:
+                turn_for_update = _try_acquire_periodic_update(uid, session_id)
+                if not turn_for_update:
+                    return
+                try:
+                    scored_msgs = [
+                        {"role": m.get("role", "user"), "content": m.get("content", "")}
+                        for m in messages
+                        if m.get("content")
+                    ]
+                    if character_message:
+                        scored_msgs.append({"role": "assistant", "content": character_message})
+                    if guider_message:
+                        scored_msgs.append({"role": "assistant", "content": guider_message})
 
-                score = score_intensity_with_llm(character_id, scored_msgs)
-                evidence = (scored_msgs[-1].get("content") if scored_msgs else "")[:200]
-                _write_session_intensity(uid, session_id, score, turn_for_update)
-                plan_diff = _update_character_plan_from_score(uid, character_id, score, evidence=evidence)
+                    score = score_intensity_with_llm(character_id, scored_msgs)
+                    evidence = (scored_msgs[-1].get("content") if scored_msgs else "")[:200]
+                    _write_session_intensity(uid, session_id, score, turn_for_update)
+                    plan_diff = _update_character_plan_from_score(uid, character_id, score, evidence=evidence)
 
-                _log_agent_run(
-                    _session_runs_ref(uid, session_id),
-                    {
-                        "trigger": "user_message",
-                        "inputs": {"threadId": thread_id, "characterId": character_id},
-                        "outputs": {
-                            "intensity": score["intensity"],
-                            "blend": score.get("blend") is True,
-                            "signals": score.get("signals") or [],
-                            "focus": plan_diff.get("focus"),
-                        },
-                        "rawModelOutput": score.get("_raw") or {},
-                    },
-                )
-
-                logger.info(
-                    json.dumps(
+                    _log_agent_run(
+                        _session_runs_ref(uid, session_id),
                         {
-                            "event": "periodic_update_guided",
-                            "ts": _now_iso(),
-                            "uid": uid,
-                            "characterId": character_id,
-                            "sessionId": session_id,
-                            "turn": int(turn_for_update),
-                            "intensity": score["intensity"],
-                            "focus": plan_diff.get("focus"),
-                            "respondent": respondent,
+                            "trigger": "user_message",
+                            "inputs": {"threadId": thread_id, "characterId": character_id},
+                            "outputs": {
+                                "intensity": score["intensity"],
+                                "blend": score.get("blend") is True,
+                                "signals": score.get("signals") or [],
+                                "focus": plan_diff.get("focus"),
+                            },
+                            "rawModelOutput": score.get("_raw") or {},
                         },
-                        ensure_ascii=False,
                     )
-                )
-            except Exception as e:
-                logger.info(
-                    json.dumps(
-                        {
-                            "event": "periodic_update_guided_failed",
-                            "ts": _now_iso(),
-                            "uid": uid,
-                            "characterId": character_id,
-                            "sessionId": session_id,
-                            "error": str(e),
-                        },
-                        ensure_ascii=False,
+
+                    logger.info(
+                        json.dumps(
+                            {
+                                "event": "periodic_update_guided",
+                                "ts": _now_iso(),
+                                "uid": uid,
+                                "characterId": character_id,
+                                "sessionId": session_id,
+                                "turn": int(turn_for_update),
+                                "intensity": score["intensity"],
+                                "focus": plan_diff.get("focus"),
+                                "respondent": respondent,
+                            },
+                            ensure_ascii=False,
+                        )
                     )
-                )
+                except Exception as e:
+                    logger.info(
+                        json.dumps(
+                            {
+                                "event": "periodic_update_guided_failed",
+                                "ts": _now_iso(),
+                                "uid": uid,
+                                "characterId": character_id,
+                                "sessionId": session_id,
+                                "error": str(e),
+                            },
+                            ensure_ascii=False,
+                        )
+                    )
+
+            _submit_background("periodic_update_guided", _periodic_update_guided_task)
         
         return jsonify({
             'success': True,
@@ -2348,6 +2655,11 @@ def chat_guided():
                         "route": "/chat_guided",
                         "ts": _now_iso(),
                         "ms": int((time.time() - t0) * 1000),
+                        "orchestratorMs": orchestrator_ms,
+                        "characterLlmMs": character_llm_ms,
+                        "characterPayloadMessages": character_payload_messages,
+                        "characterPayloadChars": character_payload_chars,
+                        "guiderInChatMs": guider_in_chat_ms,
                     },
                     ensure_ascii=False,
                 )
@@ -2532,6 +2844,8 @@ def build_guider_system_prompt_with_context(
         states=states,
         guider_plan_snapshot=guider_plan_snapshot,
     )
+    character_context = _clip_text(character_context, 2600)
+    guider_memory = _clip_text(guider_memory, MEMORY_PROMPT_MAX_CHARS)
     
     prompt = GUIDER_SYSTEM_PROMPT
     
@@ -2546,33 +2860,63 @@ def build_guider_system_prompt_with_context(
 
 def run_guider_agent_step(system_prompt: str, messages: List[Dict[str, str]]) -> Dict[str, Any]:
     """running an agent step for the Guider"""
-    agent_messages = [
-        {'role': 'system', 'content': system_prompt},
-        {'role': 'system', 'content': (
-            'Return JSON with keys: "assistantMessage", "memorySummary". '
-            '"assistantMessage" should be warm, concise, and practical. '
-            '"memorySummary" should be under 6 bullet points about the user\'s journey.'
-        )},
-    ]
+    llm_started_at = time.time()
+    if AGENT_JSON_RESPONSE_MODE:
+        agent_messages = [
+            {'role': 'system', 'content': system_prompt},
+            {'role': 'system', 'content': (
+                'Return JSON with keys: "assistantMessage", "memorySummary". '
+                '"assistantMessage" should be warm, concise, and practical. '
+                '"memorySummary" should be under 6 bullet points about the user\'s journey.'
+            )},
+        ]
+    else:
+        agent_messages = [
+            {'role': 'system', 'content': _clip_text(system_prompt, 1200)},
+            {'role': 'system', 'content': (
+                'Reply as The Guider in 1-2 warm, practical sentences. '
+                'Do not output JSON, labels, or metadata.'
+            )},
+        ]
+    agent_messages.extend(_prepare_model_messages(messages))
+    payload_stats = _messages_payload_stats(agent_messages)
     
-    for message in messages:
-        role = message.get('role')
-        content = message.get('content', '')
-        if role in ['user', 'assistant'] and content:
-            agent_messages.append({'role': role, 'content': content})
-    
-    response = openai_client.chat.completions.create(
-        model=OPENAI_MODEL,
-        messages=agent_messages,
-        temperature=0.7,
-        response_format={"type": "json_object"},
-    )
+    if AGENT_JSON_RESPONSE_MODE:
+        response = openai_client.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=agent_messages,
+            temperature=0.7,
+            response_format={"type": "json_object"},
+            max_tokens=CHAT_REPLY_MAX_TOKENS,
+        )
+    else:
+        response = openai_client.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=agent_messages,
+            temperature=0.7,
+            max_tokens=CHAT_REPLY_MAX_TOKENS,
+        )
+    llm_ms = int((time.time() - llm_started_at) * 1000)
     
     raw = response.choices[0].message.content or '{}'
-    try:
-        return json.loads(raw)
-    except Exception:
-        return {'assistantMessage': '', 'memorySummary': ''}
+    if AGENT_JSON_RESPONSE_MODE:
+        try:
+            parsed = json.loads(raw)
+            if not isinstance(parsed, dict):
+                parsed = {'assistantMessage': '', 'memorySummary': ''}
+        except Exception:
+            parsed = {'assistantMessage': '', 'memorySummary': ''}
+    else:
+        parsed = {
+            "assistantMessage": raw.strip(),
+            "memorySummary": "",
+        }
+    parsed["_meta"] = {
+        "llmMs": llm_ms,
+        "payloadMessages": payload_stats["count"],
+        "payloadChars": payload_stats["chars"],
+    }
+    return parsed
 
 
 @app.route('/chat_guider', methods=['POST'])
@@ -2580,6 +2924,10 @@ def chat_guider():
     """handle a chat request for The Guider agent"""
     try:
         t0 = time.time()
+        context_ms = 0
+        llm_ms = 0
+        payload_messages = 0
+        payload_chars = 0
         if not os.getenv('OPENAI_API_KEY'):
             return jsonify({
                 'success': False,
@@ -2634,21 +2982,30 @@ def chat_guider():
             states=character_states,
             guider_plan_snapshot=guider_plan_snapshot,
         )
+        context_ms = int((time.time() - t0) * 1000)
         
         # running the guider agent
         agent_result = run_guider_agent_step(system_prompt, messages)
+        llm_meta = (agent_result.get("_meta") or {}) if isinstance(agent_result, dict) else {}
+        llm_ms = int(llm_meta.get("llmMs") or 0)
+        payload_messages = int(llm_meta.get("payloadMessages") or 0)
+        payload_chars = int(llm_meta.get("payloadChars") or 0)
+        if isinstance(agent_result, dict):
+            agent_result.pop("_meta", None)
         
         assistant_message = agent_result.get('assistantMessage', '')
         updated_summary = agent_result.get('memorySummary', '')
         
         # updating guider's memory
-        if not updated_summary:
-            updated_summary = generate_updated_summary(
-                guider_memory,
-                messages + [{'role': 'assistant', 'content': assistant_message}],
-            )
-        save_agent_memory_summary(uid, 'guider', updated_summary)
-        print(f"[guider] memory_summary_updated: {bool(updated_summary)}")
+        _submit_background(
+            "persist_guider_memory_chat",
+            _persist_agent_memory_summary,
+            uid,
+            'guider',
+            updated_summary,
+            guider_memory,
+            messages + [{'role': 'assistant', 'content': assistant_message}],
+        )
 
         # ---------------------------------------------------------------------
         # Periodic intensity + checklist updates for guider-only sessions.
@@ -2658,82 +3015,87 @@ def chat_guider():
         # - users/{uid}/character_plans/guider
         # - agent_runs under session + character_plan
         # ---------------------------------------------------------------------
-        turn_for_update = _try_acquire_periodic_update(uid, session_id) if session_id else 0
-        if session_id and thread_id and turn_for_update:
-            try:
-                scored_msgs = [
-                    {"role": m.get("role", "user"), "content": m.get("content", "")}
-                    for m in messages
-                    if m.get("content")
-                ]
-                if assistant_message:
-                    scored_msgs.append({"role": "assistant", "content": assistant_message})
+        if session_id and thread_id:
+            def _periodic_update_guider_task() -> None:
+                turn_for_update = _try_acquire_periodic_update(uid, session_id)
+                if not turn_for_update:
+                    return
+                try:
+                    scored_msgs = [
+                        {"role": m.get("role", "user"), "content": m.get("content", "")}
+                        for m in messages
+                        if m.get("content")
+                    ]
+                    if assistant_message:
+                        scored_msgs.append({"role": "assistant", "content": assistant_message})
 
-                score = score_intensity_with_llm(character_id, scored_msgs)
-                evidence = (scored_msgs[-1].get("content") if scored_msgs else "")[:200]
+                    score = score_intensity_with_llm(character_id, scored_msgs)
+                    evidence = (scored_msgs[-1].get("content") if scored_msgs else "")[:200]
 
-                _write_session_intensity(uid, session_id, score, turn_for_update)
-                plan_diff = _update_character_plan_from_score(uid, character_id, score, evidence=evidence)
+                    _write_session_intensity(uid, session_id, score, turn_for_update)
+                    plan_diff = _update_character_plan_from_score(uid, character_id, score, evidence=evidence)
 
-                _log_agent_run(
-                    _session_runs_ref(uid, session_id),
-                    {
-                        "trigger": "user_message_guider",
-                        "inputs": {"threadId": thread_id, "characterId": character_id},
-                        "outputs": {
-                            "intensity": score["intensity"],
-                            "blend": score.get("blend") is True,
-                            "signals": score.get("signals") or [],
-                            "focus": plan_diff.get("focus"),
-                            "changedItems": plan_diff.get("changedItems"),
-                        },
-                        "rawModelOutput": score.get("_raw") or {},
-                    },
-                )
-
-                _log_agent_run(
-                    _plan_runs_ref(uid, character_id),
-                    {
-                        "trigger": "user_message_guider",
-                        "inputs": {"sessionId": session_id, "threadId": thread_id},
-                        "outputs": {
-                            "focus": plan_diff.get("focus"),
-                            "changedItems": plan_diff.get("changedItems"),
-                        },
-                        "rawModelOutput": score.get("_raw") or {},
-                    },
-                )
-
-                logger.info(
-                    json.dumps(
+                    _log_agent_run(
+                        _session_runs_ref(uid, session_id),
                         {
-                            "event": "periodic_update_guider",
-                            "ts": _now_iso(),
-                            "uid": uid,
-                            "characterId": character_id,
-                            "sessionId": session_id,
-                            "turn": int(turn_for_update),
-                            "intensity": score["intensity"],
-                            "blend": score.get("blend") is True,
-                            "focus": plan_diff.get("focus"),
+                            "trigger": "user_message_guider",
+                            "inputs": {"threadId": thread_id, "characterId": character_id},
+                            "outputs": {
+                                "intensity": score["intensity"],
+                                "blend": score.get("blend") is True,
+                                "signals": score.get("signals") or [],
+                                "focus": plan_diff.get("focus"),
+                                "changedItems": plan_diff.get("changedItems"),
+                            },
+                            "rawModelOutput": score.get("_raw") or {},
                         },
-                        ensure_ascii=False,
                     )
-                )
-            except Exception as e:
-                logger.info(
-                    json.dumps(
+
+                    _log_agent_run(
+                        _plan_runs_ref(uid, character_id),
                         {
-                            "event": "periodic_update_guider_failed",
-                            "ts": _now_iso(),
-                            "uid": uid,
-                            "characterId": character_id,
-                            "sessionId": session_id,
-                            "error": str(e),
+                            "trigger": "user_message_guider",
+                            "inputs": {"sessionId": session_id, "threadId": thread_id},
+                            "outputs": {
+                                "focus": plan_diff.get("focus"),
+                                "changedItems": plan_diff.get("changedItems"),
+                            },
+                            "rawModelOutput": score.get("_raw") or {},
                         },
-                        ensure_ascii=False,
                     )
-                )
+
+                    logger.info(
+                        json.dumps(
+                            {
+                                "event": "periodic_update_guider",
+                                "ts": _now_iso(),
+                                "uid": uid,
+                                "characterId": character_id,
+                                "sessionId": session_id,
+                                "turn": int(turn_for_update),
+                                "intensity": score["intensity"],
+                                "blend": score.get("blend") is True,
+                                "focus": plan_diff.get("focus"),
+                            },
+                            ensure_ascii=False,
+                        )
+                    )
+                except Exception as e:
+                    logger.info(
+                        json.dumps(
+                            {
+                                "event": "periodic_update_guider_failed",
+                                "ts": _now_iso(),
+                                "uid": uid,
+                                "characterId": character_id,
+                                "sessionId": session_id,
+                                "error": str(e),
+                            },
+                            ensure_ascii=False,
+                        )
+                    )
+
+            _submit_background("periodic_update_guider", _periodic_update_guider_task)
         
         return jsonify({
             'success': True,
@@ -2754,6 +3116,10 @@ def chat_guider():
                         "route": "/chat_guider",
                         "ts": _now_iso(),
                         "ms": int((time.time() - t0) * 1000),
+                        "contextMs": context_ms,
+                        "llmMs": llm_ms,
+                        "payloadMessages": payload_messages,
+                        "payloadChars": payload_chars,
                     },
                     ensure_ascii=False,
                 )
