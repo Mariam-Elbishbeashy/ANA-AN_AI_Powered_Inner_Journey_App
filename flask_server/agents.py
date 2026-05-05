@@ -5,6 +5,7 @@ from threading import Lock
 import os
 import json
 import logging
+import re
 from datetime import datetime, timezone
 import time
 from typing import Dict, List, Any, Optional
@@ -24,6 +25,7 @@ CHAT_REPLY_MAX_TOKENS = max(80, int(os.getenv("CHAT_REPLY_MAX_TOKENS", "120")))
 MEMORY_CACHE_TTL_SEC = max(1, int(os.getenv("MEMORY_CACHE_TTL_SEC", "30")))
 PLAN_FOCUS_CACHE_TTL_SEC = max(1, int(os.getenv("PLAN_FOCUS_CACHE_TTL_SEC", "20")))
 AGENT_JSON_RESPONSE_MODE = str(os.getenv("AGENT_JSON_RESPONSE_MODE", "false")).strip().lower() in {"1", "true", "yes", "on"}
+GUIDED_COORDINATION_DEBUG = str(os.getenv("GUIDED_COORDINATION_DEBUG", "false")).strip().lower() in {"1", "true", "yes", "on"}
 FAST_MODE_DETERMINISTIC_WRITES = str(os.getenv("FAST_MODE_DETERMINISTIC_WRITES", "true")).strip().lower() in {"1", "true", "yes", "on"}
 FAST_MODE_PROGRESS_INTERVAL_SEC = max(30, int(os.getenv("FAST_MODE_PROGRESS_INTERVAL_SEC", "90")))
 FAST_MODE_TIMELINE_INTERVAL_SEC = max(60, int(os.getenv("FAST_MODE_TIMELINE_INTERVAL_SEC", "300")))
@@ -2338,6 +2340,275 @@ NEVER start your response with labels like "[Guider]:" or "The Guider:" - just s
 """.strip()
 
 
+def _normalize_guided_respondent(value: Any, default: str = "character_only") -> str:
+    allowed = {"character_only", "guider_only", "both"}
+    candidate = str(value or "").strip().lower()
+    if candidate in allowed:
+        return candidate
+    return default
+
+
+def _build_guided_conversation_context(
+    messages: List[Dict[str, Any]],
+    character_name: str,
+    max_items: int = 8,
+) -> str:
+    tail = messages[-max_items:] if len(messages) > max_items else messages
+    lines: List[str] = []
+    for msg in tail:
+        sender = str(msg.get("sender", msg.get("role", "user"))).strip().lower()
+        content = _clip_text(msg.get("content", ""), 320).strip()
+        if not content:
+            continue
+        if sender == "user":
+            lines.append(f"User: {content}")
+        elif sender == "guider":
+            lines.append(f"Guider: {content}")
+        else:
+            lines.append(f"{character_name}: {content}")
+    if not lines:
+        return "User: (no prior messages)"
+    return "\n".join(lines)
+
+
+def _contains_question(text: str) -> bool:
+    return "?" in str(text or "")
+
+
+def _remove_question_sentences(text: str) -> str:
+    """
+    Remove question sentences to avoid multi-question conflict across roles.
+    """
+    content = str(text or "").strip()
+    if not content:
+        return ""
+    # Keep non-question clauses only.
+    parts = re.split(r"(?<=[.!?])\s+", content)
+    kept = [part.strip() for part in parts if part.strip() and "?" not in part]
+    if kept:
+        return " ".join(kept).strip()
+    # Fallback to a short supportive line if everything was a question.
+    return "Take a breath with what just came up."
+
+
+def _enforce_guided_alignment(merged: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Deterministic guardrails after harmonization:
+    - when both speak, allow at most one question across both messages
+    - guider should not ask a new question if character already asks one
+    """
+    respondent = _normalize_guided_respondent(merged.get("respondent"), default="character_only")
+    character_message = str(merged.get("characterMessage") or "").strip()
+    guider_message = str(merged.get("guiderMessage") or "").strip()
+
+    if respondent == "both":
+        char_has_q = _contains_question(character_message)
+        guider_has_q = _contains_question(guider_message)
+        if char_has_q and guider_has_q:
+            guider_message = _remove_question_sentences(guider_message)
+        elif (not char_has_q) and guider_has_q and character_message:
+            # Prefer the inner part to carry the question in dual-speaker mode.
+            guider_message = _remove_question_sentences(guider_message)
+
+        if not guider_message and character_message:
+            respondent = "character_only"
+        elif not character_message and guider_message:
+            respondent = "guider_only"
+
+    merged["respondent"] = respondent
+    merged["characterMessage"] = character_message
+    merged["guiderMessage"] = guider_message
+    return merged
+
+
+def _generate_guided_agent_note(
+    role_name: str,
+    base_system_prompt: str,
+    conversation_context: str,
+    character_name: str,
+) -> Dict[str, Any]:
+    """
+    Generate a compact internal note used for coordinated guided replies.
+    """
+    started_at = time.time()
+    role_title = "The Guider" if role_name == "guider" else character_name
+    system_prompt = (
+        f"{base_system_prompt}\n\n"
+        "You are preparing an INTERNAL coordination note before sending any visible reply.\n"
+        f"Role for this note: {role_title}.\n"
+        "Return JSON with keys: intent, focus, tone, draft, shouldSpeak.\n"
+        "- intent: one short sentence.\n"
+        "- focus: one short phrase.\n"
+        "- tone: one short phrase.\n"
+        "- draft: final user-visible reply in your voice. Keep it brief.\n"
+        "- shouldSpeak: true or false.\n"
+        "Draft constraints:\n"
+        "- If role is the inner part: 2-4 sentences.\n"
+        "- If role is The Guider: 1-2 sentences.\n"
+        "- Ask at most one question in the draft.\n"
+        "- If role is The Guider, prefer reflection/bridging over asking a new question.\n"
+        '- No labels/prefixes like "Guider:" or character names.\n'
+        "- Avoid repeating the other role's likely wording.\n"
+    )
+    user_prompt = (
+        "Recent conversation:\n"
+        f"{conversation_context}\n\n"
+        f"Create the internal note for role={role_name}."
+    )
+    try:
+        response = openai_client.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=[
+                {"role": "system", "content": _clip_text(system_prompt, 2200)},
+                {"role": "user", "content": _clip_text(user_prompt, 2200)},
+            ],
+            temperature=0.4,
+            response_format={"type": "json_object"},
+            max_tokens=220,
+        )
+        raw = response.choices[0].message.content or "{}"
+        parsed = json.loads(raw)
+        if not isinstance(parsed, dict):
+            parsed = {}
+    except Exception:
+        parsed = {}
+
+    note = {
+        "intent": str(parsed.get("intent") or "").strip(),
+        "focus": str(parsed.get("focus") or "").strip(),
+        "tone": str(parsed.get("tone") or "").strip(),
+        "draft": str(parsed.get("draft") or "").strip(),
+        "shouldSpeak": bool(parsed.get("shouldSpeak", True)),
+    }
+    note["draft"] = _clip_text(note["draft"], 700).strip()
+    note["_meta"] = {"ms": int((time.time() - started_at) * 1000)}
+    return note
+
+
+def _fallback_harmonized_guided_output(
+    respondent_hint: str,
+    character_note: Dict[str, Any],
+    guider_note: Dict[str, Any],
+) -> Dict[str, str]:
+    respondent = _normalize_guided_respondent(respondent_hint, default="character_only")
+    char_draft = str(character_note.get("draft") or "").strip()
+    guider_draft = str(guider_note.get("draft") or "").strip()
+    char_should = bool(character_note.get("shouldSpeak", True))
+    guider_should = bool(guider_note.get("shouldSpeak", True))
+
+    if respondent == "character_only" and (not char_draft or not char_should) and guider_draft and guider_should:
+        respondent = "guider_only"
+    if respondent == "guider_only" and (not guider_draft or not guider_should) and char_draft and char_should:
+        respondent = "character_only"
+    if respondent == "both" and (not char_draft or not char_should) and (not guider_draft or not guider_should):
+        respondent = "character_only"
+
+    character_message = char_draft if respondent in {"character_only", "both"} and char_should else ""
+    guider_message = guider_draft if respondent in {"guider_only", "both"} and guider_should else ""
+
+    if respondent == "both":
+        if not character_message and guider_message:
+            respondent = "guider_only"
+        elif not guider_message and character_message:
+            respondent = "character_only"
+
+    return {
+        "respondent": respondent,
+        "characterMessage": character_message,
+        "guiderMessage": guider_message,
+        "reason": "fallback_merge",
+    }
+
+
+def _harmonize_guided_replies(
+    respondent_hint: str,
+    character_name: str,
+    conversation_context: str,
+    character_note: Dict[str, Any],
+    guider_note: Dict[str, Any],
+) -> Dict[str, Any]:
+    started_at = time.time()
+    safe_hint = _normalize_guided_respondent(respondent_hint, default="character_only")
+    fallback = _fallback_harmonized_guided_output(safe_hint, character_note, guider_note)
+
+    system_prompt = (
+        "You are the final guided-chat harmonizer for two roles: an inner part and The Guider.\n"
+        "You must align both outputs so they do not conflict or duplicate.\n"
+        "Return JSON keys: respondent, characterMessage, guiderMessage, reason.\n"
+        '- respondent must be one of: "character_only", "guider_only", "both".\n'
+        "- Coordination rule: when respondent is both, only one question is allowed total across both messages.\n"
+        "- If the character asks a question, Guider must NOT ask another question; Guider should bridge/support.\n"
+        "- Keep the inner part message in its own voice and style (2-4 sentences).\n"
+        "- Keep Guider concise and facilitative (1-2 sentences).\n"
+        "- If respondent is character_only, guiderMessage must be empty.\n"
+        "- If respondent is guider_only, characterMessage must be empty.\n"
+        "- Never add labels/prefixes.\n"
+    )
+    user_prompt = json.dumps(
+        {
+            "characterName": character_name,
+            "respondentHint": safe_hint,
+            "recentConversation": conversation_context,
+            "characterNote": {
+                "intent": character_note.get("intent"),
+                "focus": character_note.get("focus"),
+                "tone": character_note.get("tone"),
+                "draft": character_note.get("draft"),
+                "shouldSpeak": bool(character_note.get("shouldSpeak", True)),
+            },
+            "guiderNote": {
+                "intent": guider_note.get("intent"),
+                "focus": guider_note.get("focus"),
+                "tone": guider_note.get("tone"),
+                "draft": guider_note.get("draft"),
+                "shouldSpeak": bool(guider_note.get("shouldSpeak", True)),
+            },
+        },
+        ensure_ascii=False,
+        default=_json_default,
+    )
+
+    try:
+        response = openai_client.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": _clip_text(user_prompt, 3200)},
+            ],
+            temperature=0.25,
+            response_format={"type": "json_object"},
+            max_tokens=260,
+        )
+        raw = response.choices[0].message.content or "{}"
+        parsed = json.loads(raw)
+        if not isinstance(parsed, dict):
+            parsed = {}
+    except Exception:
+        parsed = {}
+
+    merged = {
+        "respondent": _normalize_guided_respondent(parsed.get("respondent"), default=fallback["respondent"]),
+        "characterMessage": _clip_text(str(parsed.get("characterMessage") or fallback["characterMessage"]), 800).strip(),
+        "guiderMessage": _clip_text(str(parsed.get("guiderMessage") or fallback["guiderMessage"]), 500).strip(),
+        "reason": str(parsed.get("reason") or fallback["reason"]).strip(),
+        "_meta": {"ms": int((time.time() - started_at) * 1000)},
+    }
+
+    if merged["respondent"] == "character_only":
+        merged["guiderMessage"] = ""
+    elif merged["respondent"] == "guider_only":
+        merged["characterMessage"] = ""
+    elif not merged["characterMessage"] and merged["guiderMessage"]:
+        merged["respondent"] = "guider_only"
+    elif not merged["guiderMessage"] and merged["characterMessage"]:
+        merged["respondent"] = "character_only"
+
+    if not merged["characterMessage"] and not merged["guiderMessage"]:
+        merged = {**fallback, "_meta": {"ms": int((time.time() - started_at) * 1000)}}
+    merged = _enforce_guided_alignment(merged)
+    return merged
+
+
 def decide_who_responds(messages: List[Dict], character_name: str) -> str:
     """using AI to decide who should respond based on conversation context"""
     try:
@@ -2469,6 +2740,9 @@ def chat_guided():
         character_payload_messages = 0
         character_payload_chars = 0
         guider_in_chat_ms = 0
+        character_note_ms = 0
+        guider_note_ms = 0
+        harmonizer_ms = 0
         if not os.getenv('OPENAI_API_KEY'):
             return jsonify({
                 'success': False,
@@ -2492,72 +2766,85 @@ def chat_guided():
         
         # 1. decide who should respond
         t_orchestrator = time.time()
-        respondent = decide_who_responds(messages, character_name)
+        respondent_hint = decide_who_responds(messages, character_name)
+        respondent = respondent_hint
         orchestrator_ms = int((time.time() - t_orchestrator) * 1000)
         
         character_message = ''
         guider_message = ''
         
-        # 2. get character response if needed
-        if respondent in ['character_only', 'both']:
-            memory_summary = load_agent_memory_summary(uid, character_id)
-            character_system_prompt = build_system_prompt_with_memory(
-                character_profile,
-                memory_summary,
+        # 2. coordinated planning (parallel): character + guider internal notes
+        memory_summary = load_agent_memory_summary(uid, character_id)
+        guider_memory = load_agent_memory_summary(uid, "guider")
+        character_system_prompt = build_system_prompt_with_memory(character_profile, memory_summary)
+        guider_system_prompt = build_guider_in_chat_prompt(
+            uid=uid,
+            character_id=character_id,
+            character_name=character_name,
+            guider_memory=guider_memory,
+        )
+        conversation_context = _build_guided_conversation_context(messages, character_name, max_items=8)
+        character_payload_messages = min(8, len(messages))
+        character_payload_chars = len(conversation_context)
+
+        t_notes = time.time()
+        with ThreadPoolExecutor(max_workers=2) as coordination_executor:
+            character_future = coordination_executor.submit(
+                _generate_guided_agent_note,
+                "character",
+                character_system_prompt,
+                conversation_context,
+                character_name,
             )
-            
-            agent_result = run_agent_step(character_system_prompt, messages)
-            llm_meta = (agent_result.get("_meta") or {}) if isinstance(agent_result, dict) else {}
-            character_llm_ms = int(llm_meta.get("llmMs") or 0)
-            character_payload_messages = int(llm_meta.get("payloadMessages") or 0)
-            character_payload_chars = int(llm_meta.get("payloadChars") or 0)
-            if isinstance(agent_result, dict):
-                agent_result.pop("_meta", None)
-            tool_calls = agent_result.get('toolCalls') or []
-            if tool_calls:
-                _submit_background("run_tool_calls_guided_character", run_tool_calls, uid, tool_calls)
-            
-            character_message = agent_result.get('assistantMessage', '')
-            
-            # update character memory
-            updated_char_summary = agent_result.get('memorySummary', '')
+            guider_future = coordination_executor.submit(
+                _generate_guided_agent_note,
+                "guider",
+                guider_system_prompt,
+                conversation_context,
+                character_name,
+            )
+            character_note = character_future.result()
+            guider_note = guider_future.result()
+        guider_in_chat_ms = int((time.time() - t_notes) * 1000)
+        character_note_ms = int((character_note.get("_meta") or {}).get("ms") or 0)
+        guider_note_ms = int((guider_note.get("_meta") or {}).get("ms") or 0)
+
+        # 3. single harmonizer pass to align final outputs
+        merged = _harmonize_guided_replies(
+            respondent_hint=respondent_hint,
+            character_name=character_name,
+            conversation_context=conversation_context,
+            character_note=character_note,
+            guider_note=guider_note,
+        )
+        harmonizer_ms = int((merged.get("_meta") or {}).get("ms") or 0)
+        respondent = _normalize_guided_respondent(merged.get("respondent"), default=respondent_hint)
+        character_message = str(merged.get("characterMessage") or "").strip()
+        guider_message = str(merged.get("guiderMessage") or "").strip()
+
+        character_llm_ms = int(character_note_ms + harmonizer_ms)
+
+        if character_message:
             _submit_background(
                 "persist_character_memory_guided",
                 _persist_agent_memory_summary,
                 uid,
                 character_id,
-                updated_char_summary,
+                "",
                 memory_summary,
-                messages + [{'role': 'assistant', 'content': character_message}],
+                messages + [{"role": "assistant", "content": character_message}],
             )
-        
-        # 3. get guider response if needed
-        if respondent in ['guider_only', 'both']:
-            guider_memory = load_agent_memory_summary(uid, 'guider')
-            t_guider_in_chat = time.time()
-            guider_message = get_guider_response_in_chat(
-                messages=messages,
-                uid=uid,
-                character_id=character_id,
-                character_name=character_name,
-                character_message=character_message,
-                guider_memory=guider_memory,
-            )
-            guider_in_chat_ms = int((time.time() - t_guider_in_chat) * 1000)
-            
-            # update guider memory
+        if guider_message:
             all_new_messages = messages.copy()
             if character_message:
-                all_new_messages.append({'role': 'assistant', 'content': character_message})
-            if guider_message:
-                all_new_messages.append({'role': 'assistant', 'content': guider_message})
-            
+                all_new_messages.append({"role": "assistant", "content": character_message})
+            all_new_messages.append({"role": "assistant", "content": guider_message})
             _submit_background(
                 "persist_guider_memory_guided",
                 _persist_agent_memory_summary,
                 uid,
-                'guider',
-                '',
+                "guider",
+                "",
                 guider_memory,
                 all_new_messages,
             )
@@ -2634,12 +2921,42 @@ def chat_guided():
 
             _submit_background("periodic_update_guided", _periodic_update_guided_task)
         
-        return jsonify({
+        response_payload = {
             'success': True,
             'characterMessage': character_message,
             'guiderMessage': guider_message,
             'respondent': respondent,
-        })
+        }
+        if GUIDED_COORDINATION_DEBUG:
+            response_payload["coordinationDebug"] = {
+                "respondentHint": respondent_hint,
+                "harmonizedRespondent": respondent,
+                "timingsMs": {
+                    "orchestrator": orchestrator_ms,
+                    "parallelNotesTotal": guider_in_chat_ms,
+                    "characterNote": character_note_ms,
+                    "guiderNote": guider_note_ms,
+                    "harmonizer": harmonizer_ms,
+                },
+                "characterNote": {
+                    "intent": _clip_text(character_note.get("intent"), 220),
+                    "focus": _clip_text(character_note.get("focus"), 140),
+                    "tone": _clip_text(character_note.get("tone"), 120),
+                    "shouldSpeak": bool(character_note.get("shouldSpeak", True)),
+                    "draftPreview": _clip_text(character_note.get("draft"), 260),
+                },
+                "guiderNote": {
+                    "intent": _clip_text(guider_note.get("intent"), 220),
+                    "focus": _clip_text(guider_note.get("focus"), 140),
+                    "tone": _clip_text(guider_note.get("tone"), 120),
+                    "shouldSpeak": bool(guider_note.get("shouldSpeak", True)),
+                    "draftPreview": _clip_text(guider_note.get("draft"), 260),
+                },
+                "harmonizer": {
+                    "reason": _clip_text(merged.get("reason"), 220),
+                },
+            }
+        return jsonify(response_payload)
     except Exception as e:
         traceback.print_exc()
         return jsonify({
@@ -2660,6 +2977,9 @@ def chat_guided():
                         "characterPayloadMessages": character_payload_messages,
                         "characterPayloadChars": character_payload_chars,
                         "guiderInChatMs": guider_in_chat_ms,
+                        "characterNoteMs": character_note_ms,
+                        "guiderNoteMs": guider_note_ms,
+                        "harmonizerMs": harmonizer_ms,
                     },
                     ensure_ascii=False,
                 )
