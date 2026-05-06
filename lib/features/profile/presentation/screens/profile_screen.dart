@@ -4,12 +4,13 @@ import 'package:ana_ifs_app/features/profile/presentation/screens/NotificationsS
 import 'package:ana_ifs_app/features/profile/presentation/screens/PrivacySecurityScreen.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import 'package:ana_ifs_app/l10n/app_strings.dart';
+import 'package:ana_ifs_app/core/localization/app_language_provider.dart';
 import 'package:ana_ifs_app/features/character/domain/entities/user_character.dart';
 import 'package:ana_ifs_app/features/questionnaire/presentation/screens/initial_motivation_screen.dart';
 import 'package:ana_ifs_app/core/services/firestore_service.dart';
-import 'package:ana_ifs_app/features/settings/presentation/screens/settings_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   final User? user;
@@ -109,6 +110,109 @@ class _ProfileScreenState extends State<ProfileScreen> {
       return '${difference.inDays}';
     }
     return '7'; // Fallback
+  }
+
+
+  Future<void> _showLanguageDialog() async {
+    final languageProvider = context.read<AppLanguageProvider>();
+    final currentLanguage = languageProvider.language;
+    final isArabicValue = languageProvider.isArabic;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        String selectedLanguage = currentLanguage;
+        bool isSaving = false;
+
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            Future<void> saveLanguage(String language) async {
+              if (isSaving) return;
+              setSheetState(() {
+                selectedLanguage = language;
+                isSaving = true;
+              });
+
+              await languageProvider.setLanguage(language);
+
+              if (!mounted) return;
+              Navigator.pop(sheetContext);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    language == 'ar'
+                        ? 'تم تغيير اللغة إلى العربية'
+                        : 'Language changed to English',
+                  ),
+                  backgroundColor: const Color(0xFF8E7CFF),
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+            }
+
+            return Container(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 48,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFD0C6E8),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 22),
+                  Text(
+                    isArabicValue ? 'اختيار اللغة' : 'Choose Language',
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF2A1E3B),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    isArabicValue
+                        ? 'سيتم تطبيق اللغة مباشرة على التطبيق.'
+                        : 'The language will be applied immediately across the app.',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: Color(0xFF7A6A5A),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  _LanguageOption(
+                    title: 'English',
+                    subtitle: 'Use ANA in English',
+                    selected: selectedLanguage == 'en',
+                    isSaving: isSaving && selectedLanguage == 'en',
+                    onTap: () => saveLanguage('en'),
+                  ),
+                  const SizedBox(height: 12),
+                  _LanguageOption(
+                    title: 'العربية',
+                    subtitle: 'استخدم ANA باللغة العربية',
+                    selected: selectedLanguage == 'ar',
+                    isSaving: isSaving && selectedLanguage == 'ar',
+                    onTap: () => saveLanguage('ar'),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   @override
@@ -378,6 +482,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                     ),
                     const SizedBox(height: 16),
+
+                    _SettingsItem(
+                      icon: Icons.language_rounded,
+                      title: isArabicValue ? 'اللغة' : 'Language',
+                      subtitle: isArabicValue
+                          ? 'تغيير لغة التطبيق'
+                          : 'Change app language',
+                      onTap: _showLanguageDialog,
+                    ),
 
                     _SettingsItem(
                       icon: Icons.notifications_rounded,
@@ -845,6 +958,92 @@ class _CharacterCard extends StatelessWidget {
       default:
         return Icons.psychology_rounded;
     }
+  }
+}
+
+
+class _LanguageOption extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final bool selected;
+  final bool isSaving;
+  final VoidCallback onTap;
+
+  const _LanguageOption({
+    required this.title,
+    required this.subtitle,
+    required this.selected,
+    required this.isSaving,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: isSaving ? null : onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: selected
+              ? const Color(0xFF8E7CFF).withValues(alpha: 0.10)
+              : const Color(0xFFF9F6FF),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: selected ? const Color(0xFF8E7CFF) : const Color(0xFFE5DEFF),
+            width: selected ? 1.5 : 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: selected ? const Color(0xFF8E7CFF) : Colors.white,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                selected ? Icons.check_rounded : Icons.language_rounded,
+                color: selected ? Colors.white : const Color(0xFF8E7CFF),
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF2A1E3B),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFF7A6A5A),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (isSaving)
+              const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

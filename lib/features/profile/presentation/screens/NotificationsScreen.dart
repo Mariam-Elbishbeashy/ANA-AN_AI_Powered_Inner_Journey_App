@@ -1,5 +1,7 @@
-// notifications_screen.dart
+// lib/features/profile/presentation/screens/notifications_screen.dart
+
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ana_ifs_app/l10n/app_strings.dart';
 
 class NotificationsScreen extends StatefulWidget {
@@ -10,12 +12,56 @@ class NotificationsScreen extends StatefulWidget {
 }
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
-  bool _dailyReminders = true;
-  bool _characterInsights = true;
-  bool _weeklyProgress = true;
-  bool _motivationalTips = false;
+  static const String _enabledKey = 'daily_tasks_notifications_enabled';
+  static const String _soundKey = 'daily_tasks_sound_enabled';
+  static const String _vibrationKey = 'daily_tasks_vibration_enabled';
+
+  bool _dailyTasksEnabled = true;
   bool _soundEnabled = true;
   bool _vibrationEnabled = true;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadNotificationSettings();
+  }
+
+  Future<void> _loadNotificationSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    if (!mounted) return;
+
+    setState(() {
+      _dailyTasksEnabled = prefs.getBool(_enabledKey) ?? true;
+      _soundEnabled = prefs.getBool(_soundKey) ?? true;
+      _vibrationEnabled = prefs.getBool(_vibrationKey) ?? true;
+      _isLoading = false;
+    });
+  }
+
+  Future<void> _saveNotificationSettings() async {
+    final isArabicValue = isArabic(context);
+
+    final prefs = await SharedPreferences.getInstance();
+
+    await prefs.setBool(_enabledKey, _dailyTasksEnabled);
+    await prefs.setBool(_soundKey, _soundEnabled);
+    await prefs.setBool(_vibrationKey, _vibrationEnabled);
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          isArabicValue
+              ? 'تم حفظ إعدادات الإشعارات'
+              : 'Notification settings saved',
+        ),
+        backgroundColor: const Color(0xFF8E7CFF),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -25,7 +71,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       backgroundColor: const Color(0xFFF9F6FF),
       body: Column(
         children: [
-          // App Bar
           Container(
             padding: const EdgeInsets.only(top: 40, bottom: 20),
             decoration: BoxDecoration(
@@ -43,8 +88,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               child: Row(
                 children: [
                   IconButton(
-                    icon: const Icon(Icons.arrow_back_ios_rounded,
-                        color: Color(0xFF2A1E3B), size: 20),
+                    icon: const Icon(
+                      Icons.arrow_back_ios_rounded,
+                      color: Color(0xFF2A1E3B),
+                      size: 20,
+                    ),
                     onPressed: () => Navigator.pop(context),
                   ),
                   const SizedBox(width: 8),
@@ -60,18 +108,23 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               ),
             ),
           ),
-
-          // Scrollable Content
           Expanded(
-            child: SingleChildScrollView(
+            child: _isLoading
+                ? const Center(
+              child: CircularProgressIndicator(
+                color: Color(0xFF8E7CFF),
+              ),
+            )
+                : SingleChildScrollView(
               physics: const BouncingScrollPhysics(),
               padding: const EdgeInsets.all(20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Notification Types Section
                   Text(
-                    isArabicValue ? 'أنواع الإشعارات' : 'Notification Types',
+                    isArabicValue
+                        ? 'إشعارات المهام اليومية'
+                        : 'Daily Tasks Notifications',
                     style: const TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.w700,
@@ -79,7 +132,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
-
                   Container(
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
@@ -96,161 +148,96 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     child: Column(
                       children: [
                         _NotificationSwitch(
-                          title: isArabicValue ? 'التذكيرات اليومية' : 'Daily Reminders',
+                          title: isArabicValue
+                              ? 'تجديد المهام اليومية'
+                              : 'Daily Tasks Renewal',
                           subtitle: isArabicValue
-                              ? 'تذكير يومي بمراجعة شخصياتك'
-                              : 'Daily reminder to check your characters',
-                          value: _dailyReminders,
-                          onChanged: (value) => setState(() => _dailyReminders = value),
+                              ? 'إشعار فقط عندما يتم تجديد كل المهام اليومية'
+                              : 'Notify me only when all daily tasks are renewed',
+                          value: _dailyTasksEnabled,
+                          onChanged: (value) {
+                            setState(() {
+                              _dailyTasksEnabled = value;
+                            });
+                          },
                         ),
                         const Divider(height: 24),
-                        _NotificationSwitch(
-                          title: isArabicValue ? 'رؤى الشخصيات' : 'Character Insights',
-                          subtitle: isArabicValue
-                              ? 'تحليلات وتوصيات حول شخصياتك'
-                              : 'Analytics and recommendations about your characters',
-                          value: _characterInsights,
-                          onChanged: (value) => setState(() => _characterInsights = value),
-                        ),
-                        const Divider(height: 24),
-                        _NotificationSwitch(
-                          title: isArabicValue ? 'التقدم الأسبوعي' : 'Weekly Progress',
-                          subtitle: isArabicValue
-                              ? 'ملخص أسبوعي لتقدمك'
-                              : 'Weekly summary of your progress',
-                          value: _weeklyProgress,
-                          onChanged: (value) => setState(() => _weeklyProgress = value),
-                        ),
-                        const Divider(height: 24),
-                        _NotificationSwitch(
-                          title: isArabicValue ? 'نصائح تحفيزية' : 'Motivational Tips',
-                          subtitle: isArabicValue
-                              ? 'نصائح عشوائية للتحفيز'
-                              : 'Random motivational tips and quotes',
-                          value: _motivationalTips,
-                          onChanged: (value) => setState(() => _motivationalTips = value),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  const SizedBox(height: 30),
-
-                  // Notification Settings Section
-                  Text(
-                    isArabicValue ? 'إعدادات الإشعارات' : 'Notification Settings',
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF2A1E3B),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.05),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      children: [
                         _NotificationSwitch(
                           title: isArabicValue ? 'الصوت' : 'Sound',
                           subtitle: isArabicValue
-                              ? 'تشغيل صوت للإشعارات'
-                              : 'Play sound for notifications',
+                              ? 'تشغيل صوت عند وصول الإشعار'
+                              : 'Play sound when the notification arrives',
                           value: _soundEnabled,
-                          onChanged: (value) => setState(() => _soundEnabled = value),
+                          enabled: _dailyTasksEnabled,
+                          onChanged: _dailyTasksEnabled
+                              ? (value) {
+                            setState(() {
+                              _soundEnabled = value;
+                            });
+                          }
+                              : null,
                         ),
                         const Divider(height: 24),
                         _NotificationSwitch(
                           title: isArabicValue ? 'الاهتزاز' : 'Vibration',
                           subtitle: isArabicValue
-                              ? 'تفعيل الاهتزاز للإشعارات'
-                              : 'Enable vibration for notifications',
+                              ? 'تفعيل الاهتزاز عند وصول الإشعار'
+                              : 'Enable vibration when the notification arrives',
                           value: _vibrationEnabled,
-                          onChanged: (value) => setState(() => _vibrationEnabled = value),
+                          enabled: _dailyTasksEnabled,
+                          onChanged: _dailyTasksEnabled
+                              ? (value) {
+                            setState(() {
+                              _vibrationEnabled = value;
+                            });
+                          }
+                              : null,
                         ),
                       ],
                     ),
                   ),
-
-                  const SizedBox(height: 30),
-
-                  // Notification Schedule
-                  Text(
-                    isArabicValue ? 'جدول الإشعارات' : 'Notification Schedule',
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF2A1E3B),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
+                  const SizedBox(height: 24),
                   Container(
-                    padding: const EdgeInsets.all(20),
+                    padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.05),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
+                      color:
+                      const Color(0xFF8E7CFF).withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color: const Color(0xFF8E7CFF)
+                            .withValues(alpha: 0.18),
+                      ),
                     ),
-                    child: Column(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          leading: Container(
-                            width: 40,
-                            height: 40,
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF8E7CFF).withValues(alpha: 0.1),
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(Icons.access_time_rounded,
-                                color: Color(0xFF8E7CFF), size: 20),
-                          ),
-                          title: Text(
-                            isArabicValue ? 'الوقت اليومي' : 'Daily Time',
+                        const Icon(
+                          Icons.info_rounded,
+                          color: Color(0xFF8E7CFF),
+                          size: 22,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            isArabicValue
+                                ? 'لن يتم إرسال أي إشعارات أخرى. سيظهر الإشعار فقط عندما يتم تجديد المهام اليومية بالكامل.'
+                                : 'No other notifications will be sent. You will only be notified when the full daily tasks are renewed.',
                             style: const TextStyle(
+                              fontSize: 13,
+                              height: 1.4,
                               fontWeight: FontWeight.w600,
-                              color: Color(0xFF2A1E3B),
+                              color: Color(0xFF7A6A5A),
                             ),
                           ),
-                          subtitle: const Text(
-                            '9:00 AM',
-                            style: TextStyle(fontSize: 13, color: Color(0xFF7A6A5A)),
-                          ),
-                          trailing: const Icon(Icons.arrow_forward_ios_rounded,
-                              size: 16, color: Color(0xFFD0C6E8)),
-                          onTap: () {
-                            _selectTime(context);
-                          },
                         ),
                       ],
                     ),
                   ),
-
-                  const SizedBox(height: 40), // Extra padding at bottom
+                  const SizedBox(height: 40),
                 ],
               ),
             ),
           ),
-
-          // Save Button (Fixed at bottom)
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
@@ -267,18 +254,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               width: double.infinity,
               height: 56,
               child: ElevatedButton(
-                onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(isArabicValue
-                          ? 'تم حفظ التفضيلات'
-                          : 'Preferences saved'),
-                      backgroundColor: const Color(0xFF8E7CFF),
-                    ),
-                  );
-                },
+                onPressed: _isLoading ? null : _saveNotificationSettings,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF8E7CFF),
+                  disabledBackgroundColor: const Color(0xFFD0C6E8),
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
@@ -298,71 +277,61 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       ),
     );
   }
-
-  Future<void> _selectTime(BuildContext context) async {
-    final TimeOfDay? picked = await showTimePicker(
-      context: context,
-      initialTime: const TimeOfDay(hour: 9, minute: 0),
-      builder: (BuildContext context, Widget? child) {
-        return Theme(
-          data: ThemeData.light().copyWith(
-            colorScheme: const ColorScheme.light(
-              primary: Color(0xFF8E7CFF),
-            ),
-          ),
-          child: child!,
-        );
-      },
-    );
-    if (picked != null) {
-      // Handle time selection
-    }
-  }
 }
 
 class _NotificationSwitch extends StatelessWidget {
   final String title;
   final String subtitle;
   final bool value;
-  final ValueChanged<bool> onChanged;
+  final bool enabled;
+  final ValueChanged<bool>? onChanged;
 
   const _NotificationSwitch({
     required this.title,
     required this.subtitle,
     required this.value,
+    this.enabled = true,
     required this.onChanged,
   });
 
   @override
   Widget build(BuildContext context) {
+    final textColor =
+    enabled ? const Color(0xFF2A1E3B) : const Color(0xFF9C90B3);
+    final subtitleColor =
+    enabled ? const Color(0xFF7A6A5A) : const Color(0xFFB8ADC8);
+
     return Row(
       children: [
         Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF2A1E3B),
+          child: Opacity(
+            opacity: enabled ? 1 : 0.55,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: textColor,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                subtitle,
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: Color(0xFF7A6A5A),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: subtitleColor,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
         Switch(
           value: value,
-          onChanged: onChanged,
+          onChanged: enabled ? onChanged : null,
           activeColor: const Color(0xFF8E7CFF),
         ),
       ],
