@@ -8,7 +8,7 @@ import 'package:ana_ifs_app/features/chat/data/models/chat_thread_model.dart';
 //Data source for chat operations in Firestore (Firebase).
 class ChatRemoteDataSource {
   ChatRemoteDataSource({FirebaseFirestore? firestore})
-      : _firestore = firestore ?? FirebaseFirestore.instance;
+    : _firestore = firestore ?? FirebaseFirestore.instance;
 
   final FirebaseFirestore _firestore;
 
@@ -148,10 +148,9 @@ class ChatRemoteDataSource {
     //   requires a manual composite index.
     // - For a single user's sessions, the data size is small, so filtering
     //   client-side is acceptable and makes setup easier.
-    final query = await _sessionsRef(uid)
-        .where('characterId', isEqualTo: characterId)
-        .limit(25)
-        .get();
+    final query = await _sessionsRef(
+      uid,
+    ).where('characterId', isEqualTo: characterId).limit(25).get();
 
     final candidates = query.docs
         .map((doc) => ChatSessionModel.fromMap(doc.data(), doc.id))
@@ -160,8 +159,10 @@ class ChatRemoteDataSource {
 
     if (candidates.isEmpty) return null;
     candidates.sort((a, b) {
-      final aTime = a.startedAt ?? a.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-      final bTime = b.startedAt ?? b.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final aTime =
+          a.startedAt ?? a.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final bTime =
+          b.startedAt ?? b.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
       return bTime.compareTo(aTime);
     });
     return candidates.first;
@@ -177,24 +178,42 @@ class ChatRemoteDataSource {
         .where('characterId', isEqualTo: characterId)
         .limit(limit)
         .snapshots()
-        .map(
-          (snapshot) {
-            final sessions = snapshot.docs
+        .map((snapshot) {
+          final sessions = snapshot.docs
               .map((doc) => ChatSessionModel.fromMap(doc.data(), doc.id))
               // Keep the collection flexible (future session types), but only
               // show chat sessions on this screen.
               .where((s) => s.type == 'chat')
               .toList();
 
-            sessions.sort((a, b) {
-              final aTime = a.startedAt ?? a.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-              final bTime = b.startedAt ?? b.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-              return bTime.compareTo(aTime);
-            });
+          sessions.sort((a, b) {
+            final aTime =
+                a.startedAt ??
+                a.updatedAt ??
+                DateTime.fromMillisecondsSinceEpoch(0);
+            final bTime =
+                b.startedAt ??
+                b.updatedAt ??
+                DateTime.fromMillisecondsSinceEpoch(0);
+            return bTime.compareTo(aTime);
+          });
 
-            return sessions;
-          },
-        );
+          return sessions;
+        });
+  }
+
+  /// Stream one session document by id.
+  ///
+  /// Used by active chat screens to react when a session is ended externally
+  /// (e.g., background auto-end flow).
+  Stream<ChatSessionModel?> streamSessionById({
+    required String uid,
+    required String sessionId,
+  }) {
+    return _sessionsRef(uid).doc(sessionId).snapshots().map((doc) {
+      if (!doc.exists) return null;
+      return ChatSessionModel.fromMap(doc.data() ?? {}, doc.id);
+    });
   }
 
   /// Fetch a thread document by id.
@@ -219,10 +238,9 @@ class ChatRemoteDataSource {
     required String uid,
     required String sessionId,
   }) async {
-    final query = await _threadsRef(uid)
-        .where('sessionId', isEqualTo: sessionId)
-        .limit(1)
-        .get();
+    final query = await _threadsRef(
+      uid,
+    ).where('sessionId', isEqualTo: sessionId).limit(1).get();
     if (query.docs.isEmpty) return null;
     final doc = query.docs.first;
     return ChatThreadModel.fromMap(doc.data(), doc.id);
@@ -236,10 +254,10 @@ class ChatRemoteDataSource {
     required String sessionId,
     required String threadId,
   }) async {
-    await _sessionsRef(uid).doc(sessionId).set(
-      {'threadId': threadId, 'updatedAt': FieldValue.serverTimestamp()},
-      SetOptions(merge: true),
-    );
+    await _sessionsRef(uid).doc(sessionId).set({
+      'threadId': threadId,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
   }
 
   /// End a chat session (locks it into history).
@@ -269,7 +287,7 @@ class ChatRemoteDataSource {
     await batch.commit();
   }
 
-//Stream chat messages in real-time.
+  //Stream chat messages in real-time.
   Stream<List<ChatMessageModel>> streamMessages({
     required String uid,
     required String threadId,
@@ -286,16 +304,41 @@ class ChatRemoteDataSource {
         );
   }
 
+  /// Arm backend auto-end fallback for a still-active session.
+  Future<void> setSessionAutoEndAt({
+    required String uid,
+    required String sessionId,
+    required DateTime autoEndAt,
+  }) async {
+    await _sessionsRef(uid).doc(sessionId).set({
+      'autoEndAt': Timestamp.fromDate(autoEndAt.toUtc()),
+      'autoEndArmedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  /// Clear backend auto-end fallback when user returns/ends manually.
+  Future<void> clearSessionAutoEndAt({
+    required String uid,
+    required String sessionId,
+  }) async {
+    await _sessionsRef(uid).doc(sessionId).set({
+      'autoEndAt': FieldValue.delete(),
+      'autoEndArmedAt': FieldValue.delete(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
   //Get recent chat messages from Firestore.
   Future<List<ChatMessageModel>> getRecentMessages({
     required String uid,
     required String threadId,
     int limit = 20,
   }) async {
-    final snapshot = await _messagesRef(uid, threadId)
-        .orderBy('createdAt', descending: true)
-        .limit(limit)
-        .get();
+    final snapshot = await _messagesRef(
+      uid,
+      threadId,
+    ).orderBy('createdAt', descending: true).limit(limit).get();
 
     return snapshot.docs
         .map((doc) => ChatMessageModel.fromMap(doc.data(), doc.id))

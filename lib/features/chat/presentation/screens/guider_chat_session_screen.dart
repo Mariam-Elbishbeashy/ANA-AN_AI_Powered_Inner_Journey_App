@@ -12,6 +12,7 @@ import 'package:ana_ifs_app/features/chat/data/models/chat_session_model.dart';
 import 'package:ana_ifs_app/features/chat/data/models/chat_thread_model.dart';
 import 'package:ana_ifs_app/features/chat/presentation/screens/guider_session_history_screen.dart';
 import 'package:ana_ifs_app/features/chat/presentation/widgets/guider_avatar.dart';
+import 'package:ana_ifs_app/core/services/session_idle_monitor_service.dart';
 
 /// Active/read-only screen for a specific guider session.
 class GuiderChatSessionScreen extends StatefulWidget {
@@ -25,7 +26,8 @@ class GuiderChatSessionScreen extends StatefulWidget {
   });
 
   @override
-  State<GuiderChatSessionScreen> createState() => _GuiderChatSessionScreenState();
+  State<GuiderChatSessionScreen> createState() =>
+      _GuiderChatSessionScreenState();
 }
 
 class _GuiderChatSessionScreenState extends State<GuiderChatSessionScreen> {
@@ -41,22 +43,67 @@ class _GuiderChatSessionScreenState extends State<GuiderChatSessionScreen> {
   bool _isSending = false;
   bool _ending = false;
   int _lastRenderedMessageCount = 0;
+  bool _sessionEndedExternally = false;
+  bool _handledExternalEnd = false;
+  StreamSubscription<ChatSessionModel?>? _sessionStatusSub;
 
-  bool get _isActiveSession => widget.session.isActive && !widget.readOnly;
+  bool get _isActiveSession =>
+      widget.session.isActive && !widget.readOnly && !_sessionEndedExternally;
 
   @override
   void initState() {
     super.initState();
     _initializeChat();
     _inputFocusNode.addListener(_handleFocusChange);
+    _startIdleMonitoring();
+    _watchSessionStatus();
+  }
+
+  Future<void> _startIdleMonitoring() async {
+    if (!_isActiveSession) return;
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    await SessionIdleMonitorService.instance.beginMonitoring(
+      uid: user.uid,
+      sessionId: widget.session.id,
+      threadId: widget.session.threadId,
+      characterId: 'guider',
+    );
   }
 
   @override
   void dispose() {
+    _sessionStatusSub?.cancel();
     _messageController.dispose();
     _scrollController.dispose();
     _inputFocusNode.dispose();
     super.dispose();
+  }
+
+  Future<void> _watchSessionStatus() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    _sessionStatusSub = _chatRemoteDataSource
+        .streamSessionById(uid: user.uid, sessionId: widget.session.id)
+        .listen((session) async {
+          if (!mounted || _handledExternalEnd) return;
+          if (session == null || !session.isActive) {
+            _handledExternalEnd = true;
+            _sessionEndedExternally = true;
+            await SessionIdleMonitorService.instance.stopMonitoring(
+              sessionId: widget.session.id,
+            );
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Session ended automatically due to inactivity.'),
+              ),
+            );
+            if (Navigator.of(context).canPop()) {
+              Navigator.of(context).pop();
+            }
+          }
+        });
   }
 
   Future<void> _initializeChat() async {
@@ -125,14 +172,17 @@ class _GuiderChatSessionScreenState extends State<GuiderChatSessionScreen> {
         sessionId: widget.session.id,
         threadId: widget.session.threadId,
       );
+      await SessionIdleMonitorService.instance.stopMonitoring(
+        sessionId: widget.session.id,
+      );
 
       if (!mounted) return;
       Navigator.of(context).pop();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to end session: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to end session: $e')));
       setState(() => _ending = false);
     }
   }
@@ -169,10 +219,7 @@ class _GuiderChatSessionScreenState extends State<GuiderChatSessionScreen> {
         threadId: thread.id,
         role: 'user',
         content: text,
-        metadata: {
-          'characterId': 'guider',
-          'sessionId': thread.sessionId,
-        },
+        metadata: {'characterId': 'guider', 'sessionId': thread.sessionId},
       );
 
       final recentMessages = await _chatRemoteDataSource.getRecentMessages(
@@ -182,10 +229,7 @@ class _GuiderChatSessionScreenState extends State<GuiderChatSessionScreen> {
       );
 
       final messagePayload = recentMessages
-          .map((message) => {
-                'role': message.role,
-                'content': message.content,
-              })
+          .map((message) => {'role': message.role, 'content': message.content})
           .toList();
 
       if (messagePayload.isEmpty || messagePayload.last['content'] != text) {
@@ -205,10 +249,7 @@ class _GuiderChatSessionScreenState extends State<GuiderChatSessionScreen> {
           threadId: thread.id,
           role: 'assistant',
           content: assistantMessage,
-          metadata: {
-            'characterId': 'guider',
-            'sessionId': thread.sessionId,
-          },
+          metadata: {'characterId': 'guider', 'sessionId': thread.sessionId},
         );
       }
     } catch (error) {
@@ -220,9 +261,9 @@ class _GuiderChatSessionScreenState extends State<GuiderChatSessionScreen> {
               'المُرشد يستغرق وقتًا أطول من المعتاد. حاول مرة أخرى.',
             )
           : 'Chat error: $error';
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
     } finally {
       if (mounted) {
         setState(() {
@@ -304,11 +345,7 @@ class _GuiderChatSessionScreenState extends State<GuiderChatSessionScreen> {
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
-              colors: [
-                Color(0xFFF7F2FF),
-                Color(0xFFF2ECFF),
-                Color(0xFFEDE7FF),
-              ],
+              colors: [Color(0xFFF7F2FF), Color(0xFFF2ECFF), Color(0xFFEDE7FF)],
             ),
           ),
           child: SafeArea(
@@ -371,7 +408,10 @@ class _GuiderChatSessionScreenState extends State<GuiderChatSessionScreen> {
                     padding: const EdgeInsets.fromLTRB(18, 0, 18, 10),
                     child: Container(
                       width: double.infinity,
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 10,
+                      ),
                       decoration: BoxDecoration(
                         color: const Color(0xFFA790ED),
                         borderRadius: BorderRadius.circular(14),
@@ -431,7 +471,9 @@ class _GuiderChatSessionScreenState extends State<GuiderChatSessionScreen> {
     final thread = _thread;
     if (user == null || thread == null) {
       return Center(
-        child: Text(tr(context, 'Please sign in to chat.', 'يرجى تسجيل الدخول للدردشة.')),
+        child: Text(
+          tr(context, 'Please sign in to chat.', 'يرجى تسجيل الدخول للدردشة.'),
+        ),
       );
     }
 
@@ -458,9 +500,13 @@ class _GuiderChatSessionScreenState extends State<GuiderChatSessionScreen> {
                   16,
                   12 + MediaQuery.of(context).padding.bottom,
                 ),
-                itemCount: messages.length + ((_isSending && _isActiveSession) ? 1 : 0),
+                itemCount:
+                    messages.length +
+                    ((_isSending && _isActiveSession) ? 1 : 0),
                 itemBuilder: (context, index) {
-                  if (_isSending && _isActiveSession && index == messages.length) {
+                  if (_isSending &&
+                      _isActiveSession &&
+                      index == messages.length) {
                     return _TypingBubble(
                       label: tr(context, 'The Guider', 'المُرشد'),
                     );
