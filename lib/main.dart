@@ -7,6 +7,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 import 'firebase_options.dart';
 import 'core/localization/app_language_provider.dart';
+import 'core/services/session_idle_monitor_service.dart';
 import 'core/theme/app_theme.dart';
 import 'core/services/firestore_service.dart';
 import 'features/admin/presentation/screens/admin_screen.dart';
@@ -14,6 +15,7 @@ import 'features/admin/presentation/screens/admin_screen.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  await SessionIdleMonitorService.instance.initialize();
   runApp(const AnaApp());
 }
 

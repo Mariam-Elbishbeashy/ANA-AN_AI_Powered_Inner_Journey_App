@@ -6,6 +6,7 @@ import 'package:ana_ifs_app/features/chat/data/datasources/chat_remote_data_sour
 import 'package:ana_ifs_app/features/chat/data/models/chat_session_model.dart';
 import 'package:ana_ifs_app/features/chat/presentation/screens/guider_chat_session_screen.dart';
 import 'package:ana_ifs_app/features/chat/presentation/widgets/guider_avatar.dart';
+import 'package:ana_ifs_app/core/services/session_idle_monitor_service.dart';
 
 /// session history screen for The Guider chat.
 
@@ -16,16 +17,15 @@ import 'package:ana_ifs_app/features/chat/presentation/widgets/guider_avatar.dar
 class GuiderSessionHistoryScreen extends StatefulWidget {
   final String? currentlyOpenSessionId;
 
-  const GuiderSessionHistoryScreen({
-    super.key,
-    this.currentlyOpenSessionId,
-  });
+  const GuiderSessionHistoryScreen({super.key, this.currentlyOpenSessionId});
 
   @override
-  State<GuiderSessionHistoryScreen> createState() => _GuiderSessionHistoryScreenState();
+  State<GuiderSessionHistoryScreen> createState() =>
+      _GuiderSessionHistoryScreenState();
 }
 
-class _GuiderSessionHistoryScreenState extends State<GuiderSessionHistoryScreen> {
+class _GuiderSessionHistoryScreenState
+    extends State<GuiderSessionHistoryScreen> {
   final _chatRemoteDataSource = ChatRemoteDataSource();
 
   String _formatWhen(DateTime? dt) {
@@ -78,6 +78,9 @@ class _GuiderSessionHistoryScreenState extends State<GuiderSessionHistoryScreen>
         uid: uid,
         sessionId: active.id,
         threadId: active.threadId,
+      );
+      await SessionIdleMonitorService.instance.stopMonitoring(
+        sessionId: active.id,
       );
     }
 
@@ -153,7 +156,13 @@ class _GuiderSessionHistoryScreenState extends State<GuiderSessionHistoryScreen>
       return Scaffold(
         backgroundColor: const Color(0xFFF9F6FF),
         body: Center(
-          child: Text(tr(context, 'Please sign in to continue.', 'يرجى تسجيل الدخول للمتابعة.')),
+          child: Text(
+            tr(
+              context,
+              'Please sign in to continue.',
+              'يرجى تسجيل الدخول للمتابعة.',
+            ),
+          ),
         ),
       );
     }
@@ -165,11 +174,7 @@ class _GuiderSessionHistoryScreenState extends State<GuiderSessionHistoryScreen>
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFFF7F2FF),
-              Color(0xFFF2ECFF),
-              Color(0xFFEDE7FF),
-            ],
+            colors: [Color(0xFFF7F2FF), Color(0xFFF2ECFF), Color(0xFFEDE7FF)],
           ),
         ),
         child: SafeArea(
@@ -255,7 +260,8 @@ class _GuiderSessionHistoryScreenState extends State<GuiderSessionHistoryScreen>
                     characterId: 'guider',
                   ),
                   builder: (context, snapshot) {
-                    final sessions = snapshot.data ?? const <ChatSessionModel>[];
+                    final sessions =
+                        snapshot.data ?? const <ChatSessionModel>[];
 
                     if (sessions.isEmpty) {
                       return Center(
@@ -294,7 +300,11 @@ class _GuiderSessionHistoryScreenState extends State<GuiderSessionHistoryScreen>
                             'Session ${sessions.length - index}',
                             'الجلسة ${sessions.length - index}',
                           ),
-                          subtitle: tr(context, 'Started: $when', 'بدأت: $when'),
+                          subtitle: tr(
+                            context,
+                            'Started: $when',
+                            'بدأت: $when',
+                          ),
                           statusLabel: statusLabel,
                           isActive: s.isActive,
                           onTap: () => _openSession(uid: user.uid, session: s),
@@ -325,7 +335,9 @@ class _GuiderSessionHistoryScreenState extends State<GuiderSessionHistoryScreen>
                     ),
                     onPressed: () => _startNewSession(uid: user.uid),
                     icon: const Icon(Icons.add_rounded),
-                    label: Text(tr(context, 'Start a new session', 'ابدأ جلسة جديدة')),
+                    label: Text(
+                      tr(context, 'Start a new session', 'ابدأ جلسة جديدة'),
+                    ),
                   ),
                 ),
               ),
@@ -407,7 +419,9 @@ class _SessionTile extends StatelessWidget {
               ),
               child: Icon(
                 isActive ? Icons.chat_bubble_rounded : Icons.history_rounded,
-                color: isActive ? const Color(0xFF8E7CFF) : const Color(0xFF6B5C82),
+                color: isActive
+                    ? const Color(0xFF8E7CFF)
+                    : const Color(0xFF6B5C82),
                 size: 20,
               ),
             ),
@@ -449,7 +463,9 @@ class _SessionTile extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
-                  color: isActive ? const Color(0xFF8E7CFF) : const Color(0xFF6B5C82),
+                  color: isActive
+                      ? const Color(0xFF8E7CFF)
+                      : const Color(0xFF6B5C82),
                 ),
               ),
             ),

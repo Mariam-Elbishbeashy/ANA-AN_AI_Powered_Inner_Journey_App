@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from concurrent.futures import ThreadPoolExecutor
-from threading import Lock
+from threading import Lock, Thread
 import os
 import json
 import logging
@@ -2108,6 +2108,214 @@ def chat():
 # -----------------------------------------------------------------------------
 # Session end analysis (called from Flutter when ending a session)
 # -----------------------------------------------------------------------------
+def _run_session_end_analysis(uid: str, session_id: str, thread_id: str, character_id: str, trigger: str = "session_end") -> Dict[str, Any]:
+    sref = _session_ref(uid, session_id)
+    snap = sref.get()
+    existing = (snap.to_dict() or {}) if snap.exists else {}
+    status = str(existing.get("status") or "").strip().lower()
+    already_analyzed = bool(existing.get("endedAnalyzedAt"))
+    if already_analyzed or status == "ended":
+        intensity_existing = existing.get("intensity") or {}
+        summary_existing = existing.get("sessionSummary") or {}
+        logger.info(
+            json.dumps(
+                {
+                    "event": "session_end_analyze_skipped",
+                    "ts": _now_iso(),
+                    "uid": uid,
+                    "sessionId": session_id,
+                    "characterId": character_id,
+                    "reason": "already_analyzed_or_ended",
+                },
+                ensure_ascii=False,
+            )
+        )
+        return {
+            "intensityEnd": intensity_existing.get("end"),
+            "delta": intensity_existing.get("delta", 0.0),
+            "focus": None,
+            "stabilityChanged": False,
+            "stabilityChecks": {},
+            "stabilityMetrics": {},
+            "sessionSummary": {
+                "highlights": summary_existing.get("highlights") or [],
+                "nextStepSuggestion": summary_existing.get("nextStepSuggestion") or "",
+            },
+            "skipped": True,
+        }
+
+    # Read recent messages from Firestore for this thread.
+    msgs = []
+    try:
+        stream = (
+            _messages_ref(uid, thread_id)
+            .order_by("createdAt")
+            .limit(200)
+            .stream()
+        )
+        for doc in stream:
+            d = doc.to_dict() or {}
+            msgs.append({"role": d.get("role", "user"), "content": d.get("content", "")})
+    except Exception as e:
+        logger.info(json.dumps({"event": "end_analyze_read_failed", "ts": _now_iso(), "uid": uid, "threadId": thread_id, "error": str(e)}, ensure_ascii=False))
+
+    intensity_score = score_intensity_with_llm(character_id, msgs)
+    summary = summarize_session_with_llm(character_id, msgs)
+
+    start_val = None
+    try:
+        start_val = snap.get("intensity.start")
+    except Exception:
+        try:
+            start_val = ((existing.get("intensity") or {}).get("start"))
+        except Exception:
+            start_val = None
+    if start_val is None:
+        start_val = intensity_score["intensity"]
+    try:
+        delta = float(intensity_score["intensity"]) - float(start_val)
+    except Exception:
+        delta = 0.0
+
+    sref.set(
+        {
+            "intensity": {
+                "start": start_val,
+                "end": intensity_score["intensity"],
+                "delta": delta,
+                "latest": intensity_score["intensity"],
+                "signals": intensity_score.get("signals") or [],
+                "blend": intensity_score.get("blend") is True,
+                "updatedAt": firestore.SERVER_TIMESTAMP,
+            },
+            "sessionSummary": {
+                "highlights": summary.get("highlights") or [],
+                "ifsSignals": summary.get("ifsSignals") or {},
+                "progressSignals": summary.get("progressSignals") or [],
+                "nextStepSuggestion": summary.get("nextStepSuggestion") or "",
+            },
+            "updatedAt": firestore.SERVER_TIMESTAMP,
+            "endedAnalyzedAt": firestore.SERVER_TIMESTAMP,
+        },
+        merge=True,
+    )
+
+    ensure_character_checklist(uid, character_id)
+    plan_ref = _character_plan_ref(uid, character_id)
+    plan_ref.set(
+        {
+            "metrics.lastSessionAt": firestore.SERVER_TIMESTAMP,
+            "metrics.sessionsCount": firestore.Increment(1),
+            "metrics.lastIntensityEnd": intensity_score["intensity"],
+            "updatedAt": firestore.SERVER_TIMESTAMP,
+        },
+        merge=True,
+    )
+
+    evidence = (msgs[-1].get("content") if msgs else "")[:200]
+    plan_diff = _update_character_plan_from_score(uid, character_id, intensity_score, evidence=evidence)
+
+    _log_agent_run(
+        _session_runs_ref(uid, session_id),
+        {
+            "trigger": trigger,
+            "inputs": {"threadId": thread_id, "characterId": character_id},
+            "outputs": {
+                "intensityEnd": intensity_score["intensity"],
+                "delta": delta,
+                "focus": plan_diff.get("focus"),
+                "changedItems": plan_diff.get("changedItems"),
+                "summary": summary.get("_raw") or {},
+            },
+            "rawModelOutput": {
+                "intensity": intensity_score.get("_raw") or {},
+                "summary": summary.get("_raw") or {},
+            },
+        },
+    )
+
+    logger.info(
+        json.dumps(
+            {
+                "event": "session_end_analyzed",
+                "ts": _now_iso(),
+                "uid": uid,
+                "sessionId": session_id,
+                "characterId": character_id,
+                "intensityEnd": intensity_score["intensity"],
+                "delta": delta,
+                "focus": plan_diff.get("focus"),
+            },
+            ensure_ascii=False,
+        )
+    )
+
+    stability_result = _apply_stable_state_if_eligible(uid, character_id)
+    if stability_result.get("changed"):
+        logger.info(
+            json.dumps(
+                {
+                    "event": "character_marked_stable",
+                    "ts": _now_iso(),
+                    "uid": uid,
+                    "characterId": character_id,
+                    "evaluation": stability_result.get("evaluation") or {},
+                },
+                ensure_ascii=False,
+            )
+        )
+    else:
+        logger.info(
+            json.dumps(
+                {
+                    "event": "character_stability_check",
+                    "ts": _now_iso(),
+                    "uid": uid,
+                    "characterId": character_id,
+                    "changed": False,
+                    "evaluation": stability_result.get("evaluation") or {},
+                    "reason": stability_result.get("reason"),
+                    "error": stability_result.get("error"),
+                },
+                ensure_ascii=False,
+            )
+        )
+
+    return {
+        "intensityEnd": intensity_score["intensity"],
+        "delta": delta,
+        "focus": plan_diff.get("focus"),
+        "stabilityChanged": stability_result.get("changed") is True,
+        "stabilityChecks": (stability_result.get("evaluation") or {}).get("checks") or {},
+        "stabilityMetrics": (stability_result.get("evaluation") or {}).get("metrics") or {},
+        "sessionSummary": {
+            "highlights": summary.get("highlights") or [],
+            "nextStepSuggestion": summary.get("nextStepSuggestion") or "",
+        },
+    }
+
+
+def _mark_session_ended(uid: str, session_id: str, thread_id: str) -> None:
+    _session_ref(uid, session_id).set(
+        {
+            "status": "ended",
+            "endedAt": firestore.SERVER_TIMESTAMP,
+            "autoEndAt": firestore.DELETE_FIELD,
+            "autoEndArmedAt": firestore.DELETE_FIELD,
+            "autoEndProcessedAt": firestore.SERVER_TIMESTAMP,
+            "updatedAt": firestore.SERVER_TIMESTAMP,
+        },
+        merge=True,
+    )
+    _threads_ref(uid).document(thread_id).set(
+        {
+            "status": "ended",
+            "updatedAt": firestore.SERVER_TIMESTAMP,
+        },
+        merge=True,
+    )
+
+
 @app.route('/sessions/end_analyze', methods=['POST'])
 def end_analyze_session():
     """
@@ -2128,175 +2336,135 @@ def end_analyze_session():
         if not uid or not session_id or not thread_id:
             return jsonify({'success': False, 'error': 'uid, sessionId, threadId are required'}), 400
 
-        # Read recent messages from Firestore for this thread
-        msgs = []
-        try:
-            stream = (
-                _messages_ref(uid, thread_id)
-                .order_by("createdAt")
-                .limit(200)
-                .stream()
-            )
-            for doc in stream:
-                d = doc.to_dict() or {}
-                msgs.append(
-                    {
-                        "role": d.get("role", "user"),
-                        "content": d.get("content", ""),
-                    }
-                )
-        except Exception as e:
-            logger.info(json.dumps({"event": "end_analyze_read_failed", "ts": _now_iso(), "uid": uid, "threadId": thread_id, "error": str(e)}, ensure_ascii=False))
-
-        # always produce some output, even if msgs is empty
-        intensity_score = score_intensity_with_llm(character_id, msgs)
-        summary = summarize_session_with_llm(character_id, msgs)
-
-        # compute delta if we have start
-        sref = _session_ref(uid, session_id)
-        snap = sref.get()
-        existing = (snap.to_dict() or {}) if snap.exists else {}
-        start_val = None
-        try:
-            
-            start_val = snap.get("intensity.start")
-        except Exception:
-            try:
-                start_val = ((existing.get("intensity") or {}).get("start"))
-            except Exception:
-                start_val = None
-        if start_val is None:
-            start_val = intensity_score["intensity"]
-        try:
-            delta = float(intensity_score["intensity"]) - float(start_val)
-        except Exception:
-            delta = 0.0
-
-        sref.set(
-            {
-                "intensity": {
-                    "start": start_val,
-                    "end": intensity_score["intensity"],
-                    "delta": delta,
-                    "latest": intensity_score["intensity"],
-                    "signals": intensity_score.get("signals") or [],
-                    "blend": intensity_score.get("blend") is True,
-                    "updatedAt": firestore.SERVER_TIMESTAMP,
-                },
-                "sessionSummary": {
-                    "highlights": summary.get("highlights") or [],
-                    "ifsSignals": summary.get("ifsSignals") or {},
-                    "progressSignals": summary.get("progressSignals") or [],
-                    "nextStepSuggestion": summary.get("nextStepSuggestion") or "",
-                },
-                "updatedAt": firestore.SERVER_TIMESTAMP,
-                "endedAnalyzedAt": firestore.SERVER_TIMESTAMP,
-            },
-            merge=True,
-        )
-
-        # update character plan metrics
-        ensure_character_checklist(uid, character_id)
-        plan_ref = _character_plan_ref(uid, character_id)
-        plan_ref.set(
-            {
-                "metrics.lastSessionAt": firestore.SERVER_TIMESTAMP,
-                "metrics.sessionsCount": firestore.Increment(1),
-                "metrics.lastIntensityEnd": intensity_score["intensity"],
-                "updatedAt": firestore.SERVER_TIMESTAMP,
-            },
-            merge=True,
-        )
-
-        # update focus/checklist based on end score
-        evidence = (msgs[-1].get("content") if msgs else "")[:200]
-        plan_diff = _update_character_plan_from_score(uid, character_id, intensity_score, evidence=evidence)
-
-        _log_agent_run(
-            _session_runs_ref(uid, session_id),
-            {
-                "trigger": "session_end",
-                "inputs": {"threadId": thread_id, "characterId": character_id},
-                "outputs": {
-                    "intensityEnd": intensity_score["intensity"],
-                    "delta": delta,
-                    "focus": plan_diff.get("focus"),
-                    "changedItems": plan_diff.get("changedItems"),
-                    "summary": summary.get("_raw") or {},
-                },
-                "rawModelOutput": {
-                    "intensity": intensity_score.get("_raw") or {},
-                    "summary": summary.get("_raw") or {},
-                },
-            },
-        )
-
-        logger.info(
-            json.dumps(
-                {
-                    "event": "session_end_analyzed",
-                    "ts": _now_iso(),
-                    "uid": uid,
-                    "sessionId": session_id,
-                    "characterId": character_id,
-                    "intensityEnd": intensity_score["intensity"],
-                    "delta": delta,
-                    "focus": plan_diff.get("focus"),
-                },
-                ensure_ascii=False,
-            )
-        )
-
-        # evaluate whether this character now qualifies for "stable" state
-        stability_result = _apply_stable_state_if_eligible(uid, character_id)
-        if stability_result.get("changed"):
-            logger.info(
-                json.dumps(
-                    {
-                        "event": "character_marked_stable",
-                        "ts": _now_iso(),
-                        "uid": uid,
-                        "characterId": character_id,
-                        "evaluation": stability_result.get("evaluation") or {},
-                    },
-                    ensure_ascii=False,
-                )
-            )
-        else:
-            logger.info(
-                json.dumps(
-                    {
-                        "event": "character_stability_check",
-                        "ts": _now_iso(),
-                        "uid": uid,
-                        "characterId": character_id,
-                        "changed": False,
-                        "evaluation": stability_result.get("evaluation") or {},
-                        "reason": stability_result.get("reason"),
-                        "error": stability_result.get("error"),
-                    },
-                    ensure_ascii=False,
-                )
-            )
-
-        return jsonify(
-            {
-                "success": True,
-                "intensityEnd": intensity_score["intensity"],
-                "delta": delta,
-                "focus": plan_diff.get("focus"),
-                "stabilityChanged": stability_result.get("changed") is True,
-                "stabilityChecks": (stability_result.get("evaluation") or {}).get("checks") or {},
-                "stabilityMetrics": (stability_result.get("evaluation") or {}).get("metrics") or {},
-                "sessionSummary": {
-                    "highlights": summary.get("highlights") or [],
-                    "nextStepSuggestion": summary.get("nextStepSuggestion") or "",
-                },
-            }
-        )
+        result = _run_session_end_analysis(uid, session_id, thread_id, character_id, trigger="session_end")
+        return jsonify({"success": True, **result})
     except Exception as e:
         traceback.print_exc()
         return jsonify({'success': False, 'error': f'end_analyze error: {str(e)}'}), 500
+
+
+def _extract_uid_session_from_ref_path(path: str) -> Optional[Dict[str, str]]:
+    parts = [p for p in str(path or "").split("/") if p]
+    # Expected collection-group session path: users/{uid}/sessions/{sessionId}
+    if len(parts) >= 4 and parts[-4] == "users" and parts[-2] == "sessions":
+        return {"uid": parts[-3], "sessionId": parts[-1]}
+    return None
+
+
+def process_due_auto_end_sessions(limit: int = 20) -> int:
+    processed = 0
+    now_dt = _now_dt()
+    # Avoid collection-group index requirements by scanning users and querying
+    # each user's sessions subcollection on autoEndAt only.
+    try:
+        user_snaps = db.collection("users").limit(500).stream()
+    except Exception as e:
+        logger.info(json.dumps({"event": "auto_end_users_query_failed", "ts": _now_iso(), "error": str(e)}, ensure_ascii=False))
+        return 0
+
+    for usnap in user_snaps:
+        uid = usnap.id
+        try:
+            session_snaps = (
+                _sessions_ref(uid)
+                .where("autoEndAt", "<=", now_dt)
+                .limit(max(1, int(limit)))
+                .stream()
+            )
+        except Exception as e:
+            logger.info(
+                json.dumps(
+                    {"event": "auto_end_sessions_query_failed", "ts": _now_iso(), "uid": uid, "error": str(e)},
+                    ensure_ascii=False,
+                )
+            )
+            continue
+
+        for snap in session_snaps:
+            if processed >= max(1, int(limit)):
+                return processed
+            try:
+                data = snap.to_dict() or {}
+                status = str(data.get("status") or "").strip().lower()
+                if status != "active":
+                    continue
+                session_id = snap.id
+                thread_id = str(data.get("threadId") or "").strip()
+                character_id = str(data.get("characterId") or "inner_critic").strip() or "inner_critic"
+                if not thread_id:
+                    continue
+
+                _run_session_end_analysis(
+                    uid,
+                    session_id,
+                    thread_id,
+                    character_id,
+                    trigger="auto_end_backend",
+                )
+                _mark_session_ended(uid, session_id, thread_id)
+                processed += 1
+                logger.info(
+                    json.dumps(
+                        {
+                            "event": "session_auto_ended_backend",
+                            "ts": _now_iso(),
+                            "uid": uid,
+                            "sessionId": session_id,
+                            "characterId": character_id,
+                        },
+                        ensure_ascii=False,
+                    )
+                )
+            except Exception as e:
+                logger.info(
+                    json.dumps(
+                        {
+                            "event": "session_auto_end_failed",
+                            "ts": _now_iso(),
+                            "uid": uid,
+                            "sessionRef": snap.reference.path,
+                            "error": str(e),
+                        },
+                        ensure_ascii=False,
+                    )
+                )
+    return processed
+
+
+@app.route('/sessions/process_due_auto_end', methods=['POST'])
+def process_due_auto_end():
+    try:
+        data = request.json or {}
+        limit = int(data.get("limit") or 20)
+        processed = process_due_auto_end_sessions(limit=limit)
+        return jsonify({"success": True, "processed": processed})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+_auto_end_sweeper_started = False
+
+
+def _start_auto_end_sweeper_if_enabled() -> None:
+    global _auto_end_sweeper_started
+    if _auto_end_sweeper_started:
+        return
+    enabled = str(os.getenv("AUTO_END_SWEEPER_ENABLED", "true")).strip().lower() in {"1", "true", "yes", "on"}
+    if not enabled:
+        return
+    interval_sec = max(10, int(os.getenv("AUTO_END_SWEEPER_INTERVAL_SEC", "20")))
+
+    def _loop():
+        while True:
+            try:
+                process_due_auto_end_sessions(limit=25)
+            except Exception as e:
+                logger.info(json.dumps({"event": "auto_end_sweeper_loop_failed", "ts": _now_iso(), "error": str(e)}, ensure_ascii=False))
+            time.sleep(interval_sec)
+
+    Thread(target=_loop, daemon=True).start()
+    _auto_end_sweeper_started = True
+    logger.info(json.dumps({"event": "auto_end_sweeper_started", "ts": _now_iso(), "intervalSec": interval_sec}, ensure_ascii=False))
 
 
 # ============================================================================
@@ -3742,4 +3910,7 @@ def check_intervention():
 
 
 if __name__ == '__main__':
+    # Start backend safety-net sweeper once (supports iOS background limits).
+    if os.getenv("WERKZEUG_RUN_MAIN") == "true" or os.getenv("FLASK_DEBUG", "1") in {"0", "false", "False"}:
+        _start_auto_end_sweeper_if_enabled()
     app.run(host='0.0.0.0', port=5001, debug=True)
