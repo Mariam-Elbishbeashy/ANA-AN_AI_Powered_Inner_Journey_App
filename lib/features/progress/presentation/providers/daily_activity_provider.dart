@@ -1,5 +1,7 @@
 // lib/features/progress/presentation/providers/daily_activity_provider.dart
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -17,6 +19,8 @@ class DailyActivityProvider with ChangeNotifier {
   Map<String, bool> _completedActivities = {};
   DateTime? _activitiesAssignedDate;
   bool _isLoading = false;
+
+  final List<Timer> _inAppReminderTimers = [];
 
   List<DailyActivity> get todaysActivities => _todaysActivities;
   Map<String, bool> get completedActivities => _completedActivities;
@@ -45,6 +49,7 @@ class DailyActivityProvider with ChangeNotifier {
     if (_activitiesAssignedDate != null &&
         _isSameDay(_activitiesAssignedDate!, todayDate) &&
         _todaysActivities.isNotEmpty) {
+      await _scheduleAllTaskRemindersForToday(todayDate);
       return;
     }
 
@@ -97,13 +102,15 @@ class DailyActivityProvider with ChangeNotifier {
           'updatedAt': FieldValue.serverTimestamp(),
         });
 
-        await _createDailyTasksInAppNotification(
+        await _createDailyTasksRenewedInAppNotification(
           userId: user.uid,
           dateId: dateId,
         );
 
         await DailyTaskNotificationService.showDailyTasksRenewedNotification();
       }
+
+      await _scheduleAllTaskRemindersForToday(todayDate);
     } catch (e) {
       debugPrint('DailyActivityProvider error: $e');
       _initializeLocalOnly(forDate: forDate);
@@ -113,7 +120,107 @@ class DailyActivityProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _createDailyTasksInAppNotification({
+  Future<void> _scheduleAllTaskRemindersForToday(DateTime todayDate) async {
+    await _scheduleOutsideAppTaskReminders(todayDate);
+    await _scheduleInsideAppTaskReminders(todayDate);
+  }
+
+  Future<void> _scheduleOutsideAppTaskReminders(DateTime todayDate) async {
+    // Outside-app reminders are intentionally NOT scheduled from the provider.
+    // They are scheduled one time only when the user saves notification settings.
+    //
+    // Why:
+    // - Provider runs whenever the app opens/loads today's tasks.
+    // - If we schedule OS notifications here, the outside notification can be
+    //   re-created again after it already fired.
+    // - The user's requested behavior is one outside notification per selected
+    //   reminder time, not repeated/re-created by opening the app.
+  }
+
+  Future<void> _scheduleInsideAppTaskReminders(DateTime todayDate) async {
+    _cancelInAppReminderTimers();
+
+    final user = _auth.currentUser;
+    if (user == null || _todaysActivities.isEmpty) return;
+
+    final settings = await DailyTaskNotificationService.loadSettings();
+    if (!settings.taskRemindersEnabled) return;
+
+    final Map<String, List<DailyActivity>> activitiesByPeriod = {
+      'morning': [],
+      'afternoon': [],
+      'evening': [],
+    };
+
+    for (final activity in _todaysActivities) {
+      final period = DailyTaskNotificationService.periodSettingsForCategory(
+        activity.category.toLowerCase().trim(),
+        settings,
+      );
+
+      if (period == null || !period.enabled) continue;
+      activitiesByPeriod[period.key]?.add(activity);
+    }
+
+    final periods = <PeriodSettings>[
+      PeriodSettings(
+        key: 'morning',
+        enabled: settings.morningEnabled,
+        hour: settings.morningHour,
+        minute: settings.morningMinute,
+      ),
+      PeriodSettings(
+        key: 'afternoon',
+        enabled: settings.afternoonEnabled,
+        hour: settings.afternoonHour,
+        minute: settings.afternoonMinute,
+      ),
+      PeriodSettings(
+        key: 'evening',
+        enabled: settings.eveningEnabled,
+        hour: settings.eveningHour,
+        minute: settings.eveningMinute,
+      ),
+    ];
+
+    for (final period in periods) {
+      final periodActivities = activitiesByPeriod[period.key] ?? [];
+      if (!period.enabled || periodActivities.isEmpty) continue;
+
+      final scheduledTime = DailyTaskNotificationService.dateAt(
+        todayDate,
+        hour: period.hour,
+        minute: period.minute,
+      );
+
+      final scheduledDateTime = DateTime(
+        scheduledTime.year,
+        scheduledTime.month,
+        scheduledTime.day,
+        scheduledTime.hour,
+        scheduledTime.minute,
+      );
+
+      final now = DateTime.now();
+      if (!scheduledDateTime.isAfter(now)) continue;
+
+      final delay = scheduledDateTime.difference(now);
+
+      _inAppReminderTimers.add(
+        Timer(delay, () async {
+          await _createTaskReminderInAppNotification(
+            userId: user.uid,
+            dateId: _formatDateId(todayDate),
+            period: period.key,
+            activities: periodActivities,
+            scheduledAt: scheduledDateTime,
+          );
+        }),
+      );
+    }
+  }
+
+  Future<void> _createDailyTasksRenewedInAppNotification({
     required String userId,
     required String dateId,
   }) async {
@@ -142,6 +249,53 @@ class DailyActivityProvider with ChangeNotifier {
     });
   }
 
+  Future<void> _createTaskReminderInAppNotification({
+    required String userId,
+    required String dateId,
+    required String period,
+    required List<DailyActivity> activities,
+    required DateTime scheduledAt,
+  }) async {
+    final notificationId = 'daily_task_reminder_${dateId}_$period';
+
+    final notificationRef = _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('appNotifications')
+        .doc(notificationId);
+
+    final existing = await notificationRef.get();
+    if (existing.exists) return;
+
+    final titleEn = DailyTaskNotificationService.titleForPeriod(period);
+    final titleAr = _arabicTitleForPeriod(period);
+
+    final firstTask = activities.first.titleEn.trim();
+    final extraCount = activities.length - 1;
+
+    final bodyEn = extraCount <= 0
+        ? firstTask
+        : '$firstTask and $extraCount more task${extraCount == 1 ? '' : 's'}';
+
+    final bodyAr = bodyEn;
+
+    await notificationRef.set({
+      'id': notificationId,
+      'type': 'daily_task_reminder',
+      'period': period,
+      'activityIds': activities.map((activity) => activity.id).toList(),
+      'titleEn': titleEn,
+      'titleAr': titleAr,
+      'bodyEn': bodyEn,
+      'bodyAr': bodyAr,
+      'isOpened': false,
+      'date': dateId,
+      'scheduledAt': Timestamp.fromDate(scheduledAt),
+      'createdAt': FieldValue.serverTimestamp(),
+      'openedAt': null,
+    });
+  }
+
   void _initializeLocalOnly({DateTime? forDate}) {
     final today = forDate ?? DateTime.now();
     final todayDate = DateTime(today.year, today.month, today.day);
@@ -160,6 +314,7 @@ class DailyActivityProvider with ChangeNotifier {
       _activitiesAssignedDate = todayDate;
 
       DailyTaskNotificationService.showDailyTasksRenewedNotification();
+      _scheduleOutsideAppTaskReminders(todayDate);
       notifyListeners();
     }
   }
@@ -189,6 +344,12 @@ class DailyActivityProvider with ChangeNotifier {
     } catch (e) {
       debugPrint('Error saving daily task completion: $e');
     }
+  }
+
+  Future<void> rescheduleTaskRemindersFromSettings() async {
+    if (_activitiesAssignedDate == null) return;
+
+    await _scheduleAllTaskRemindersForToday(_activitiesAssignedDate!);
   }
 
   List<DailyActivity> getActivitiesByCategory(String category) {
@@ -241,10 +402,30 @@ class DailyActivityProvider with ChangeNotifier {
         date1.day == date2.day;
   }
 
+  String _arabicTitleForPeriod(String period) {
+    if (period == 'morning') return 'تذكير مهمة الصباح';
+    if (period == 'afternoon') return 'تذكير مهمة بعد الظهر';
+    return 'تذكير مهمة المساء';
+  }
+
+  void _cancelInAppReminderTimers() {
+    for (final timer in _inAppReminderTimers) {
+      timer.cancel();
+    }
+    _inAppReminderTimers.clear();
+  }
+
   void reset() {
+    _cancelInAppReminderTimers();
     _todaysActivities = [];
     _completedActivities = {};
     _activitiesAssignedDate = null;
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _cancelInAppReminderTimers();
+    super.dispose();
   }
 }

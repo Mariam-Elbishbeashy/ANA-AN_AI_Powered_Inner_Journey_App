@@ -68,6 +68,7 @@ dependencies:
   workmanager: ^0.9.0+3
   timezone: ^0.11.0
   vibration: ^2.0.1
+  flutter_timezone: ^4.1.0
 
 dev_dependencies:
   flutter_test:

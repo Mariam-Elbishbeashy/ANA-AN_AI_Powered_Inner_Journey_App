@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -13,6 +15,7 @@ class AnaNotificationItem {
   final String bodyEn;
   final String bodyAr;
   final DateTime createdAt;
+  final DateTime scheduledAt;
   final IconData icon;
   final bool isOpened;
 
@@ -23,19 +26,26 @@ class AnaNotificationItem {
     required this.bodyEn,
     required this.bodyAr,
     required this.createdAt,
+    DateTime? scheduledAt,
     required this.icon,
     this.isOpened = false,
-  });
+  }) : scheduledAt = scheduledAt ?? createdAt;
 
   factory AnaNotificationItem.fromFirestore(
       DocumentSnapshot<Map<String, dynamic>> doc,
       ) {
     final data = doc.data() ?? {};
     final createdAtValue = data['createdAt'];
+    final scheduledAtValue = data['scheduledAt'];
 
     DateTime createdAt = DateTime.now();
     if (createdAtValue is Timestamp) {
       createdAt = createdAtValue.toDate();
+    }
+
+    DateTime scheduledAt = createdAt;
+    if (scheduledAtValue is Timestamp) {
+      scheduledAt = scheduledAtValue.toDate();
     }
 
     return AnaNotificationItem(
@@ -45,6 +55,7 @@ class AnaNotificationItem {
       bodyEn: data['bodyEn'] ?? '',
       bodyAr: data['bodyAr'] ?? '',
       createdAt: createdAt,
+      scheduledAt: scheduledAt,
       icon: Icons.self_improvement_rounded,
       isOpened: data['isOpened'] ?? false,
     );
@@ -58,6 +69,7 @@ class AnaNotificationItem {
       bodyEn: bodyEn,
       bodyAr: bodyAr,
       createdAt: createdAt,
+      scheduledAt: scheduledAt,
       icon: icon,
       isOpened: isOpened ?? this.isOpened,
     );
@@ -84,6 +96,28 @@ class TopHelloBar extends StatefulWidget {
 
 class _TopHelloBarState extends State<TopHelloBar> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  Timer? _dueNotificationRefreshTimer;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Firestore documents for scheduled in-app reminders are created before
+    // their selected time. This timer makes the sheet/badge refresh when
+    // scheduledAt becomes due while the app is open.
+    _dueNotificationRefreshTimer = Timer.periodic(
+      const Duration(minutes: 1),
+          (_) {
+        if (mounted) setState(() {});
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _dueNotificationRefreshTimer?.cancel();
+    super.dispose();
+  }
 
   String _initialsFromName(String value) {
     final parts = value.trim().split(RegExp(r'\s+'));
@@ -107,12 +141,21 @@ class _TopHelloBarState extends State<TopHelloBar> {
         .doc(user.uid)
         .collection('appNotifications')
         .orderBy('createdAt', descending: true)
-        .limit(30)
+        .limit(60)
         .snapshots()
         .map((snapshot) {
-      return snapshot.docs
+      final now = DateTime.now();
+
+      final notifications = snapshot.docs
           .map((doc) => AnaNotificationItem.fromFirestore(doc))
+          .where((notification) => !notification.scheduledAt.isAfter(now))
           .toList();
+
+      notifications.sort(
+            (a, b) => b.scheduledAt.compareTo(a.scheduledAt),
+      );
+
+      return notifications;
     });
   }
 
@@ -646,7 +689,7 @@ class _SettingsBottomSheetState extends State<SettingsBottomSheet> {
                     onTap: () => _markOneAsOpened(notification),
                     child: _NotificationUpdateTile(
                       notification: notification,
-                      timeAgo: _timeAgo(context, notification.createdAt),
+                      timeAgo: _timeAgo(context, notification.scheduledAt),
                     ),
                   );
                 },
