@@ -417,7 +417,7 @@ class _VoiceAnalysisScreenState extends State<VoiceAnalysisScreen>
       );
 
       _maxTimer?.cancel();
-      _maxTimer = Timer(const Duration(seconds: 10), () async {
+      _maxTimer = Timer(const Duration(seconds: 6), () async {
         if (!_voiceLoopActive) return;
         if (!_isRecording) return;
         print("VOICE LOOP → AUTO STOP TRIGGERED");
