@@ -9,6 +9,7 @@ from collections import deque
 from datetime import datetime
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from keras.models import load_model
 import librosa
 import joblib
 import warnings
@@ -22,11 +23,18 @@ SAMPLE_RATE = 22050
 DURATION = 3
 N_MFCC = 13
 
-# Use absolute paths like your example
-MODEL_PATH_KNN = r'C:\Users\moham\StudioProjects\ANA-AN_AI_Powered_Inner_Journey_App\flask_server\model_files\knn2.pkl'
-MODEL_PATH_LABEL_ENCODER = r'C:\Users\moham\StudioProjects\ANA-AN_AI_Powered_Inner_Journey_App\flask_server\model_files\label2_encoder.pkl'
-MODEL_PATH_PCA = r'C:\Users\moham\StudioProjects\ANA-AN_AI_Powered_Inner_Journey_App\flask_server\model_files\pca2.pkl'
-MODEL_PATH_SCALER = r'C:\Users\moham\StudioProjects\ANA-AN_AI_Powered_Inner_Journey_App\flask_server\model_files\scaler2.pkl'
+# Model paths (update these to your actual model paths)
+MODEL_PATHS = {
+    'face': {
+        'emotion_model': 'model_files/face/EmotionRecognition.h5'
+    },
+    'voice': {
+        'knn': 'model_files/voice/knn2.pkl',
+        'label_encoder': 'model_files/voice/label2_encoder.pkl',
+        'pca': 'model_files/voice/pca2.pkl',
+        'scaler': 'model_files/voice/scaler2.pkl'
+    }
+}
 
 # Emotion mappings
 FACE_EMOTIONS = {
@@ -62,7 +70,7 @@ class EmotionSession:
         self.voice_emotions.append({'emotion': emotion, 'confidence': confidence, 'timestamp': timestamp})
         self.combined_emotions.append({'type': 'voice', 'emotion': emotion, 'confidence': confidence, 'timestamp': timestamp})
         self.emotion_timeline.append({'time': timestamp, 'type': 'voice', 'emotion': emotion, 'confidence': confidence})
-        print(f"   ✅ Voice: {emotion} ({confidence*100:.1f}%)")
+        print(f"\n🎭 [VOICE EMOTION] {emotion} ({confidence*100:.1f}%)")
 
     def get_dominant_emotion(self):
         if not self.combined_emotions:
@@ -136,45 +144,37 @@ class EmotionModelLoader:
         print("\n" + "="*50)
         print("🔧 LOADING EMOTION MODELS")
         print("="*50)
-        # Face model is disabled (voice-only mode)
-        self.face_model = None
-        print("✓ Face model: SKIPPED (voice-only mode)")
-
         try:
-            print(f"   Loading KNN from: {MODEL_PATH_KNN}")
-            self.voice_knn = joblib.load(MODEL_PATH_KNN)
+            self.face_model = load_model(MODEL_PATHS['face']['emotion_model'])
+            print("✓ Face emotion model loaded")
+        except Exception as e:
+            print(f"✗ Face model error: {e}")
+        try:
+            self.voice_knn = joblib.load(MODEL_PATHS['voice']['knn'])
+            self.voice_label_encoder = joblib.load(MODEL_PATHS['voice']['label_encoder'])
+            self.voice_pca = joblib.load(MODEL_PATHS['voice']['pca'])
+            self.voice_scaler = joblib.load(MODEL_PATHS['voice']['scaler'])
 
-            print(f"   Loading Label Encoder from: {MODEL_PATH_LABEL_ENCODER}")
-            self.voice_label_encoder = joblib.load(MODEL_PATH_LABEL_ENCODER)
-
-            print(f"   Loading PCA from: {MODEL_PATH_PCA}")
-            self.voice_pca = joblib.load(MODEL_PATH_PCA)
-
-            print(f"   Loading Scaler from: {MODEL_PATH_SCALER}")
-            self.voice_scaler = joblib.load(MODEL_PATH_SCALER)
-
+            # Check expected feature count from scaler
             if hasattr(self.voice_scaler, 'mean_'):
                 self.expected_features = self.voice_scaler.mean_.shape[0]
-                print(f"\n✓ Voice emotion models loaded successfully!")
-                print(f"   Expected features: {self.expected_features}")
+                print(f"✓ Voice emotion models loaded (expects {self.expected_features} features)")
             else:
-                self.expected_features = 159
-                print(f"\n✓ Voice emotion models loaded (using {self.expected_features} features)")
+                self.expected_features = 159  # Default based on training script
+                print(f"✓ Voice emotion models loaded (unknown feature count, using {self.expected_features})")
 
-        except FileNotFoundError as e:
-            print(f"\n✗ File not found error: {e}")
-            print("\n   Please make sure the model files exist at:")
-            print(f"   - {MODEL_PATH_KNN}")
-            print(f"   - {MODEL_PATH_LABEL_ENCODER}")
-            print(f"   - {MODEL_PATH_PCA}")
-            print(f"   - {MODEL_PATH_SCALER}")
-            self.expected_features = 159
         except Exception as e:
-            print(f"\n✗ Voice models error: {e}")
+            print(f"✗ Voice models error: {e}")
             self.expected_features = 159
         print("="*50 + "\n")
 
     def extract_voice_features(self, audio_data, sr=SAMPLE_RATE):
+        """
+        Extract features that MATCH THE TRAINING SCRIPT exactly.
+        Training script uses: mfcc(13) + chroma(12) + mel(128) + zcr(1) + rms(1)
+        + spectral_centroid(1) + spectral_bandwidth(1) + spectral_rolloff(1) + spectral_flatness(1)
+        Total: 13+12+128+1+1+1+1+1+1 = 159 features
+        """
         try:
             if len(audio_data) < sr * 0.5:
                 print(f"   ⚠️ Audio too short: {len(audio_data)} samples")
@@ -183,43 +183,59 @@ class EmotionModelLoader:
             if len(audio_data.shape) > 1:
                 audio_data = audio_data.flatten()
 
+            # Extract MFCC (13 features)
             mfccs = librosa.feature.mfcc(y=audio_data, sr=sr, n_mfcc=N_MFCC)
-            mfccs_mean = np.mean(mfccs.T, axis=0)
+            mfccs_mean = np.mean(mfccs.T, axis=0)  # 13 features
 
+            # Extract Chroma (12 features)
             chroma = librosa.feature.chroma_stft(y=audio_data, sr=sr)
-            chroma_mean = np.mean(chroma.T, axis=0)
+            chroma_mean = np.mean(chroma.T, axis=0)  # 12 features
 
+            # Extract Mel spectrogram (128 features)
             mel = librosa.feature.melspectrogram(y=audio_data, sr=sr, n_mels=128)
-            mel_mean = np.mean(mel.T, axis=0)
+            mel_mean = np.mean(mel.T, axis=0)  # 128 features
 
+            # Extract Zero Crossing Rate (1 feature)
             zcr = librosa.feature.zero_crossing_rate(audio_data)
-            zcr_mean = np.mean(zcr.T, axis=0)[0]
+            zcr_mean = np.mean(zcr.T, axis=0)[0]  # 1 feature
 
+            # Extract RMS (1 feature)
             rms = librosa.feature.rms(y=audio_data)
-            rms_mean = np.mean(rms.T, axis=0)[0]
+            rms_mean = np.mean(rms.T, axis=0)[0]  # 1 feature
 
+            # Extract Spectral Centroid (1 feature)
             spectral_centroids = librosa.feature.spectral_centroid(y=audio_data, sr=sr)
-            spectral_centroids_mean = np.mean(spectral_centroids.T, axis=0)[0]
+            spectral_centroids_mean = np.mean(spectral_centroids.T, axis=0)[0]  # 1 feature
 
+            # Extract Spectral Bandwidth (1 feature) - ADD THIS!
             spectral_bandwidth = librosa.feature.spectral_bandwidth(y=audio_data, sr=sr)
-            spectral_bandwidth_mean = np.mean(spectral_bandwidth.T, axis=0)[0]
+            spectral_bandwidth_mean = np.mean(spectral_bandwidth.T, axis=0)[0]  # 1 feature
 
+            # Extract Spectral Rolloff (1 feature)
             spectral_rolloff = librosa.feature.spectral_rolloff(y=audio_data, sr=sr)
-            spectral_rolloff_mean = np.mean(spectral_rolloff.T, axis=0)[0]
+            spectral_rolloff_mean = np.mean(spectral_rolloff.T, axis=0)[0]  # 1 feature
 
+            # Extract Spectral Flatness (1 feature) - ADD THIS!
             spectral_flatness = librosa.feature.spectral_flatness(y=audio_data)
-            spectral_flatness_mean = np.mean(spectral_flatness.T, axis=0)[0]
+            spectral_flatness_mean = np.mean(spectral_flatness.T, axis=0)[0]  # 1 feature
 
+            # Concatenate all features in the SAME ORDER as training
             all_features = np.concatenate([
-                mfccs_mean, chroma_mean, mel_mean,
-                [zcr_mean], [rms_mean],
-                [spectral_centroids_mean], [spectral_bandwidth_mean],
-                [spectral_rolloff_mean], [spectral_flatness_mean]
-            ])
+                mfccs_mean,              # 13
+                chroma_mean,             # 12
+                mel_mean,                # 128
+                [zcr_mean],              # 1
+                [rms_mean],              # 1
+                [spectral_centroids_mean],  # 1
+                [spectral_bandwidth_mean],  # 1
+                [spectral_rolloff_mean],    # 1
+                [spectral_flatness_mean]    # 1
+            ])  # Total: 13+12+128+1+1+1+1+1+1 = 159 features
 
             feature_count = len(all_features)
             print(f"   🔍 Extracted {feature_count} features")
 
+            # Ensure correct feature count
             if self.expected_features and feature_count != self.expected_features:
                 print(f"   ⚠️ Feature count mismatch: {feature_count} vs expected {self.expected_features}")
                 if feature_count < self.expected_features:
@@ -237,7 +253,27 @@ class EmotionModelLoader:
             return None
 
     def predict_face_emotion(self, face_image):
-        return None, 0.0
+        if self.face_model is None:
+            return None, 0.0
+        try:
+            if isinstance(face_image, np.ndarray):
+                if len(face_image.shape) == 3:
+                    gray = cv2.cvtColor(face_image, cv2.COLOR_BGR2GRAY)
+                else:
+                    gray = face_image
+            else:
+                return None, 0.0
+            resized = cv2.resize(gray, (48, 48))
+            normalized = resized / 255.0
+            input_data = np.reshape(normalized, (1, 48, 48, 1))
+            predictions = self.face_model.predict(input_data, verbose=0)
+            emotion_idx = np.argmax(predictions[0])
+            confidence = float(np.max(predictions[0]))
+            emotion = FACE_EMOTIONS.get(emotion_idx, "Neutral")
+            return emotion, confidence
+        except Exception as e:
+            print(f"Face prediction error: {e}")
+            return None, 0.0
 
     def predict_voice_emotion(self, audio_data):
         if any(model is None for model in [self.voice_knn, self.voice_scaler, self.voice_pca, self.voice_label_encoder]):
@@ -249,13 +285,24 @@ class EmotionModelLoader:
             if features is None:
                 return None, 0.0
 
+            print(f"   🔍 Feature shape: {features.shape}")
+
+            # Scale features
             features_scaled = self.voice_scaler.transform(features)
+
+            # Apply PCA
             features_pca = self.voice_pca.transform(features_scaled)
+
+            # Predict
             prediction = self.voice_knn.predict(features_pca)
             emotion = self.voice_label_encoder.inverse_transform(prediction)[0]
 
+            # Get confidence using distance-based method
             distances, indices = self.voice_knn.kneighbors(features_pca)
+            # Convert distance to confidence (closer distance = higher confidence)
             confidence = 1.0 / (1.0 + np.mean(distances[0]))
+
+            # Ensure confidence is reasonable (0-1)
             confidence = max(0.0, min(1.0, confidence))
 
             return emotion, confidence
@@ -290,14 +337,42 @@ def start_session():
         if model_loader.expected_features:
             print(f"   Voice model expects: {model_loader.expected_features} features")
         print(f"{'='*60}\n")
-        return jsonify({'success': True, 'session_id': session_id, 'message': 'Emotion tracking session started', 'models_available': {'face': False, 'voice': model_loader.voice_knn is not None}})
+        return jsonify({'success': True, 'session_id': session_id, 'message': 'Emotion tracking session started', 'models_available': {'face': model_loader.face_model is not None, 'voice': model_loader.voice_knn is not None}})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/emotion/analyze_face', methods=['POST'])
 def analyze_face():
-    # Face analysis is disabled for voice-only mode
-    return jsonify({'success': True, 'emotions': [], 'dominant_emotion': 'neutral', 'dominant_confidence': 0.5, 'face_count': 0})
+    try:
+        data = request.json
+        session_id = data.get('session_id')
+        frame_data = data.get('frame')
+        if not session_id or session_id not in active_sessions:
+            return jsonify({'success': False, 'error': 'Invalid session'}), 400
+        if not frame_data:
+            return jsonify({'success': False, 'error': 'No frame data'}), 400
+        if ',' in frame_data:
+            frame_data = frame_data.split(',')[1]
+        frame_bytes = base64.b64decode(frame_data)
+        np_arr = np.frombuffer(frame_bytes, np.uint8)
+        frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+        if frame is None:
+            return jsonify({'success': False, 'error': 'Invalid frame'}), 400
+        face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        faces = face_cascade.detectMultiScale(gray, 1.1, 4)
+        emotions = []
+        for (x, y, w, h) in faces:
+            face_roi = gray[y:y+h, x:x+w]
+            emotion, confidence = model_loader.predict_face_emotion(face_roi)
+            if emotion:
+                active_sessions[session_id].add_face_emotion(emotion, confidence)
+                emotions.append({'emotion': emotion, 'confidence': confidence, 'bbox': [int(x), int(y), int(w), int(h)]})
+        dominant_emotion, dominant_conf, _ = active_sessions[session_id].get_dominant_emotion()
+        return jsonify({'success': True, 'emotions': emotions, 'dominant_emotion': dominant_emotion, 'dominant_confidence': dominant_conf, 'face_count': len(faces)})
+    except Exception as e:
+        print(f"Face analysis error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/emotion/analyze_audio', methods=['POST'])
 def analyze_audio():
@@ -322,9 +397,11 @@ def analyze_audio():
                 tmp_file.flush()
                 tmp_path = tmp_file.name
 
+            # Load audio
             audio, sr = librosa.load(tmp_path, sr=SAMPLE_RATE, duration=DURATION)
             print(f"   📊 Audio loaded: {len(audio)} samples, {sr} Hz")
 
+            # Predict emotion
             emotion, confidence = model_loader.predict_voice_emotion(audio)
 
             if emotion:
@@ -382,11 +459,34 @@ def end_session():
         print(f"\n📊 SESSION INFORMATION:")
         print(f"   User: {final_analysis['user_name']}")
         print(f"   Session ID: {final_analysis['session_id']}")
-        print(f"   Duration: {final_analysis['duration_seconds']:.1f} seconds")
+        print(f"   Duration: {final_analysis['duration_seconds']:.1f} seconds ({final_analysis['duration_seconds']/60:.1f} minutes)")
         print(f"\n🎯 DOMINANT EMOTION:")
         print(f"   {final_analysis['dominant_emotion'].upper()} ({final_analysis['dominant_confidence']*100:.1f}%)")
+        print(f"\n📈 EMOTIONAL STABILITY:")
+        print(f"   Stability Score: {final_analysis['emotional_stability']*100:.1f}%")
+        print(f"   Volatility: {final_analysis['volatility']*100:.1f}%")
+        print(f"\n📊 EMOTION DISTRIBUTION:")
+        scores = final_analysis['emotion_scores']
+        sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+        for emotion, score in sorted_scores:
+            bar_length = int(score * 30)
+            bar = "█" * bar_length
+            print(f"   {emotion.capitalize():10} {bar} {score*100:.1f}%")
         print(f"\n📝 SUMMARY:")
         print(f"   {final_analysis['summary']}")
+        print(f"\n📊 STATISTICS:")
+        stats = final_analysis['statistics']
+        if 'face' in stats:
+            print(f"   Face detections: {stats['face']['count']}")
+            print(f"   Face dominant: {stats['face']['dominant']}")
+        if 'voice' in stats:
+            print(f"   Voice detections: {stats['voice']['count']}")
+            print(f"   Voice dominant: {stats['voice']['dominant']}")
+        else:
+            print(f"   Voice detections: 0")
+        print(f"   Total samples: {stats['total_samples']}")
+        print("\n" + "="*60)
+        print("✅ EMOTION ANALYSIS COMPLETE")
         print("="*60 + "\n")
 
         del active_sessions[session_id]
@@ -396,19 +496,20 @@ def end_session():
 
 @app.route('/emotion/health', methods=['GET'])
 def health_check():
-    return jsonify({'success': True, 'status': 'running', 'active_sessions': len(active_sessions), 'models_loaded': {'face': False, 'voice': model_loader.voice_knn is not None}})
+    return jsonify({'success': True, 'status': 'running', 'active_sessions': len(active_sessions), 'models_loaded': {'face': model_loader.face_model is not None, 'voice': model_loader.voice_knn is not None}})
 
 if __name__ == '__main__':
     print("\n" + "="*60)
-    print("🎭 EMOTION ANALYSIS SERVER (Voice-Only Mode)")
+    print("🎭 EMOTION ANALYSIS SERVER")
     print("="*60)
     print("\n📡 Endpoints:")
     print("  POST /emotion/start_session     - Start tracking session")
-    print("  POST /emotion/analyze_face      - Analyze face frame (disabled)")
+    print("  POST /emotion/analyze_face      - Analyze face frame")
     print("  POST /emotion/analyze_audio     - Analyze audio")
     print("  POST /emotion/get_session_emotion - Get current emotion")
     print("  POST /emotion/end_session       - End session & get analysis")
     print("  GET  /emotion/health            - Health check")
     print("\n🚀 Starting server on port 5002...")
+    print("\n💡 Waiting for emotion data from Flutter app...")
     print("="*60 + "\n")
     app.run(host='0.0.0.0', port=5002, debug=False, threaded=True)

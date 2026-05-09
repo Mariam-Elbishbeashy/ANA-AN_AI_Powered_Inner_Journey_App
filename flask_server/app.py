@@ -9,10 +9,9 @@ import traceback
 app = Flask(__name__)
 CORS(app)  # Enable CORS for Flutter app
 
-import os
+# Load your trained model
+MODEL_PATH = 'model_files/ana_questionnaire_predictor.pkl'
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_PATH = os.path.join(BASE_DIR, 'model_files', 'ana_questionnaire_predictor.pkl')
 class AIPredictor:
     def __init__(self):
         print("Loading AI model...")
