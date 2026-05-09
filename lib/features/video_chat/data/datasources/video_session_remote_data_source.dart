@@ -11,7 +11,7 @@ class VideoSessionRemoteDataSource {
   final FirebaseFirestore _firestore;
 
   // Backend URL - adjust to your server
-  static const String _backendUrl = "http://10.0.2.2:5003";
+  static const String _backendUrl = "http://192.168.100.7:5003";
 
   // Use sessions collection for local reference
   CollectionReference<Map<String, dynamic>> _sessionsRef(String uid) {

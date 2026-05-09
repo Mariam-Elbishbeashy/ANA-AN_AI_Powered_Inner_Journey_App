@@ -7,7 +7,8 @@ import time
 import traceback
 import uuid
 from datetime import datetime, timezone
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
+import re
 
 import firebase_admin
 from firebase_admin import credentials, firestore
@@ -78,6 +79,23 @@ def _threads_ref(uid: str):
 def _messages_ref(uid: str, thread_id: str):
     return _threads_ref(uid).document(thread_id).collection("messages")
 
+
+
+ARABIC_RE = re.compile(r"[\u0600-\u06FF]")
+
+def detect_lang(text: str) -> str:
+    if not text:
+        return "en"
+
+    arabic_chars = len(re.findall(r"[\u0600-\u06FF]", text))
+    total_chars = len([c for c in text if c.strip()])  # Count non-space characters
+
+    if total_chars == 0:
+        return "en"
+
+    ratio = arabic_chars / total_chars
+
+    return "ar" if ratio > 0.3 else "en"
 # ============================================================================
 # CHARACTER CHECKLIST TEMPLATES (COMPLETE - matching agents.py)
 # ============================================================================
@@ -775,6 +793,269 @@ def generate_updated_summary(
     )
     return (response.choices[0].message.content or '').strip()
 
+
+
+
+
+
+
+#************************************************************
+@video_bp.route('/tts', methods=['POST'])
+def text_to_speech():
+    """Generate speech using OpenAI TTS with character-appropriate voices"""
+    try:
+        data = request.json or {}
+        text = data.get('text', '')
+        voice = data.get('voice', 'nova')  # Default to nova (good female voice)
+        language = data.get('language', 'en')
+        speed = data.get('speed', 1.0)
+
+        if not text:
+            return jsonify({'success': False, 'error': 'No text provided'}), 400
+
+        # OpenAI valid voices
+        valid_voices = ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']
+        if voice not in valid_voices:
+            voice = 'nova'  # fallback
+
+        # Adjust speed based on language and character
+        if language == 'ar':
+            speed = 0.9  # Slightly slower for Arabic clarity
+        elif voice == 'onyx':  # Deeper male voice
+            speed = 0.95
+        elif voice == 'shimmer':  # Bright female voice
+            speed = 1.0
+        else:
+            speed = 1.0
+
+        # Add emotion/stress markers for more natural speech
+        # OpenAI TTS doesn't directly support emotion, but we can adjust text
+        if any(word in text.lower() for word in ['?', 'what', 'why', 'how']):
+            # Questions might have rising intonation naturally
+            pass
+
+        # Call OpenAI TTS
+        response = openai_client.audio.speech.create(
+            model="tts-1",  # or "tts-1-hd" for higher quality
+            voice=voice,
+            input=text,
+            speed=speed,
+        )
+
+        # Return audio data
+        from flask import Response
+        audio_bytes = response.content
+        return Response(audio_bytes, mimetype='audio/mpeg')
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+
+
+
+
+
+# ============================================================================
+# STABILITY CONSTANTS (from agents.py)
+# ============================================================================
+
+_SEVERITY_RANK = {"none": 0, "low": 1, "medium": 2, "high": 3}
+_CORE_TRACKED_CHECKLIST_ITEMS = {"stabilization", "unblending", "triggers_fears"}
+
+def _normalize_character_key(value: Any) -> str:
+    return str(value or "").strip().lower().replace(" ", "_")
+
+def _get_session_time_key(session: Dict[str, Any]) -> str:
+    return str(
+        session.get("endedAt")
+        or session.get("updatedAt")
+        or session.get("startedAt")
+        or ""
+    )
+
+def _extract_session_intensity_end(session: Dict[str, Any]) -> Optional[float]:
+    try:
+        intensity = session.get("intensity") or {}
+        val = intensity.get("end")
+        if val is None:
+            return None
+        return float(val)
+    except Exception:
+        return None
+
+def _extract_session_intervention_severity(session: Dict[str, Any]) -> str:
+    intervention = session.get("intervention") or {}
+    sev = str(intervention.get("maxSeverity") or intervention.get("lastSeverity") or "").strip().lower()
+    if sev in _SEVERITY_RANK:
+        return sev
+    sev = str(session.get("severity") or "").strip().lower()
+    if sev in _SEVERITY_RANK:
+        return sev
+    return "none"
+
+def _plan_completion_ratio(plan_snapshot: Dict[str, Any]) -> float:
+    items = plan_snapshot.get("checklistItems") or []
+    if not items:
+        return 0.0
+    scoped = [it for it in items if str(it.get("id") or "").strip() in _CORE_TRACKED_CHECKLIST_ITEMS]
+    target_items = scoped if scoped else items
+    completed = sum(
+        1 for it in target_items if str(it.get("status") or "").strip().lower() == "completed"
+    )
+    return completed / max(1, len(target_items))
+
+def _find_user_character_doc(uid: str, character_id: str):
+    target = _normalize_character_key(character_id)
+    try:
+        chars_ref = db.collection("user_characters").where("userId", "==", uid)
+        for doc in chars_ref.stream():
+            data = doc.to_dict() or {}
+            candidates = {
+                _normalize_character_key(doc.id),
+                _normalize_character_key(data.get("id")),
+                _normalize_character_key(data.get("characterId")),
+                _normalize_character_key(data.get("innerCharacterId")),
+                _normalize_character_key(data.get("characterName")),
+                _normalize_character_key(data.get("displayName")),
+                _normalize_character_key(data.get("displayNameEn")),
+            }
+            if target in candidates:
+                return doc.reference, data
+    except Exception:
+        pass
+    return None, None
+
+def _get_character_plan_snapshot(uid: str, character_id: str) -> Dict[str, Any]:
+    try:
+        ensure_character_checklist(uid, character_id)
+        snap = _character_plan_ref(uid, character_id).get()
+        if not snap.exists:
+            return {}
+        d = snap.to_dict() or {}
+        return {
+            "status": d.get("status"),
+            "focus": d.get("focus") or {},
+            "checklistItems": d.get("checklistItems") or [],
+            "metrics": d.get("metrics") or {},
+        }
+    except Exception:
+        return {}
+
+
+
+
+# ============================================================================
+# STABILITY EVALUATION (from agents.py)
+# ============================================================================
+
+def _evaluate_character_stability(uid: str, character_id: str) -> Dict[str, Any]:
+    """
+    stability rules (thresholds):
+      - minEndedSessions >= 5
+      - totalUserTurns >= 20
+      - last 3 ended sessions: intensity.end <= 0.35 for all 3
+      - no high/medium intervention in last 3 ended sessions
+      - plan completion >= 70%
+      - focus.itemId != stabilization
+    """
+    try:
+        snaps = _sessions_ref(uid).where("characterId", "==", character_id).limit(200).stream()
+        ended_sessions: List[Dict[str, Any]] = []
+        for s in snaps:
+            d = s.to_dict() or {}
+            if str(d.get("status") or "").strip().lower() == "ended":
+                ended_sessions.append({**d, "_id": s.id})
+
+        ended_sessions.sort(key=_get_session_time_key, reverse=True)
+        min_ended_ok = len(ended_sessions) >= 5
+        total_user_turns = sum(int(s.get("userTurnCount") or 0) for s in ended_sessions)
+        turns_ok = total_user_turns >= 20
+
+        last3 = ended_sessions[:3]
+        low_end_ok = (
+            len(last3) == 3
+            and all((_extract_session_intensity_end(s) is not None and _extract_session_intensity_end(s) <= 0.35) for s in last3)
+        )
+        no_mid_high_intervention_ok = (
+            len(last3) == 3
+            and all(_extract_session_intervention_severity(s) not in {"medium", "high"} for s in last3)
+        )
+
+        plan_snapshot = _get_character_plan_snapshot(uid, character_id)
+        completion_ratio = _plan_completion_ratio(plan_snapshot)
+        plan_completion_ok = completion_ratio >= 0.70
+        focus_item = str((plan_snapshot.get("focus") or {}).get("itemId") or "").strip().lower()
+        focus_ok = focus_item != "stabilization"
+
+        is_stable = all([
+            min_ended_ok,
+            turns_ok,
+            low_end_ok,
+            no_mid_high_intervention_ok,
+            plan_completion_ok,
+            focus_ok,
+        ])
+        return {
+            "isStable": is_stable,
+            "checks": {
+                "minEndedSessions": min_ended_ok,
+                "totalUserTurns": turns_ok,
+                "last3IntensityEnd": low_end_ok,
+                "last3NoMidHighIntervention": no_mid_high_intervention_ok,
+                "planCompletion": plan_completion_ok,
+                "focusNotStabilization": focus_ok,
+            },
+            "metrics": {
+                "endedSessionsCount": len(ended_sessions),
+                "totalUserTurns": total_user_turns,
+                "planCompletionRatio": round(completion_ratio, 3),
+                "focusItemId": focus_item or None,
+            },
+        }
+    except Exception as e:
+        return {
+            "isStable": False,
+            "checks": {},
+            "metrics": {},
+            "error": str(e),
+        }
+
+def _apply_stable_state_if_eligible(uid: str, character_id: str) -> Dict[str, Any]:
+    """
+    evaluate requested stability thresholds and set user_character.currentState to
+    'stable' if all checks pass
+    """
+    evaluation = _evaluate_character_stability(uid, character_id)
+    if not evaluation.get("isStable"):
+        return {"changed": False, "evaluation": evaluation}
+
+    ref, data = _find_user_character_doc(uid, character_id)
+    if ref is None:
+        return {"changed": False, "evaluation": evaluation, "error": "user_character_not_found"}
+
+    current_state = str((data or {}).get("currentState") or "active").strip().lower()
+    if current_state == "inactive":
+        return {"changed": False, "evaluation": evaluation, "reason": "character_inactive"}
+
+    if current_state == "stable":
+        return {"changed": False, "evaluation": evaluation, "reason": "already_stable"}
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    ref.set(
+        {
+            "previousState": current_state or "active",
+            "currentState": "stable",
+            "stableAt": now_iso,
+            "updatedAt": firestore.SERVER_TIMESTAMP,
+        },
+        merge=True,
+    )
+    return {"changed": True, "evaluation": evaluation}
+
+
+
 # ============================================================================
 # GUIDER INTERVENTION (EXACTLY like agents.py)
 # ============================================================================
@@ -800,12 +1081,13 @@ CRISIS_KEYWORDS = [
 ]
 
 def analyze_intervention_need(messages: List[Dict[str, str]], character_id: str) -> Dict[str, Any]:
-    if len(messages) < 3:
+    if len(messages) < 1:
         return {'shouldIntervene': False}
 
+    # Get ALL recent user messages (not just last 6)
     recent_user_messages = [
-        m['content'].lower() for m in messages[-6:]
-        if m.get('role') == 'user'
+        m['content'].lower() for m in messages[-12:]  # Increased to last 12 messages
+        if m.get('role') == 'user' or m.get('sender') == 'user'
     ]
 
     if not recent_user_messages:
@@ -813,8 +1095,18 @@ def analyze_intervention_need(messages: List[Dict[str, str]], character_id: str)
 
     combined_text = ' '.join(recent_user_messages)
 
-    for keyword in CRISIS_KEYWORDS:
+    # EXPANDED CRISIS KEYWORDS for better detection
+    crisis_keywords = [
+        'suicidal', 'suicide', 'kill myself', 'hurt myself', 'self-harm', 'self harm',
+        'end my life', 'don\'t want to live', 'dont want to live', 'better off dead',
+        'want to die', 'no point living', 'cant go on', 'can\'t go on', 'give up',
+        'ending it', 'no reason to live', 'want to disappear', 'i\'m done', 'im done',
+        'nothing matters', 'hopeless', 'worthless', 'no way out', 'trapped'
+    ]
+
+    for keyword in crisis_keywords:
         if keyword in combined_text:
+            print(f"[crisis] Detected high severity keyword: {keyword}")
             return {
                 'shouldIntervene': True,
                 'reason': 'crisis_detected',
@@ -995,40 +1287,136 @@ Good examples:
 NEVER start your response with labels like "[Guider]:" or "The Guider:" - just speak naturally.
 """.strip()
 
-def decide_who_responds(messages: List[Dict], character_name: str) -> str:
+# ============================================================================
+# SEVERITY-BASED RESPONSE DECISION (deterministic, no AI call)
+# ============================================================================
+
+# Severity levels and their response strategies
+# High (crisis): Guider first, suppress character - User needs safety, not part dialogue
+# Medium (high emotion): Guider first, then character - Calm first, then continue healing
+# Low (stuck): Character first, then Guider - Let part speak, Guider facilitates
+def decide_who_responds_by_severity(
+    severity: str,
+    has_intervention: bool = False,
+    is_guider_active: bool = True
+) -> str:
+    """
+    Deterministic decision based on severity level.
+
+    Returns:
+        - "guider_first": Guider speaks first, then character (for HIGH severity)
+        - "character_first": Character speaks first, then Guider (for LOW/MEDIUM severity)
+        - "guider_only": Only Guider speaks (for CRISIS - suppress character)
+        - "character_only": Only character speaks (no intervention)
+    """
+    if not is_guider_active:
+        return "character_only"
+
+    # CRISIS level - highest priority
+    if has_intervention and severity == "high":
+        # Crisis: Only Guider should respond, character suppressed
+        return "guider_only"
+
+    if severity == "high":
+        # High severity: Guider first (calm down), then character
+        return "guider_first"
+
+    if severity == "medium":
+        # Medium severity: Character first, then Guider facilitates
+        # User can express themselves, then Guider helps
+        return "character_first"
+
+    if severity == "low":
+        # Low severity: Character first, then Guider follows up if needed
+        return "character_first"
+
+    # Default: Character alone (no intervention needed)
+    return "character_only"
+
+
+def get_current_severity_from_messages(
+    uid: str,
+    character_id: str,
+    session_id: str,
+    messages: List[Dict]
+) -> str:
+    """
+    Get current severity level from conversation context.
+    """
     try:
-        recent = messages[-6:] if len(messages) > 6 else messages
+        # Get ALL recent user messages
+        recent_user_messages = [
+            m.get('content', '').lower() for m in messages[-10:]
+            if m.get('role') == 'user' or m.get('sender') == 'user'
+        ]
 
-        context_text = ""
-        for msg in recent:
-            sender = msg.get('sender', msg.get('role', 'user'))
-            content = msg.get('content', '')
-            if sender == 'user':
-                context_text += f"User: {content}\n"
-            elif sender == 'guider':
-                context_text += f"Guider: {content}\n"
-            else:
-                context_text += f"{character_name}: {content}\n"
+        if recent_user_messages:
+            combined = ' '.join(recent_user_messages)
 
-        response = openai_client.chat.completions.create(
-            model=OPENAI_MODEL,
-            messages=[
-                {'role': 'system', 'content': GUIDED_CHAT_ORCHESTRATOR_PROMPT.format(character_name=character_name)},
-                {'role': 'user', 'content': f"Recent conversation:\n{context_text}\n\nWho should respond?"},
-            ],
-            temperature=0.3,
-            response_format={"type": "json_object"},
-            max_tokens=100,
-        )
+            # CRISIS detection (HIGH severity - Guider must respond first)
+            crisis_keywords = [
+                'suicidal', 'suicide', 'kill myself', 'hurt myself', 'self-harm',
+                'end my life', 'want to die', 'no point living', 'better off dead',
+                'cant go on', 'can\'t go on', 'no reason to live', 'want to disappear',
+                'i\'m done', 'nothing matters', 'hopeless', 'no way out', 'trapped'
+            ]
+            for kw in crisis_keywords:
+                if kw in combined:
+                    print(f"[severity] CRISIS detected: {kw}")
+                    return "high"
 
-        result = json.loads(response.choices[0].message.content or '{}')
-        respondent = result.get('respondent', 'character_only')
-        print(f"[guided_video] Decision: {respondent} - {result.get('reason', 'no reason')}")
-        return respondent
+            # HIGH intensity markers
+            high_intensity = [
+                'panic', 'terrified', 'hopeless', 'worthless', 'can\'t cope',
+                'cant cope', 'falling apart', 'breaking down', 'too much',
+                'overwhelmed', 'i can\'t', 'i cant', 'desperate', 'can\'t breathe'
+            ]
+            high_count = sum(1 for m in high_intensity if m in combined)
+            if high_count >= 2:
+                return "high"
+            if high_count >= 1:
+                return "medium"
+
+            # Stuck/confused patterns (LOW/MEDIUM)
+            stuck_patterns = [
+                'i don\'t know', 'i dont know', 'confused', 'stuck',
+                'not sure', 'nothing works', 'same thing', 'going in circles',
+                'i don\'t understand', 'i dont understand', 'help me understand'
+            ]
+            stuck_count = sum(1 for m in stuck_patterns if m in combined)
+            if stuck_count >= 2:
+                return "medium"
+            if stuck_count >= 1:
+                return "low"
+
+        return "none"
+
     except Exception as e:
-        print(f"[guided_video] Decision error: {e}, defaulting to character_only")
-        return 'character_only'
+        print(f"[severity] Error: {e}")
+        return "none"
 
+
+def get_current_severity_from_intervention(
+    intervention: Dict[str, Any]
+) -> str:
+    """Extract severity from intervention data"""
+    if not intervention:
+        return "none"
+
+    severity = intervention.get("severity", "").lower()
+    if severity in ["high", "medium", "low"]:
+        return severity
+
+    # Fallback based on reason
+    reason = intervention.get("reason", "").lower()
+    if reason == "crisis_detected":
+        return "high"
+    if reason == "emotional_intensity":
+        return "medium"
+    if reason in ["stuck_loop", "session_length"]:
+        return "low"
+
+    return "none"
 def get_guider_response_in_chat(
     messages: List[Dict],
     uid: str,
@@ -1085,7 +1473,24 @@ def get_guider_response_in_chat(
             guider_message = guider_message[len(prefix):].strip()
 
     return guider_message
-
+def ensure_english_response(text: str, client: OpenAI) -> str:
+    """Force convert Arabic responses to English"""
+    if detect_lang(text) == "ar":
+        try:
+            print("⚠️ Arabic output detected in video chat, forcing English fallback")
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": "Rewrite in natural, simple English. Keep meaning unchanged. No extra text."},
+                    {"role": "user", "content": text}
+                ],
+                temperature=0.2
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            print(f"Language fallback error: {e}")
+            return text
+    return text
 # ============================================================================
 # API ENDPOINTS
 # ============================================================================
@@ -1387,6 +1792,8 @@ def chat():
             'assistantMessage': assistant_message,
             'toolCalls': tool_calls,
             'intervention': intervention,
+            'lang': detect_lang(assistant_message)  # ← Add this line
+
         })
 
     except Exception as e:
@@ -1439,14 +1846,38 @@ def chat_guided():
 
         guided_messages.append({'sender': 'user', 'content': user_message})
 
-        respondent = decide_who_responds(guided_messages, character_name)
-        print(f"[guided_video] Respondent: {respondent}")
+        # ============================================================
+        # DETERMINE SEVERITY AND RESPONSE ORDER (deterministic, no AI)
+        # ============================================================
+
+        # Check for active intervention from backend first
+        intervention_analysis = analyze_intervention_need(guided_messages, character_id) if guided_messages else {}
+        has_intervention = intervention_analysis.get('shouldIntervene', False)
+        severity = "none"
+
+        if has_intervention:
+            severity = intervention_analysis.get('severity', 'low')
+        else:
+            # Get severity from conversation context
+            severity = get_current_severity_from_messages(uid, character_id, session_id, guided_messages)
+
+        # Determine response strategy based on severity
+        response_strategy = decide_who_responds_by_severity(
+            severity=severity,
+            has_intervention=has_intervention,
+            is_guider_active=True  # Guider is active in guided chat
+        )
+
+        print(f"[guided_video] Severity: {severity}, Strategy: {response_strategy}")
 
         character_message = ''
         guider_message = ''
 
-        # Get Character Response
-        if respondent in ['character_only', 'both']:
+        # ============================================================
+        # GET CHARACTER RESPONSE (if needed)
+        # ============================================================
+        if response_strategy in ['character_only', 'character_first', 'guider_first']:
+            # For guider_first, we still need character response (will speak after guider)
             messages = []
             for msg in conversation_history:
                 if msg.get('role') == 'user':
@@ -1477,8 +1908,10 @@ def chat_guided():
             if thread_id and character_message:
                 _save_message(uid, thread_id, 'assistant', character_message, character_id, character_id, session_id)
 
-        # Get Guider Response
-        if respondent in ['guider_only', 'both']:
+        # ============================================================
+        # GET GUIDER RESPONSE (if needed)
+        # ============================================================
+        if response_strategy in ['guider_only', 'guider_first', 'character_first']:
             guider_memory = load_agent_memory_summary(uid, 'guider')
             guider_message = get_guider_response_in_chat(
                 messages=guided_messages,
@@ -1501,7 +1934,16 @@ def chat_guided():
             updated_guider_summary = generate_updated_summary(guider_memory, all_new_messages)
             save_agent_memory_summary(uid, 'guider', updated_guider_summary)
 
-        # Periodic updates
+        # ============================================================
+        # SUPPRESS CHARACTER RESPONSE FOR guider_only STRATEGY
+        # ============================================================
+        if response_strategy == 'guider_only':
+            character_message = ''
+            print(f"[guided_video] Character suppressed due to high severity - only Guider speaks")
+
+        # ============================================================
+        # Periodic updates (intensity + checklist)
+        # ============================================================
         turn_for_update = _try_acquire_periodic_update(uid, session_id) if session_id else 0
         if session_id and thread_id and turn_for_update:
             try:
@@ -1541,12 +1983,28 @@ def chat_guided():
             except Exception as e:
                 print(f"[guided_video] Periodic update failed: {e}")
 
-        return jsonify({
+        # Build response
+        response_data = {
             'success': True,
             'characterMessage': character_message,
             'guiderMessage': guider_message,
-            'respondent': respondent,
-        })
+            'respondent': response_strategy,
+            'severity': severity,
+        }
+
+        # Add language detection for the main message
+        if response_strategy == 'guider_only' and guider_message:
+            response_data['lang'] = detect_lang(guider_message)
+        elif response_strategy == 'character_only' and character_message:
+            response_data['lang'] = detect_lang(character_message)
+        elif response_strategy == 'guider_first' and guider_message:
+            response_data['lang'] = detect_lang(guider_message)
+        elif response_strategy == 'character_first' and character_message:
+            response_data['lang'] = detect_lang(character_message)
+        else:
+            response_data['lang'] = 'en'
+
+        return jsonify(response_data)
 
     except Exception as e:
         traceback.print_exc()
@@ -1795,259 +2253,206 @@ def debug_messages():
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
-@video_bp.route('/stability', methods=['GET'])
-def get_user_stability():
+
+@video_bp.route('/detect_language', methods=['POST'])
+def detect_language():
     """
-    Get user's stability status based on MULTIPLE SESSIONS
-    From "No Bad Parts" - stability is about patterns over time
+    Detect if audio contains English speech before transcription
+    This prevents Arabic background sounds from being processed
     """
     try:
-        uid = request.args.get('uid')
-        character_id = request.args.get('characterId')
+        # Check if file is present
+        file = None
+        if 'file' in request.files:
+            file = request.files['file']
+        elif 'audio' in request.files:
+            file = request.files['audio']
 
-        if not uid or not character_id:
-            return jsonify({
-                'success': False,
-                'error': 'uid and characterId required'
-            }), 400
+        if not file:
+            return jsonify({'success': False, 'error': 'No audio file provided'}), 400
 
-        # ============================================================
-        # 1. Get character plan (stabilization confidence + history)
-        # ============================================================
-        ensure_character_checklist(uid, character_id)
-        plan_ref = _character_plan_ref(uid, character_id)
-        plan_snap = plan_ref.get()
-        plan = plan_snap.to_dict() if plan_snap.exists else {}
+        # Save temporary file
+        temp_dir = tempfile.gettempdir()
+        temp_path = os.path.join(temp_dir, f"temp_lang_detect_{datetime.now().timestamp()}.wav")
+        file.save(temp_path)
 
-        checklist_items = plan.get('checklistItems', [])
+        try:
+            # Use whisper to get language detection
+            with open(temp_path, "rb") as audio_file:
+                # First try to get language only (faster)
+                transcript_response = openai_client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=audio_file,
+                    response_format="verbose_json",  # This gives language info
+                )
 
-        stabilization_conf = 0.0
-        unblending_conf = 0.0
-        for item in checklist_items:
-            if item.get('id') == 'stabilization':
-                stabilization_conf = item.get('confidence', 0.0)
-            elif item.get('id') == 'unblending':
-                unblending_conf = item.get('confidence', 0.0)
+            # Extract language from response
+            detected_language = getattr(transcript_response, 'language', 'unknown')
+            transcript_text = transcript_response.text.strip() if hasattr(transcript_response, 'text') else ''
 
-        # ============================================================
-        # 2. Get LAST 5 SESSIONS for pattern analysis
-        # ============================================================
-        sessions_ref = _sessions_ref(uid)
-        recent_sessions = sessions_ref.where('characterId', '==', character_id).order_by('startedAt', direction=firestore.Query.DESCENDING).limit(5).stream()
+            # Calculate confidence based on transcript content
+            confidence = 0.0
+            is_english = False
 
-        sessions_data = []
-        for s in recent_sessions:
-            s_data = s.to_dict() or {}
-            intensity_data = s_data.get('intensity', {})
-            sessions_data.append({
-                'id': s.id,
-                'startedAt': s_data.get('startedAt'),
-                'intensity_end': intensity_data.get('end', 0.5),
-                'intensity_start': intensity_data.get('start', 0.5),
-                'blend': intensity_data.get('blend', False),
-                'signals': intensity_data.get('signals', [])
-            })
+            if detected_language == 'en':
+                # Check if transcript actually has English content
+                if transcript_text:
+                    # Count English characters vs Arabic
+                    arabic_pattern = re.compile(r'[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]')
+                    english_pattern = re.compile(r'[a-zA-Z]')
 
-        # Reverse to get chronological order (oldest first)
-        sessions_data.reverse()
+                    arabic_chars = len(arabic_pattern.findall(transcript_text))
+                    english_chars = len(english_pattern.findall(transcript_text))
+                    total_chars = arabic_chars + english_chars
 
-        if not sessions_data:
+                    if total_chars > 0:
+                        english_ratio = english_chars / total_chars
+                        # Higher confidence if mostly English
+                        confidence = min(0.95, english_ratio)
+
+                        # Check for common Arabic words (Egyptian dialect indicators)
+                        arabic_words = ['ايه', 'ازيك', 'عايز', 'عاوز', 'بتاع', 'دي', 'ده', 'دول',
+                                       'احنا', 'انتي', 'انتا', 'بتعمل', 'عشان', 'لأ', 'ايوه', 'اه']
+                        has_arabic_words = any(word in transcript_text for word in arabic_words)
+
+                        if has_arabic_words:
+                            confidence = 0.1  # Very low confidence if Arabic words detected
+                            is_english = False
+                        elif english_ratio > 0.7 and len(transcript_text) > 10:
+                            is_english = True
+                            confidence = min(0.95, english_ratio)
+                        else:
+                            is_english = False
+                            confidence = max(0.1, 1 - english_ratio)
+                    else:
+                        confidence = 0.0
+                        is_english = False
+                else:
+                    # Empty transcript - no speech detected
+                    confidence = 0.0
+                    is_english = False
+                    detected_language = 'no_speech'
+
+            elif detected_language == 'ar':
+                # Detected Arabic - definitely not English
+                is_english = False
+                confidence = 0.05
+
+            else:
+                # Unknown or other language
+                is_english = False
+                confidence = 0.0
+
+            # Additional check: if transcript is very short, might be noise
+            if len(transcript_text) < 3:
+                is_english = False
+                confidence = 0.0
+
+            print(f"🌐 Language detection: detected={detected_language}, is_english={is_english}, confidence={confidence}, text='{transcript_text[:50]}'")
+
+            # Clean up temp file
+            try:
+                os.remove(temp_path)
+            except:
+                pass
+
             return jsonify({
                 'success': True,
-                'stability': {'level': 'INSUFFICIENT_DATA', 'score': 0},
-                'message': 'Not enough sessions to determine stability. Complete at least 3 sessions.'
+                'language': 'en' if is_english else detected_language,
+                'confidence': confidence,
+                'transcript_preview': transcript_text[:100] if is_english else '',
+                'is_english': is_english
             })
 
-        # ============================================================
-        # 3. Analyze PATTERNS across sessions (not just one)
-        # ============================================================
-
-        num_sessions = len(sessions_data)
-
-        # Check 1: All recent sessions have low intensity AND no blending
-        all_low_intensity = all(s['intensity_end'] < 0.4 for s in sessions_data[-3:])
-        all_unblended = all(not s['blend'] for s in sessions_data[-3:])
-
-        # Check 2: Intensity trend (is it decreasing or stable?)
-        if num_sessions >= 3:
-            first_intensity = sessions_data[0]['intensity_end']
-            last_intensity = sessions_data[-1]['intensity_end']
-            if last_intensity < first_intensity - 0.1:
-                intensity_trend = "DECREASING"  # Good - becoming more stable
-            elif last_intensity > first_intensity + 0.1:
-                intensity_trend = "INCREASING"  # Bad - becoming less stable
-            else:
-                intensity_trend = "STABLE"
-        else:
-            intensity_trend = "INSUFFICIENT_DATA"
-
-        # Check 3: Backlash detection (from Chapter 5 - Mona session)
-        # Backlash = intensity spikes after a low session
-        backlash_detected = False
-        for i in range(1, len(sessions_data)):
-            prev_intensity = sessions_data[i-1]['intensity_end']
-            curr_intensity = sessions_data[i]['intensity_end']
-            if prev_intensity < 0.4 and curr_intensity > 0.7:
-                backlash_detected = True
-                break
-
-        # Check 4: Consistency of stabilization (is confidence improving?)
-        # We need to check if stabilization confidence has increased over time
-        # This requires looking at historical confidence values from the plan
-        metrics = plan.get('metrics', {})
-        sessions_count = metrics.get('sessionsCount', 0)
-        last_intensity_end = metrics.get('lastIntensityEnd', 0.5)
-
-        # Check 5: Emotional volatility (from emotion_detector data if available)
-        # High volatility = unstable, low volatility = stable
-        emotional_volatility = 0.0
-        if sessions_data and len(sessions_data) >= 2:
-            intensity_changes = []
-            for i in range(1, len(sessions_data)):
-                change = abs(sessions_data[i]['intensity_end'] - sessions_data[i-1]['intensity_end'])
-                intensity_changes.append(change)
-            emotional_volatility = sum(intensity_changes) / len(intensity_changes) if intensity_changes else 0
-
-        # ============================================================
-        # 4. Determine Stability Level (based on patterns, not single session)
-        # ============================================================
-
-        # TRUE STABLE: All of these must be true
-        if (all_low_intensity and
-            all_unblended and
-            stabilization_conf > 0.6 and
-            intensity_trend != "INCREASING" and
-            not backlash_detected and
-            emotional_volatility < 0.2):
-
-            stability_level = "STABLE"
-            stability_message = "User consistently shows low intensity, no blending, and good stabilization across multiple sessions. No backlash detected."
-
-        # UNSTABLE: Any of these triggers instability
-        elif (any(s['intensity_end'] > 0.7 for s in sessions_data[-3:]) or
-              any(s['blend'] for s in sessions_data[-3:]) or
-              stabilization_conf < 0.4 or
-              intensity_trend == "INCREASING" or
-              backlash_detected or
-              emotional_volatility > 0.5):
-
-            stability_level = "UNSTABLE"
-            stability_message = "User shows signs of instability: "
-            issues = []
-            if any(s['intensity_end'] > 0.7 for s in sessions_data[-3:]):
-                issues.append("high intensity in recent sessions")
-            if any(s['blend'] for s in sessions_data[-3:]):
-                issues.append("blending with parts")
-            if stabilization_conf < 0.4:
-                issues.append("poor stabilization skills")
-            if intensity_trend == "INCREASING":
-                issues.append("intensity is increasing over time")
-            if backlash_detected:
-                issues.append("protector backlash detected")
-            if emotional_volatility > 0.5:
-                issues.append("high emotional volatility")
-            stability_message += ", ".join(issues)
-
-        else:
-            stability_level = "MODERATE"
-            stability_message = "Partial stability. Some sessions show good signs, but consistency is still developing."
-
-        # ============================================================
-        # 5. Calculate Overall Stability Score (0-100)
-        # ============================================================
-
-        # Factor 1: Recent session quality (40 points)
-        recent_count = min(3, len(sessions_data))
-        if recent_count > 0:
-            recent_sessions_quality = 0
-            for s in sessions_data[-recent_count:]:
-                session_score = 0
-                if s['intensity_end'] < 0.4:
-                    session_score += 20
-                elif s['intensity_end'] < 0.6:
-                    session_score += 10
-                if not s['blend']:
-                    session_score += 20
-                elif s['blend']:
-                    session_score += 5
-                recent_sessions_quality += session_score
-            recent_score = (recent_sessions_quality / (recent_count * 40)) * 40
-        else:
-            recent_score = 0
-
-        # Factor 2: Trend (30 points)
-        if intensity_trend == "DECREASING":
-            trend_score = 30
-        elif intensity_trend == "STABLE":
-            trend_score = 20
-        elif intensity_trend == "INCREASING":
-            trend_score = 5
-        else:
-            trend_score = 15
-
-        # Factor 3: Stabilization confidence (20 points)
-        stabilization_score = stabilization_conf * 20
-
-        # Factor 4: No backlash (10 points)
-        backlash_score = 10 if not backlash_detected else 0
-
-        overall_score = recent_score + trend_score + stabilization_score + backlash_score
-        overall_score = round(overall_score, 1)
-
-        # ============================================================
-        # 6. Generate Actionable Next Step
-        # ============================================================
-
-        if stability_level == "STABLE":
-            next_step = "User is stable. Continue maintenance: daily IFS meditation and regular check-ins with parts."
-        elif stability_level == "UNSTABLE":
-            if any(s['intensity_end'] > 0.7 for s in sessions_data[-3:]):
-                next_step = "Focus on stabilization skills first. Practice grounding and breath work before deeper exploration."
-            elif any(s['blend'] for s in sessions_data[-3:]):
-                next_step = "Practice unblending: 'A part of me feels X' instead of 'I am X'. Do the Unblending meditation daily."
-            elif backlash_detected:
-                next_step = "Protector backlash detected. Work with the protector that reacted before doing more exile work."
-            elif intensity_trend == "INCREASING":
-                next_step = "Intensity is increasing over sessions. Reduce session frequency and focus on stabilization."
-            else:
-                next_step = "Focus on building stabilization skills. Practice the 'Working with a Challenging Protector' exercise."
-        else:  # MODERATE
-            next_step = "Continue building consistency. Focus on the 'stabilization' checklist item."
-
-        return jsonify({
-            'success': True,
-            'stability': {
-                'level': stability_level,
-                'score': overall_score,
-                'message': stability_message
-            },
-            'patterns': {
-                'sessionsAnalyzed': num_sessions,
-                'allRecentLowIntensity': all_low_intensity,
-                'allRecentUnblended': all_unblended,
-                'intensityTrend': intensity_trend,
-                'backlashDetected': backlash_detected,
-                'emotionalVolatility': round(emotional_volatility, 2)
-            },
-            'indicators': {
-                'stabilizationConfidence': round(stabilization_conf, 2),
-                'unblendingConfidence': round(unblending_conf, 2),
-                'sessionsCount': sessions_count,
-                'latestIntensity': round(sessions_data[-1]['intensity_end'], 2) if sessions_data else 0,
-                'latestBlend': sessions_data[-1]['blend'] if sessions_data else False
-            },
-            'sessionHistory': [
-                {
-                    'index': i + 1,
-                    'intensity': round(s['intensity_end'], 2),
-                    'blend': s['blend']
-                }
-                for i, s in enumerate(sessions_data)
-            ],
-            'nextStepSuggestion': next_step,
-            'bookReference': 'Based on "No Bad Parts" by Richard Schwartz - Stability requires consistency across multiple sessions (Chapters 2, 3, 5, 6, 11)'
-        })
+        except Exception as e:
+            print(f"⚠️ Language detection error: {e}")
+            # Clean up temp file
+            try:
+                os.remove(temp_path)
+            except:
+                pass
+            # Return low confidence on error
+            return jsonify({
+                'success': True,
+                'language': 'unknown',
+                'confidence': 0.1,
+                'is_english': False
+            })
 
     except Exception as e:
         traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)}), 500
+
+ # Add this new endpoint after the existing chat endpoint in video_chat.py
+
+
+
+
+@video_bp.route('/stability/evaluate', methods=['POST'])
+def evaluate_stability():
+    """
+    Evaluate if a character meets stability criteria and optionally apply stable state.
+
+    Request body:
+    {
+        "uid": "user_id",
+        "characterId": "inner_critic",
+        "applyChange": true  # optional, default false
+    }
+    """
+    try:
+        data = request.json or {}
+        uid = data.get('uid')
+        character_id = data.get('characterId')
+        apply_change = data.get('applyChange', False)
+
+        if not uid or not character_id:
+            return jsonify({'success': False, 'error': 'uid and characterId are required'}), 400
+
+        if apply_change:
+            result = _apply_stable_state_if_eligible(uid, character_id)
+        else:
+            evaluation = _evaluate_character_stability(uid, character_id)
+            result = {"changed": False, "evaluation": evaluation}
+
+        return jsonify({
+            'success': True,
+            'stabilityChanged': result.get('changed', False),
+            'isStable': result.get('evaluation', {}).get('isStable', False),
+            'checks': result.get('evaluation', {}).get('checks', {}),
+            'metrics': result.get('evaluation', {}).get('metrics', {}),
+            'message': _get_stability_message(result.get('evaluation', {}))
+        })
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+def _get_stability_message(evaluation: Dict[str, Any]) -> str:
+    """Generate a user-friendly message about stability status"""
+    if not evaluation.get('checks'):
+        return "Unable to evaluate stability at this time."
+
+    if evaluation.get('isStable'):
+        return "🎉 Congratulations! You have achieved stability with this part. The Guider will now show stable status."
+
+    checks = evaluation.get('checks', {})
+    metrics = evaluation.get('metrics', {})
+
+    missing = []
+    if not checks.get('minEndedSessions'):
+        missing.append(f"Complete {5 - metrics.get('endedSessionsCount', 0)} more sessions (need 5 total)")
+    if not checks.get('totalUserTurns'):
+        missing.append(f"Share more reflections (need 20 total messages)")
+    if not checks.get('last3IntensityEnd'):
+        missing.append("End 3 recent sessions with low emotional intensity (≤0.35)")
+    if not checks.get('last3NoMidHighIntervention'):
+        missing.append("Complete 3 sessions without needing Guider intervention")
+    if not checks.get('planCompletion'):
+        completion = metrics.get('planCompletionRatio', 0) * 100
+        missing.append(f"Complete more checklist items (currently {completion:.0f}%, need 70%)")
+    if not checks.get('focusNotStabilization'):
+        missing.append("Progress beyond stabilization phase")
+
+    if missing:
+        return "Stability not yet reached. " + " • ".join(missing[:3])
+    return "Working toward stability. Keep practicing with this part!"

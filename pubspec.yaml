@@ -63,6 +63,7 @@ dependencies:
   shared_preferences: ^2.2.3
   flutter_svg: ^2.0.10+1
   flutter_launcher_icons: ^0.14.3
+  wakelock_plus: ^1.6.0
 
   permission_handler: ^11.3.0
 dev_dependencies:
@@ -95,11 +96,17 @@ flutter:
      - assets/animations/guider.gif
      - assets/animations/guider_chat.gif
      - assets/animations/voice_sphere.gif
+     - assets/animations/inner_critic.mp4
+     - assets/animations/inner_criti.mp4  # Note: typo? Should be inner_critic.mp4?
+     - assets/animations/innner.mp4
+     - assets/animations/lonly.mp4
+     - assets/animations/inner.webm
      - assets/images/
      - assets/images/characters_full_body/
      - assets/data/
      - assets/models/
      - assets/moods/
+
 
 
   # An image asset can refer to one or more resolution-specific "variants", see

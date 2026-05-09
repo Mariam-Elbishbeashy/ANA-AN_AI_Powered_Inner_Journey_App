@@ -29,7 +29,7 @@ class ReframeScreen extends StatefulWidget {
     required this.onLogout,
     required this.onRetakeQuestionnaire,
     this.onSwitchLanguage,
-    this.serverUrl = 'http://10.0.2.2:5005',
+    this.serverUrl = 'http://192.168.100.7:5005',
     this.onNavigateToHome,
   });
 
@@ -69,7 +69,11 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
 
   // High confidence threshold
   final double _highConfidenceThreshold = 0.75;
+// Add these variables at the top with your other variables
+  bool _hasCheckedRestriction = false;
+  bool _isRestricted = false;
 
+// Modify initState
   @override
   void initState() {
     super.initState();
@@ -77,15 +81,29 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
     _getCurrentUser();
     _testServerConnection();
     _chatController.addListener(_handleTextChange);
-
-    // Check for characters after getting current user
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await Future.delayed(const Duration(milliseconds: 500));
-      await _refreshCharacterData();
-    });
+  }
+// Add didChangeDependencies - called when dependencies change (including navigation returns)
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Check restriction when returning to the screen
+    _checkRestrictionOnReturn();
   }
 
-  // Refresh character data from database
+// Add method to check restriction
+  Future<void> _checkRestrictionOnReturn() async {
+    await _refreshCharacterData();
+    if (mounted) {
+      setState(() {
+        if (!_hasCheckedRestriction) {
+          _hasCheckedRestriction = true;
+        }
+        _isRestricted = _shouldRestrictAccess();
+      });
+    }
+  }
+
+// Refresh character data from database (only reads, no writes)
   Future<void> _refreshCharacterData() async {
     await _checkForCharacters();
   }
@@ -2004,8 +2022,8 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
   // Build Method
   @override
   Widget build(BuildContext context) {
-    // Check if user should be restricted from accessing this screen
-    if (_shouldRestrictAccess()) {
+    // Show restriction only after initial check and if restricted
+    if (_isRestricted && _hasCheckedRestriction) {
       return Scaffold(
         body: Column(
           children: [
@@ -2056,8 +2074,8 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                       Text(
                         tr(
                             context,
-                            "You have $_activeCharacterCount active parts that need attention. Care for them first, then you can continue to new insights. (Inactive and stable parts can be reactivated)",
-                            "لديك $_activeCharacterCount جزء نشط يحتاج إلى اهتمامك. اعتني بهم أولاً، ثم يمكنك المتابعة لرؤى جديدة. (يمكن إعادة تفعيل الأجزاء غير النشطة والمستقرة)"
+                            "You have $_activeCharacterCount active parts that need attention. Care for them first, then you can continue to new insights.",
+                            "لديك $_activeCharacterCount جزء نشط يحتاج إلى اهتمامك. اعتني بهم أولاً، ثم يمكنك المتابعة لرؤى جديدة."
                         ),
                         textAlign: TextAlign.center,
                         style: const TextStyle(
@@ -2076,7 +2094,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
       );
     }
 
-    // Original UI for users with less than 3 active characters
+    // Original UI (copy your entire existing UI code from your original build method)
     return Scaffold(
       body: Column(
         children: [
