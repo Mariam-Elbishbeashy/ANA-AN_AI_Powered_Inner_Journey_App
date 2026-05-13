@@ -12,8 +12,14 @@ from typing import Dict, List, Any, Optional
 import traceback
 
 import firebase_admin
+from firebase_admin import auth as firebase_auth
 from firebase_admin import credentials, firestore
 from openai import OpenAI
+from chat_transcript_store import (
+    append_message_encrypted,
+    get_recent_messages_decrypted,
+    load_messages_for_analysis,
+)
 
 OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-4o-mini')
 OPENAI_SUMMARY_MODEL = os.getenv('OPENAI_SUMMARY_MODEL', 'gpt-4o-mini')
@@ -185,6 +191,25 @@ def _json_default(obj):
         except Exception:
             pass
     return str(obj)
+
+
+def _extract_bearer_token() -> Optional[str]:
+    auth_header = str(request.headers.get("Authorization") or "").strip()
+    if auth_header.lower().startswith("bearer "):
+        return auth_header[7:].strip()
+    token = str(request.headers.get("X-Firebase-Token") or "").strip()
+    return token or None
+
+
+def _verify_request_uid(expected_uid: str) -> bool:
+    token = _extract_bearer_token()
+    if not token:
+        return False
+    try:
+        decoded = firebase_auth.verify_id_token(token)
+        return str(decoded.get("uid") or "") == str(expected_uid or "")
+    except Exception:
+        return False
 
 
 def _user_ref(uid: str):
@@ -2106,6 +2131,55 @@ def chat():
 
 
 # -----------------------------------------------------------------------------
+# Secure chat transcript APIs (encrypted at rest)
+# -----------------------------------------------------------------------------
+@app.route('/messages/append', methods=['POST'])
+def append_message():
+    try:
+        data = request.json or {}
+        uid = str(data.get("uid") or "").strip()
+        thread_id = str(data.get("threadId") or "").strip()
+        role = str(data.get("role") or "").strip()
+        content = str(data.get("content") or "")
+        metadata = data.get("metadata") if isinstance(data.get("metadata"), dict) else None
+
+        if not uid or not thread_id or not role:
+            return jsonify({"success": False, "error": "uid, threadId, and role are required"}), 400
+        if not _verify_request_uid(uid):
+            return jsonify({"success": False, "error": "Unauthorized"}), 401
+
+        message = append_message_encrypted(
+            uid=uid,
+            thread_id=thread_id,
+            role=role,
+            content=content,
+            metadata=metadata,
+        )
+        return jsonify({"success": True, "message": message})
+    except Exception as e:
+        return jsonify({"success": False, "error": f"append_message error: {str(e)}"}), 500
+
+
+@app.route('/messages/recent', methods=['POST'])
+def get_recent_messages():
+    try:
+        data = request.json or {}
+        uid = str(data.get("uid") or "").strip()
+        thread_id = str(data.get("threadId") or "").strip()
+        limit = int(data.get("limit") or 20)
+
+        if not uid or not thread_id:
+            return jsonify({"success": False, "error": "uid and threadId are required"}), 400
+        if not _verify_request_uid(uid):
+            return jsonify({"success": False, "error": "Unauthorized"}), 401
+
+        messages = get_recent_messages_decrypted(uid=uid, thread_id=thread_id, limit=limit)
+        return jsonify({"success": True, "messages": messages})
+    except Exception as e:
+        return jsonify({"success": False, "error": f"get_recent_messages error: {str(e)}"}), 500
+
+
+# -----------------------------------------------------------------------------
 # Session end analysis (called from Flutter when ending a session)
 # -----------------------------------------------------------------------------
 def _run_session_end_analysis(uid: str, session_id: str, thread_id: str, character_id: str, trigger: str = "session_end") -> Dict[str, Any]:
@@ -2144,20 +2218,23 @@ def _run_session_end_analysis(uid: str, session_id: str, thread_id: str, charact
             "skipped": True,
         }
 
-    # Read recent messages from Firestore for this thread.
+    # Read recent messages via centralized decrypt-aware transcript helper.
     msgs = []
     try:
-        stream = (
-            _messages_ref(uid, thread_id)
-            .order_by("createdAt")
-            .limit(200)
-            .stream()
-        )
-        for doc in stream:
-            d = doc.to_dict() or {}
-            msgs.append({"role": d.get("role", "user"), "content": d.get("content", "")})
+        msgs = load_messages_for_analysis(uid, thread_id, limit=200)
     except Exception as e:
-        logger.info(json.dumps({"event": "end_analyze_read_failed", "ts": _now_iso(), "uid": uid, "threadId": thread_id, "error": str(e)}, ensure_ascii=False))
+        logger.info(
+            json.dumps(
+                {
+                    "event": "end_analyze_read_failed",
+                    "ts": _now_iso(),
+                    "uid": uid,
+                    "threadId": thread_id,
+                    "error": str(e),
+                },
+                ensure_ascii=False,
+            )
+        )
 
     intensity_score = score_intensity_with_llm(character_id, msgs)
     summary = summarize_session_with_llm(character_id, msgs)
@@ -2335,6 +2412,8 @@ def end_analyze_session():
 
         if not uid or not session_id or not thread_id:
             return jsonify({'success': False, 'error': 'uid, sessionId, threadId are required'}), 400
+        if not _verify_request_uid(uid):
+            return jsonify({'success': False, 'error': 'Unauthorized'}), 401
 
         result = _run_session_end_analysis(uid, session_id, thread_id, character_id, trigger="session_end")
         return jsonify({"success": True, **result})
