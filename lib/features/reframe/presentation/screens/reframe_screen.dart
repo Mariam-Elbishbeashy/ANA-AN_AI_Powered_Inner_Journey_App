@@ -56,6 +56,12 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
   int _activeCharacterCount = 0;
   int _inactiveCharacterCount = 0;
   int _stableCharacterCount = 0;
+// Add these variables at the top with your other variables
+  bool _hasCheckedRestriction = false;
+  bool _isRestricted = false;
+
+// Add this with your other variables at the top
+  bool _shouldShowFullRestrictionPage = false;
 
   // Audio recording for video mode
   bool _videoAudioRecording = false;
@@ -69,11 +75,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
 
   // High confidence threshold
   final double _highConfidenceThreshold = 0.75;
-// Add these variables at the top with your other variables
-  bool _hasCheckedRestriction = false;
-  bool _isRestricted = false;
 
-// Modify initState
   @override
   void initState() {
     super.initState();
@@ -81,15 +83,31 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
     _getCurrentUser();
     _testServerConnection();
     _chatController.addListener(_handleTextChange);
-  }
-// Add didChangeDependencies - called when dependencies change (including navigation returns)
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // Check restriction when returning to the screen
-    _checkRestrictionOnReturn();
+    // Don't show full restriction page on initial load
+    _checkRestrictionForInputDisabling();
   }
 
+// New method - only checks restriction for disabling inputs, NOT for showing full page
+  Future<void> _checkRestrictionForInputDisabling() async {
+    await _refreshCharacterData();
+    if (mounted) {
+      setState(() {
+        if (!_hasCheckedRestriction) {
+          _hasCheckedRestriction = true;
+        }
+        _isRestricted = _shouldRestrictAccess();
+        // IMPORTANT: DO NOT set _shouldShowFullRestrictionPage here
+      });
+    }
+  }
+// Add a method to explicitly show restriction page when needed
+  void _showFullRestrictionPageIfNeeded() {
+    if (_shouldRestrictAccess() && !_hasCheckedRestriction) {
+      setState(() {
+        _shouldShowFullRestrictionPage = true;
+      });
+    }
+  }
 // Add method to check restriction
   Future<void> _checkRestrictionOnReturn() async {
     await _refreshCharacterData();
@@ -119,12 +137,11 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
     return currentState == 'active';
   }
 
-  // Check character counts from database - count ACTIVE, INACTIVE, and STABLE
+
   Future<void> _checkForCharacters() async {
     try {
       if (_currentUserId == null) return;
 
-      // Query for ALL user characters
       final querySnapshot = await _firestore
           .collection('user_characters')
           .where('userId', isEqualTo: _currentUserId)
@@ -147,21 +164,29 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
         }
       }
 
-      setState(() {
-        _activeCharacterCount = activeCount;
-        _inactiveCharacterCount = inactiveCount;
-        _stableCharacterCount = stableCount;
-      });
+      if (mounted) {
+        setState(() {
+          _activeCharacterCount = activeCount;
+          _inactiveCharacterCount = inactiveCount;
+          _stableCharacterCount = stableCount;
+          _isRestricted = _shouldRestrictAccess();
+          // IMPORTANT: Do NOT change _shouldShowFullRestrictionPage here
+        });
+      }
 
       print('📊 Character Stats: $activeCount active, $inactiveCount inactive, $stableCount stable');
 
     } catch (e) {
       print('❌ Error checking characters: $e');
-      setState(() {
-        _activeCharacterCount = 0;
-        _inactiveCharacterCount = 0;
-        _stableCharacterCount = 0;
-      });
+      if (mounted) {
+        setState(() {
+          _activeCharacterCount = 0;
+          _inactiveCharacterCount = 0;
+          _stableCharacterCount = 0;
+          _isRestricted = false;
+          // Do NOT change _shouldShowFullRestrictionPage here
+        });
+      }
     }
   }
 
@@ -455,7 +480,6 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
   }
 
   // Save high confidence characters to user collection
-  // Save high confidence characters to user collection
   Future<void> _saveHighConfidenceCharacters(
       Map<String, dynamic> analysisResult, {
         String? audioFilePath,
@@ -668,7 +692,8 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
 
       int nextRank = maxRank + 1;
       int newCharactersCount = 0;
-      int reactivatedCharactersCount = 0;
+      int reactivatedFromInactiveCount = 0;
+      int reactivatedFromStableCount = 0;
 
       final batch = _firestore.batch();
       final timestamp = DateTime.now();
@@ -708,7 +733,15 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
           }
         }
 
-        // FIRST: Check if character exists as STABLE
+        // FIRST: Check if character exists in ANY state (active, inactive, or stable)
+
+        // CASE 1: Character is already ACTIVE - skip
+        if (activeCharacters.containsKey(characterNameLower)) {
+          print('⏭️ Character already active: $characterName');
+          continue;
+        }
+
+        // CASE 2: Character is STABLE - reactivate it (preserve all original data)
         if (stableCharacters.containsKey(characterNameLower)) {
           print('   ✅ Found STABLE character: $characterName');
 
@@ -798,7 +831,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
           print('   Document ID: $docId');
           print('   Current state before: ${stableData['currentState']}');
 
-          // ONLY update currentState to 'active' - preserve all other fields
+          // ONLY update currentState to 'active' - preserve all other fields (confidence, description, etc.)
           final docRef = _firestore.collection('user_characters').doc(docId);
           batch.update(docRef, {
             'currentState': 'active',
@@ -806,9 +839,9 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
             // DO NOT update confidence, predictedAt, or any other fields
           });
 
-          print('   Updated to: active');
+          print('   ✅ Reactivated stable character (preserved original data)');
 
-          reactivatedCharactersCount++;
+          reactivatedFromStableCount++;
           totalActiveAfterOperations++;
 
           // Remove from stable map so we don't process again
@@ -816,7 +849,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
           continue;
         }
 
-        // SECOND: Check if character exists as INACTIVE
+        // CASE 3: Character is INACTIVE - reactivate it (update with new data)
         if (inactiveCharacters.containsKey(characterNameLower)) {
           print('   ✅ Found INACTIVE character: $characterName');
 
@@ -914,7 +947,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
             'reactivatedAt': timestamp.toIso8601String(),
           });
 
-          reactivatedCharactersCount++;
+          reactivatedFromInactiveCount++;
           totalActiveAfterOperations++;
 
           // Remove from inactive map so we don't process again
@@ -922,13 +955,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
           continue;
         }
 
-        // THIRD: Check if character exists as ACTIVE (skip if already active)
-        if (activeCharacters.containsKey(characterNameLower)) {
-          print('⏭️ Character already active: $characterName');
-          continue;
-        }
-
-        // FOURTH: Check if we can add a NEW character
+        // CASE 4: Character doesn't exist - add as NEW (if under limit)
         print('   Character not found, attempting to add as NEW');
 
         if (totalActiveAfterOperations >= 3) {
@@ -1083,37 +1110,42 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
 
       print('\n📊 Summary before commit:');
       print('   New characters: $newCharactersCount');
-      print('   Reactivated characters: $reactivatedCharactersCount');
+      print('   Reactivated from INACTIVE: $reactivatedFromInactiveCount');
+      print('   Reactivated from STABLE: $reactivatedFromStableCount');
 
-      if (newCharactersCount > 0 || reactivatedCharactersCount > 0) {
+      if (newCharactersCount > 0 || reactivatedFromInactiveCount > 0 || reactivatedFromStableCount > 0) {
         await batch.commit();
         print('✅ Batch commit successful');
 
         if (newCharactersCount > 0) {
           print('✅ Added $newCharactersCount new characters');
         }
-        if (reactivatedCharactersCount > 0) {
-          print('🔄 Reactivated $reactivatedCharactersCount characters');
+        if (reactivatedFromInactiveCount > 0) {
+          print('🔄 Reactivated $reactivatedFromInactiveCount characters from INACTIVE state');
+        }
+        if (reactivatedFromStableCount > 0) {
+          print('🔄 Reactivated $reactivatedFromStableCount characters from STABLE state (preserved original data)');
         }
 
         await _checkForCharacters();
 
         if (mounted) {
           String message;
-          if (newCharactersCount > 0 && reactivatedCharactersCount > 0) {
+          if (newCharactersCount > 0 && (reactivatedFromInactiveCount > 0 || reactivatedFromStableCount > 0)) {
             message = tr(context,
-                '$newCharactersCount new and $reactivatedCharactersCount reactivated inner characters added!',
-                'تم إضافة $newCharactersCount شخصيات جديدة وإعادة تفعيل $reactivatedCharactersCount شخصيات!'
+                '$newCharactersCount new and ${reactivatedFromInactiveCount + reactivatedFromStableCount} reactivated inner characters added!',
+                'تم إضافة $newCharactersCount شخصيات جديدة وإعادة تفعيل ${reactivatedFromInactiveCount + reactivatedFromStableCount} شخصيات!'
             );
           } else if (newCharactersCount > 0) {
             message = tr(context,
                 '$newCharactersCount new inner ${newCharactersCount == 1 ? 'character' : 'characters'} added!',
                 'تم إضافة $newCharactersCount من الشخصيات الداخلية الجديدة!'
             );
-          } else if (reactivatedCharactersCount > 0) {
+          } else if (reactivatedFromInactiveCount > 0 || reactivatedFromStableCount > 0) {
+            int totalReactivated = reactivatedFromInactiveCount + reactivatedFromStableCount;
             message = tr(context,
-                '$reactivatedCharactersCount inner ${reactivatedCharactersCount == 1 ? 'character has' : 'characters have'} been reactivated!',
-                'تم إعادة تفعيل $reactivatedCharactersCount من الشخصيات الداخلية!'
+                '$totalReactivated inner ${totalReactivated == 1 ? 'character has' : 'characters have'} been reactivated!',
+                'تم إعادة تفعيل $totalReactivated من الشخصيات الداخلية!'
             );
           } else {
             return; // No changes to report
@@ -1131,7 +1163,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
             ),
           );
         }
-      } else if (mounted && newCharactersCount == 0 && reactivatedCharactersCount == 0) {
+      } else if (mounted && newCharactersCount == 0 && reactivatedFromInactiveCount == 0 && reactivatedFromStableCount == 0) {
         // No changes made, but analysis completed
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -1264,7 +1296,32 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
       _recheckPermissions();
     }
   }
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // This runs when returning to the screen (including after hot reload)
+    _checkRestrictionForFullPageOnReload();
+  }
 
+// New method - checks and shows full restriction page ONLY on reload
+  Future<void> _checkRestrictionForFullPageOnReload() async {
+    await _refreshCharacterData();
+    if (mounted) {
+      final isCurrentlyRestricted = _shouldRestrictAccess();
+
+      setState(() {
+        _isRestricted = isCurrentlyRestricted;
+        _hasCheckedRestriction = true;
+
+        // Only show full restriction page if:
+        // 1. User is restricted (has 3+ active characters)
+        // 2. AND this is a reload (we can detect this by checking if inputs were previously enabled)
+        // For simplicity, we'll show full page on reload if restricted
+        // You can add more sophisticated detection if needed
+        _shouldShowFullRestrictionPage = isCurrentlyRestricted;
+      });
+    }
+  }
   void _recheckPermissions() async {
     try {
       if (_mode == _ReframeMode.video) {
@@ -1564,26 +1621,24 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
     }
   }
 
-  // Voice Recording & Analysis
   Future<void> _startVoiceRecording() async {
     try {
       if (!await Permission.microphone.isGranted) {
         final status = await Permission.microphone.request();
-        if (!status.isGranted) {
-          return;
-        }
+        if (!status.isGranted) return;
       }
 
       final dir = await getApplicationDocumentsDirectory();
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       _audioFilePath = '${dir.path}/audio_$timestamp.wav';
 
+      // CRITICAL FIX: Use settings that match backend expectations
       await _audioRecorder.start(
         const RecordConfig(
           encoder: AudioEncoder.wav,
-          sampleRate: 44100,
-          numChannels: 1,
-          bitRate: 705600,
+          sampleRate: 22050,  // Changed from 16000 to 22050 (standard for speech recognition)
+          numChannels: 1,      // Mono
+          bitRate: 256000,
         ),
         path: _audioFilePath!,
       );
@@ -1592,7 +1647,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
         _voiceRecording = true;
       });
 
-      print('🎤 Started voice recording');
+      print('🎤 Started voice recording at 22.05kHz mono');
     } catch (e) {
       print('Error starting voice recording: $e');
       setState(() {
@@ -1600,7 +1655,6 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
       });
     }
   }
-
   Future<void> _stopVoiceRecording() async {
     try {
       if (!_voiceRecording) return;
@@ -1638,12 +1692,37 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
 
     try {
       if (_audioFilePath == null) {
+        print('❌ No audio file path');
         return;
       }
 
       final audioFile = File(_audioFilePath!);
+
+      // Check file exists and has content
+      if (!await audioFile.exists()) {
+        print('❌ Audio file does not exist');
+        return;
+      }
+
+      final fileSize = await audioFile.length();
+      print('📊 Audio file size: $fileSize bytes');
+
+      if (fileSize < 1000) {  // Less than 1KB is likely too small/empty
+        print('❌ Audio file too small: $fileSize bytes');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Recording too short or silent. Please speak louder and try again.'),
+            backgroundColor: Colors.orange,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
+
       final bytes = await audioFile.readAsBytes();
       final base64Audio = base64Encode(bytes);
+
+      print('📤 Sending audio (${bytes.length} bytes) to server...');
 
       final response = await http.post(
         Uri.parse('${widget.serverUrl}/api/analyze/audio'),
@@ -1653,17 +1732,36 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
         body: jsonEncode({
           'audio': base64Audio,
         }),
-      );
+      ).timeout(const Duration(seconds: 15));
+
+      print('📡 Server response status: ${response.statusCode}');
 
       if (response.statusCode == 200) {
         final result = jsonDecode(response.body);
-        print('📊 API Response: $result');
+        print('📊 API Response: ${result.containsKey('success') ? result['success'] : 'unknown'}');
 
+        // Check if speech was detected
         if (result['success'] == true) {
+          final transcribedText = result['transcribed_text'] ?? '';
+
+          if (transcribedText.isEmpty || transcribedText == 'No speech detected') {
+            print('⚠️ No speech detected in recording');
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('No speech detected. Please speak clearly and try again.'),
+                backgroundColor: Colors.orange,
+                duration: Duration(seconds: 3),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          } else {
+            print('✅ Transcribed: "$transcribedText"');
+          }
+
+          // Rest of your response handling...
           final voiceEmotions = result['voice_emotions'] ?? [];
           final primaryVoiceEmotion = result['primary_voice_emotion'] ?? 'Unknown';
           final primaryVoiceConfidence = result['primary_voice_confidence'] ?? 0.0;
-          final transcribedText = result['transcribed_text'] ?? 'No speech detected';
           final detectedLanguage = result['detected_language'] ?? 'english';
           final isTranslated = result['is_translated'] ?? false;
 
@@ -1700,7 +1798,6 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
             audioFilePath: _audioFilePath,
           );
 
-          // Save high confidence characters with media
           await _saveHighConfidenceCharacters(
             analysisData,
             audioFilePath: _audioFilePath,
@@ -1708,17 +1805,101 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
           );
 
           _scrollToResults();
+        } else {
+          print('❌ Server returned error: ${result['error'] ?? 'Unknown error'}');
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Analysis failed: ${result['error'] ?? 'Unknown error'}'),
+              backgroundColor: Colors.red,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
         }
+      } else {
+        print('❌ HTTP error: ${response.statusCode}');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Server error: ${response.statusCode}'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
       }
     } catch (e) {
-      print('Audio send error: $e');
+      print('❌ Audio send error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: ${e.toString()}'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     } finally {
-      setState(() {
-        _isAnalyzing = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isAnalyzing = false;
+        });
+      }
     }
   }
+// Add this method to test audio quality
+  Future<void> _testMicrophone() async {
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final testPath = '${dir.path}/test_$timestamp.wav';
 
+      await _audioRecorder.start(
+        const RecordConfig(
+          encoder: AudioEncoder.wav,
+          sampleRate: 22050,
+          numChannels: 1,
+        ),
+        path: testPath,
+      );
+
+      // Show recording indicator
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Recording... Please speak for 3 seconds'),
+          duration: Duration(seconds: 3),
+        ),
+      );
+
+      await Future.delayed(const Duration(seconds: 3));
+      await _audioRecorder.stop();
+
+      // Check file
+      final file = File(testPath);
+      if (await file.exists()) {
+        final size = await file.length();
+        print('✅ Test recording: $size bytes');
+
+        if (size < 5000) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Recording too short. Check microphone permissions and speak louder.'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('✓ Recording successful! ${(size/1024).toStringAsFixed(1)} KB'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+
+        // Clean up
+        await file.delete();
+      }
+    } catch (e) {
+      print('Test error: $e');
+    }
+  }
   void _toggleVoiceRecording() {
     if (_voiceRecording) {
       _stopVoiceRecording();
@@ -1769,25 +1950,25 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       _videoAudioFilePath = '${dir.path}/video_audio_$timestamp.wav';
 
+      // CHANGE: Use 22050Hz to match voice recording
       await _videoAudioRecorder.start(
         const RecordConfig(
           encoder: AudioEncoder.wav,
-          sampleRate: 16000,
-          numChannels: 1,
+          sampleRate: 22050,  // Changed from 16000 to 22050
+          numChannels: 1,     // Mono
           bitRate: 256000,
         ),
         path: _videoAudioFilePath!,
       );
 
       _videoAudioRecording = true;
-
+      print('🎤 Hidden audio recording started at 22.05kHz mono');
     } catch (e) {
       print('❌ Error starting hidden audio recording: $e');
       _videoAudioRecording = false;
       _videoAudioFilePath = null;
     }
   }
-
   Future<void> _stopHiddenAudioRecording() async {
     if (!_videoAudioRecording) return;
 
@@ -1832,6 +2013,8 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
     }
   }
 
+  // Replace your _sendVideoWithAudioToServer method with this updated version
+
   Future<void> _sendVideoWithAudioToServer() async {
     setState(() {
       _isAnalyzing = true;
@@ -1859,8 +2042,11 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
 
         if (hasAudio) {
           final audioBytes = await audioFile.readAsBytes();
-          if (audioBytes.length > 5000) {
+          if (audioBytes.isNotEmpty) {
             base64Audio = base64Encode(audioBytes);
+            print('✅ Audio included: ${audioBytes.length} bytes');
+          } else {
+            print('⚠️ Audio file is empty');
           }
         }
       }
@@ -1879,9 +2065,63 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
 
       if (response.statusCode == 200) {
         final result = jsonDecode(response.body);
-        print('📊 API Response: $result');
+        print('📊 Full API Response: $result');
+
+        // DEBUG: Print all keys to see what's available
+        print('🔑 Response keys: ${result.keys}');
 
         if (result['success'] == true) {
+          // CRITICAL FIX: Check for different possible field names for inner characters
+          List innerCharacters = [];
+
+          // Try different possible field names from the server
+          if (result.containsKey('inner_characters') && result['inner_characters'] != null) {
+            innerCharacters = result['inner_characters'] as List;
+            print('✅ Found inner_characters: $innerCharacters');
+          } else if (result.containsKey('inner_characters_list') && result['inner_characters_list'] != null) {
+            innerCharacters = result['inner_characters_list'] as List;
+            print('✅ Found inner_characters_list: $innerCharacters');
+          } else if (result.containsKey('predictions') && result['predictions'] != null) {
+            innerCharacters = result['predictions'] as List;
+            print('✅ Found predictions: $innerCharacters');
+          } else if (result.containsKey('text_predictions') && result['text_predictions'] != null) {
+            // Parse text predictions from string format like "Ashamed Part (0.978), Inner Critic (0.011)"
+            final textPredictions = result['text_predictions'].toString();
+            innerCharacters = _parseTextPredictions(textPredictions);
+            print('✅ Parsed text_predictions: $innerCharacters');
+          } else if (result.containsKey('analysisResult') && result['analysisResult'] is Map) {
+            final nested = result['analysisResult'] as Map;
+            if (nested.containsKey('inner_characters')) {
+              innerCharacters = nested['inner_characters'] as List;
+              print('✅ Found nested inner_characters: $innerCharacters');
+            }
+          }
+
+          // If still empty, try to extract from the result directly
+          if (innerCharacters.isEmpty) {
+            // Check if the result itself has character predictions at top level
+            for (var key in result.keys) {
+              if (key.toLowerCase().contains('character') ||
+                  key.toLowerCase().contains('prediction')) {
+                print('🔍 Checking key: $key = ${result[key]}');
+              }
+            }
+
+            // Try to create a character from primary_character if available
+            if (result.containsKey('primary_character') &&
+                result['primary_character'] != null &&
+                result['primary_character'] != 'Unknown') {
+              innerCharacters = [
+                {
+                  'character': result['primary_character'],
+                  'character_name': result['character_name'] ?? result['primary_character'],
+                  'confidence': result['confidence'] ?? 0.5,
+                }
+              ];
+              print('✅ Created character from primary_character: $innerCharacters');
+            }
+          }
+
           final voiceEmotions = result['voice_emotions'] ?? [];
           final primaryVoiceEmotion = result['primary_voice_emotion'] ?? 'Unknown';
           final primaryVoiceConfidence = result['primary_voice_confidence'] ?? 0.0;
@@ -1896,7 +2136,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
             'primary_character': result['primary_character'] ?? 'Unknown',
             'character_name': result['character_name'] ?? '',
             'confidence': result['confidence'] ?? 0.0,
-            'inner_characters': result['inner_characters'] ?? [],
+            'inner_characters': innerCharacters, // Use our parsed inner characters
             'transcribed_text': transcribedText,
             'voice_emotions': voiceEmotions,
             'primary_voice_emotion': primaryVoiceEmotion,
@@ -1909,6 +2149,8 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
             'detected_language': detectedLanguage,
             'is_translated': isTranslated,
           };
+
+          print('📊 Final analysisData inner_characters: ${analysisData['inner_characters']}');
 
           setState(() {
             _analysisResult = analysisData;
@@ -1932,7 +2174,13 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
           );
 
           _scrollToResults();
+        } else {
+          print('❌ Server returned success=false');
+          print('   Error: ${result['error'] ?? 'Unknown error'}');
         }
+      } else {
+        print('❌ HTTP error: ${response.statusCode}');
+        print('   Response body: ${response.body}');
       }
     } catch (e) {
       print('❌ Video send error: $e');
@@ -1943,6 +2191,32 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
         _isAnalyzing = false;
       });
     }
+  }
+
+// Add this helper method to parse text predictions from string format
+  List<Map<String, dynamic>> _parseTextPredictions(String predictionsText) {
+    final List<Map<String, dynamic>> result = [];
+
+    // Format like: "Ashamed Part (0.978), Inner Critic (0.011), Confused Part (0.011)"
+    final pattern = RegExp(r'([^(]+)\(([0-9.]+)\)');
+    final matches = pattern.allMatches(predictionsText);
+
+    for (final match in matches) {
+      if (match.groupCount >= 2) {
+        final characterName = match.group(1)?.trim() ?? '';
+        final confidence = double.tryParse(match.group(2) ?? '0') ?? 0.0;
+
+        if (characterName.isNotEmpty) {
+          result.add({
+            'character': characterName,
+            'character_name': characterName,
+            'confidence': confidence,
+          });
+        }
+      }
+    }
+
+    return result;
   }
 
   Future<void> _cleanupTempFiles() async {
@@ -1983,7 +2257,53 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
       }
     });
   }
+  Future<void> _testAudioRecording() async {
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final testPath = '${dir.path}/test_audio_$timestamp.wav';
 
+      await _audioRecorder.start(
+        const RecordConfig(
+          encoder: AudioEncoder.wav,
+          sampleRate: 16000,
+          numChannels: 1,
+        ),
+        path: testPath,
+      );
+
+      // Record for 2 seconds
+      await Future.delayed(const Duration(seconds: 2));
+      await _audioRecorder.stop();
+
+      // Check file
+      final file = File(testPath);
+      if (await file.exists()) {
+        final size = await file.length();
+        print('✅ Test audio recorded: $size bytes');
+
+        // Read and verify
+        final bytes = await file.readAsBytes();
+        print('   Audio bytes length: ${bytes.length}');
+
+        // Try to send to server for debugging
+        final base64Audio = base64Encode(bytes);
+        final response = await http.post(
+          Uri.parse('${widget.serverUrl}/api/debug/test-audio'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'audio': base64Audio}),
+        );
+
+        if (response.statusCode == 200) {
+          print('✅ Server audio test response: ${response.body}');
+        }
+      } else {
+        print('❌ Test audio file not created');
+      }
+    } catch (e) {
+      print('❌ Test audio error: $e');
+    }
+  }
   Future<void> _switchToMode(_ReframeMode newMode) async {
     if (newMode == _ReframeMode.video && _mode != _ReframeMode.video) {
       setState(() {
@@ -2020,10 +2340,13 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
   }
 
   // Build Method
+
+// Modify your build method
   @override
   Widget build(BuildContext context) {
-    // Show restriction only after initial check and if restricted
-    if (_isRestricted && _hasCheckedRestriction) {
+    // Show full restriction page ONLY on reload (when _shouldShowFullRestrictionPage is true)
+    // AND only after we've done the initial check
+    if (_shouldShowFullRestrictionPage && _hasCheckedRestriction && _isRestricted) {
       return Scaffold(
         body: Column(
           children: [
@@ -2094,160 +2417,173 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
       );
     }
 
-    // Original UI (copy your entire existing UI code from your original build method)
+    // Normal UI - inputs will be disabled when _isRestricted is true
+    // But NO full restriction page
     return Scaffold(
-      body: Column(
-        children: [
-          TopHelloBar(
-            name: widget.name,
-            onLogout: widget.onLogout,
-            onSettings: () {
-              showModalBottomSheet(
-                context: context,
-                builder: (context) => SettingsBottomSheet(
-                  onRetakeQuestionnaire: widget.onRetakeQuestionnaire,
-                  onSwitchLanguage: widget.onSwitchLanguage,
-                ),
-              );
-            },
-          ),
-          Expanded(
-            child: SingleChildScrollView(
-              controller: _scrollController,
-              padding: const EdgeInsets.fromLTRB(20, 20, 20, 40),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Container(
-                    width: 110,
-                    height: 110,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF8E7CFF).withValues(alpha: 0.12),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.category_rounded,
-                      size: 54,
-                      color: Color(0xFF8E7CFF),
-                    ),
+        body: Column(
+          children: [
+            TopHelloBar(
+              name: widget.name,
+              onLogout: widget.onLogout,
+              onSettings: () {
+                showModalBottomSheet(
+                  context: context,
+                  builder: (context) => SettingsBottomSheet(
+                    onRetakeQuestionnaire: widget.onRetakeQuestionnaire,
+                    onSwitchLanguage: widget.onSwitchLanguage,
                   ),
-                  const SizedBox(height: 16),
-                  Text(
-                    tr(context, "Reframe", "إعادة الإطار"),
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF2A1E3B),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    tr(
-                      context,
-                      "This space is for reflection. Speak freely, and let ANA gently reframe your inner parts based on what you share.",
-                      "هذه المساحة للتأمل. تحدث بحرية، ودع آنا تعيد صياغة أجزائك الداخلية برفق بناءً على ما تشاركه.",
-                    ),
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 15,
-                      color: Color(0xFF4B3A66),
-                      height: 1.6,
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-
-                  // Character count info
-                  if (_activeCharacterCount > 0) ...[
+                );
+              },
+            ),
+            Expanded(
+              child: SingleChildScrollView(
+                controller: _scrollController,
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 40),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
                     Container(
-                      padding: const EdgeInsets.all(12),
+                      width: 110,
+                      height: 110,
                       decoration: BoxDecoration(
-                        color: const Color(0xFFF3EDFF),
-                        borderRadius: BorderRadius.circular(12),
+                        color: const Color(0xFF8E7CFF).withValues(alpha: 0.12),
+                        shape: BoxShape.circle,
                       ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.info_outline,
-                            size: 18,
-                            color: const Color(0xFF8E7CFF),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            tr(
-                                context,
-                                "You have $_activeCharacterCount active part${_activeCharacterCount == 1 ? '' : 's'} to nurture",
-                                "لديك $_activeCharacterCount جزء نشط للعناية به"
-                            ),
-                            style: TextStyle(
-                              color: const Color(0xFF8E7CFF),
-                              fontWeight: FontWeight.w600,
-                              fontSize: 13,
-                            ),
-                          ),
-                        ],
+                      child: const Icon(
+                        Icons.category_rounded,
+                        size: 54,
+                        color: Color(0xFF8E7CFF),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      tr(context, "Reframe", "إعادة الإطار"),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF2A1E3B),
                       ),
                     ),
                     const SizedBox(height: 12),
-                  ],
+                    Text(
+                      tr(
+                        context,
+                        "This space is for reflection. Speak freely, and let ANA gently reframe your inner parts based on what you share.",
+                        "هذه المساحة للتأمل. تحدث بحرية، ودع آنا تعيد صياغة أجزائك الداخلية برفق بناءً على ما تشاركه.",
+                      ),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        color: Color(0xFF4B3A66),
+                        height: 1.6,
+                      ),
+                    ),
+                    const SizedBox(height: 24),
 
-                  // Mode selection cards
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _ModeCard(
-                          title: tr(context, "Chat", "دردشة"),
-                          icon: Icons.chat_bubble_rounded,
-                          selected: _mode == _ReframeMode.chat,
-                          enabled: true,
-                          onTap: () => _switchToMode(_ReframeMode.chat),
+                    // Character count info - Show warning when restricted
+                    if (_activeCharacterCount > 0) ...[
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: _isRestricted
+                              ? const Color(0xFFFFF3E0)
+                              : const Color(0xFFF3EDFF),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              _isRestricted ? Icons.warning_amber_rounded : Icons.info_outline,
+                              size: 18,
+                              color: _isRestricted
+                                  ? const Color(0xFFFF9800)
+                                  : const Color(0xFF8E7CFF),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                _isRestricted
+                                    ? tr(
+                                    context,
+                                    "Maximum active parts reached ($_activeCharacterCount/3). Please nurture existing parts first.",
+                                    "تم الوصول إلى الحد الأقصى للأجزاء النشطة ($_activeCharacterCount/3). يرجى رعاية الأجزاء الموجودة أولاً."
+                                )
+                                    : tr(
+                                    context,
+                                    "You have $_activeCharacterCount active part${_activeCharacterCount == 1 ? '' : 's'} to nurture",
+                                    "لديك $_activeCharacterCount جزء نشط للعناية به"
+                                ),
+                                style: TextStyle(
+                                  color: _isRestricted
+                                      ? const Color(0xFFFF9800)
+                                      : const Color(0xFF8E7CFF),
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _ModeCard(
-                          title: tr(context, "Voice", "صوت"),
-                          icon: Icons.mic_rounded,
-                          selected: _mode == _ReframeMode.voice,
-                          enabled: true,
-                          onTap: () => _switchToMode(_ReframeMode.voice),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _ModeCard(
-                          title: tr(context, "Video", "فيديو"),
-                          icon: Icons.videocam_rounded,
-                          selected: _mode == _ReframeMode.video,
-                          enabled: true,
-                          onTap: () => _switchToMode(_ReframeMode.video),
-                        ),
-                      ),
+                      const SizedBox(height: 12),
                     ],
-                  ),
-                  const SizedBox(height: 18),
 
-                  // Mode content
-                  AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 220),
-                    child: _buildModeContent(context),
-                  ),
+                    // Mode selection cards - Disable when restricted
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _ModeCard(
+                            title: tr(context, "Chat", "دردشة"),
+                            icon: Icons.chat_bubble_rounded,
+                            selected: _mode == _ReframeMode.chat,
+                            enabled: !_isRestricted, // Disable when 3+ active characters
+                            onTap: () => _switchToMode(_ReframeMode.chat),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _ModeCard(
+                            title: tr(context, "Voice", "صوت"),
+                            icon: Icons.mic_rounded,
+                            selected: _mode == _ReframeMode.voice,
+                            enabled: !_isRestricted, // Disable when 3+ active characters
+                            onTap: () => _switchToMode(_ReframeMode.voice),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _ModeCard(
+                            title: tr(context, "Video", "فيديو"),
+                            icon: Icons.videocam_rounded,
+                            selected: _mode == _ReframeMode.video,
+                            enabled: !_isRestricted, // Disable when 3+ active characters
+                            onTap: () => _switchToMode(_ReframeMode.video),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 18),
 
-                  // Analysis result
-                  if (_analysisResult.isNotEmpty && _analysisResult['type'] != null) ...[
-                    const SizedBox(height: 20),
-                    _buildAnalysisResultCard(),
+                    // Mode content - Pass disabled flag
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 220),
+                      child: _buildModeContent(context),
+                    ),
+
+                    // Analysis result
+                    if (_analysisResult.isNotEmpty && _analysisResult['type'] != null) ...[
+                      const SizedBox(height: 20),
+                      _buildAnalysisResultCard(),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
+          ],
+        ));
+    }
   Widget _buildModeContent(BuildContext context) {
     switch (_mode) {
       case _ReframeMode.chat:
@@ -2257,6 +2593,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
           hint: tr(context, "Write what you're feeling...", "اكتب ما تشعر به..."),
           isAnalyzing: _isAnalyzing,
           onAnalyze: _analyzeText,
+          isDisabled: _isRestricted, // Add this
         );
       case _ReframeMode.voice:
         return _VoiceInputCard(
@@ -2264,6 +2601,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
           recording: _voiceRecording,
           isAnalyzing: _isAnalyzing,
           onToggle: _toggleVoiceRecording,
+          isDisabled: _isRestricted, // Add this
         );
       case _ReframeMode.video:
         return _VideoInputCard(
@@ -2273,6 +2611,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
           isRecording: _videoRecording,
           isAnalyzing: _isAnalyzing,
           onToggleRecording: _toggleVideoRecording,
+          isDisabled: _isRestricted, // Add this
         );
     }
   }
@@ -3036,6 +3375,7 @@ class _ChatInputCard extends StatelessWidget {
   final String hint;
   final bool isAnalyzing;
   final VoidCallback onAnalyze;
+  final bool isDisabled; // Add this
 
   const _ChatInputCard({
     super.key,
@@ -3043,16 +3383,18 @@ class _ChatInputCard extends StatelessWidget {
     required this.hint,
     required this.isAnalyzing,
     required this.onAnalyze,
+    this.isDisabled = false, // Default to false
   });
 
   @override
   Widget build(BuildContext context) {
     final hasText = controller.text.trim().isNotEmpty;
+    final canAnalyze = hasText && !isAnalyzing && !isDisabled;
 
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isDisabled ? const Color(0xFFF5F5F5) : Colors.white,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
           color: const Color(0xFFE5DEFF),
@@ -3071,7 +3413,7 @@ class _ChatInputCard extends StatelessWidget {
           TextField(
             controller: controller,
             maxLines: 4,
-            enabled: true,
+            enabled: !isDisabled, // Disable when restricted
             decoration: InputDecoration(
               hintText: hint,
               border: InputBorder.none,
@@ -3083,15 +3425,13 @@ class _ChatInputCard extends StatelessWidget {
               color: Color(0xFF4B3A66),
             ),
           ),
-
           const SizedBox(height: 16),
-
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
-              onPressed: hasText && !isAnalyzing ? onAnalyze : null,
+              onPressed: canAnalyze ? onAnalyze : null,
               style: ElevatedButton.styleFrom(
-                backgroundColor: hasText ? const Color(0xFF8E7CFF) : const Color(0xFFCCCCCC),
+                backgroundColor: canAnalyze ? const Color(0xFF8E7CFF) : const Color(0xFFCCCCCC),
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(
@@ -3124,6 +3464,37 @@ class _ChatInputCard extends StatelessWidget {
               ),
             ),
           ),
+          if (isDisabled) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF3E0),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.lock_outline,
+                    size: 16,
+                    color: const Color(0xFFFF9800),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      tr(context,
+                          "You have 3 active parts. Please nurture them before adding more.",
+                          "لديك 3 أجزاء نشطة. يرجى رعايتها قبل إضافة المزيد."),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFFFF9800),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -3134,12 +3505,14 @@ class _VoiceInputCard extends StatelessWidget {
   final bool recording;
   final bool isAnalyzing;
   final VoidCallback onToggle;
+  final bool isDisabled; // Add this
 
   const _VoiceInputCard({
     super.key,
     required this.recording,
     required this.isAnalyzing,
     required this.onToggle,
+    this.isDisabled = false, // Default to false
   });
 
   @override
@@ -3152,7 +3525,7 @@ class _VoiceInputCard extends StatelessWidget {
         Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: isDisabled ? const Color(0xFFF5F5F5) : Colors.white,
             borderRadius: BorderRadius.circular(18),
             border: Border.all(
               color: const Color(0xFFE5DEFF),
@@ -3168,17 +3541,17 @@ class _VoiceInputCard extends StatelessWidget {
           child: Row(
             children: [
               GestureDetector(
-                onTap: !isAnalyzing ? onToggle : null,
+                onTap: (!isAnalyzing && !isDisabled) ? onToggle : null,
                 child: Container(
                   width: 52,
                   height: 52,
                   decoration: BoxDecoration(
-                    color: color,
+                    color: isDisabled ? const Color(0xFFCCCCCC) : color,
                     shape: BoxShape.circle,
                   ),
                   child: Icon(
                     recording ? Icons.stop_rounded : Icons.mic_rounded,
-                    color: iconColor,
+                    color: isDisabled ? Colors.grey : iconColor,
                     size: 24,
                   ),
                 ),
@@ -3189,23 +3562,27 @@ class _VoiceInputCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      recording
+                      isDisabled
+                          ? tr(context, "Access Restricted", "الوصول مقيد")
+                          : recording
                           ? tr(context, "Recording...", "جارٍ التسجيل...")
                           : tr(context, "Tap to record", "اضغط للتسجيل"),
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 16,
-                        color: Color(0xFF4B3A66),
+                        color: isDisabled ? Colors.grey : const Color(0xFF4B3A66),
                         fontWeight: FontWeight.w600,
                       ),
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      recording
+                      isDisabled
+                          ? tr(context, "You have 3 active parts", "لديك 3 أجزاء نشطة")
+                          : recording
                           ? tr(context, "Tap stop when finished", "اضغط إيقاف عند الانتهاء")
                           : tr(context, "Speak clearly for best results", "تحدث بوضوح للحصول على أفضل النتائج"),
                       style: TextStyle(
                         fontSize: 12,
-                        color: const Color(0xFF4B3A66).withValues(alpha: 0.7),
+                        color: isDisabled ? Colors.grey : const Color(0xFF4B3A66).withValues(alpha: 0.7),
                       ),
                     ),
                   ],
@@ -3214,7 +3591,6 @@ class _VoiceInputCard extends StatelessWidget {
             ],
           ),
         ),
-
         if (isAnalyzing) ...[
           const SizedBox(height: 16),
           Container(
@@ -3259,6 +3635,7 @@ class _VideoInputCard extends StatelessWidget {
   final bool isRecording;
   final bool isAnalyzing;
   final VoidCallback onToggleRecording;
+  final bool isDisabled; // Add this
 
   const _VideoInputCard({
     super.key,
@@ -3267,6 +3644,7 @@ class _VideoInputCard extends StatelessWidget {
     required this.isRecording,
     required this.isAnalyzing,
     required this.onToggleRecording,
+    this.isDisabled = false, // Default to false
   });
 
   @override
@@ -3281,7 +3659,7 @@ class _VideoInputCard extends StatelessWidget {
           width: videoWidth,
           height: 200,
           decoration: BoxDecoration(
-            color: Colors.black,
+            color: isDisabled ? const Color(0xFFEEEEEE) : Colors.black,
             borderRadius: BorderRadius.circular(18),
             border: Border.all(
               color: const Color(0xFFE5DEFF),
@@ -3289,9 +3667,30 @@ class _VideoInputCard extends StatelessWidget {
           ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(18),
-            child: isCameraInitialized && cameraController != null
+            child: isDisabled
+                ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.lock_outline,
+                    size: 48,
+                    color: Colors.grey[400],
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    tr(context, "Access Restricted", "الوصول مقيد"),
+                    style: TextStyle(
+                      color: Colors.grey[400],
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+              ),
+            )
+                : (isCameraInitialized && cameraController != null
                 ? _buildCameraPreview(context)
-                : _buildCameraPlaceholder(context),
+                : _buildCameraPlaceholder(context)),
           ),
         ),
         const SizedBox(height: 16),
@@ -3300,7 +3699,7 @@ class _VideoInputCard extends StatelessWidget {
           width: videoWidth,
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: isDisabled ? const Color(0xFFF5F5F5) : Colors.white,
             borderRadius: BorderRadius.circular(18),
             border: Border.all(
               color: const Color(0xFFE5DEFF),
@@ -3316,12 +3715,14 @@ class _VideoInputCard extends StatelessWidget {
           child: Row(
             children: [
               GestureDetector(
-                onTap: isCameraInitialized && !isAnalyzing ? onToggleRecording : null,
+                onTap: (isCameraInitialized && !isAnalyzing && !isDisabled) ? onToggleRecording : null,
                 child: Container(
                   width: 52,
                   height: 52,
                   decoration: BoxDecoration(
-                    color: isRecording
+                    color: isDisabled
+                        ? const Color(0xFFCCCCCC)
+                        : isRecording
                         ? const Color(0xFFFF6B6B)
                         : isCameraInitialized
                         ? const Color(0xFF8E7CFF)
@@ -3330,7 +3731,7 @@ class _VideoInputCard extends StatelessWidget {
                   ),
                   child: Icon(
                     isRecording ? Icons.stop_rounded : Icons.videocam_rounded,
-                    color: Colors.white,
+                    color: isDisabled ? Colors.grey : Colors.white,
                     size: 24,
                   ),
                 ),
@@ -3341,25 +3742,29 @@ class _VideoInputCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      !isCameraInitialized
+                      isDisabled
+                          ? tr(context, "Access Restricted", "الوصول مقيد")
+                          : !isCameraInitialized
                           ? tr(context, "Camera initializing...", "جاري تهيئة الكاميرا...")
                           : isRecording
                           ? tr(context, "Recording...", "جارٍ التسجيل...")
                           : tr(context, "Ready to record video", "جاهز لتسجيل فيديو"),
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 16,
-                        color: Color(0xFF4B3A66),
+                        color: isDisabled ? Colors.grey : const Color(0xFF4B3A66),
                         fontWeight: FontWeight.w600,
                       ),
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      isRecording
+                      isDisabled
+                          ? tr(context, "You have 3 active parts", "لديك 3 أجزاء نشطة")
+                          : isRecording
                           ? tr(context, "Tap stop when finished", "اضغط إيقاف عند الانتهاء")
                           : tr(context, "Look at the camera and speak", "انظر إلى الكاميرا وتحدث"),
                       style: TextStyle(
                         fontSize: 12,
-                        color: const Color(0xFF4B3A66).withValues(alpha: 0.7),
+                        color: isDisabled ? Colors.grey : const Color(0xFF4B3A66).withValues(alpha: 0.7),
                       ),
                     ),
                   ],
@@ -3407,6 +3812,7 @@ class _VideoInputCard extends StatelessWidget {
     );
   }
 
+  // Keep existing _buildCameraPreview and _buildCameraPlaceholder methods
   Widget _buildCameraPreview(BuildContext context) {
     final cameraController = this.cameraController;
     if (cameraController == null || !cameraController.value.isInitialized) {
