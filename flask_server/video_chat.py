@@ -51,7 +51,14 @@ def _json_default(obj):
         except Exception:
             pass
     return str(obj)
-
+from video_transcript_store import (
+    append_video_message_encrypted,
+    get_video_messages_decrypted,
+    get_video_messages_chronological,
+    load_video_messages_for_analysis,
+    delete_video_messages_for_session,
+    get_video_session_message_count,
+)
 def _user_ref(uid: str):
     return db.collection("users").document(uid)
 
@@ -325,6 +332,35 @@ def _update_character_plan_from_score(
 # ============================================================================
 # SESSION MANAGEMENT (EXACTLY like agents.py)
 # ============================================================================
+def _save_message_encrypted(uid: str, thread_id: str, role: str, content: str,
+                           session_id: str, sender: str = None, character_id: str = None) -> None:
+    """Save an encrypted video message to Firestore"""
+    try:
+        if not thread_id:
+            print(f"[video_chat] ERROR: Cannot save message - thread_id is None")
+            return
+
+        if not content or content.strip() == '':
+            print(f"[video_chat] WARNING: Empty content, skipping save")
+            return
+
+        result = append_video_message_encrypted(
+            uid=uid,
+            thread_id=thread_id,
+            role=role,
+            content=content,
+            session_id=session_id,
+            sender=sender,
+            character_id=character_id,
+        )
+        print(f"[video_chat] ✅ Saved encrypted message: id={result['id']}, role={role}, thread={thread_id}")
+
+    except Exception as e:
+        print(f"[video_chat] ❌ Error saving encrypted message: {e}")
+
+
+# Alias for backward compatibility
+_save_message = _save_message_encrypted
 
 def _ensure_session_doc(uid: str, session_id: str, character_id: str, thread_id: str, character_profile: Dict) -> None:
     """Ensure session document exists with proper structure matching ChatSession entity"""
@@ -373,56 +409,6 @@ def _ensure_thread_doc(uid: str, thread_id: str, session_id: str, character_id: 
     except Exception as e:
         print(f"[video_chat] Error creating thread doc: {e}")
 
-def _save_message(uid: str, thread_id: str, role: str, content: str, sender: str = None, character_id: str = None, session_id: str = None) -> None:
-    """Save a message to Firestore matching ChatMessage structure"""
-    try:
-        if not thread_id:
-            print(f"[video_chat] ERROR: Cannot save message - thread_id is None")
-            return
-
-        if not content or content.strip() == '':
-            print(f"[video_chat] WARNING: Empty content, skipping save")
-            return
-
-        msg_ref = _messages_ref(uid, thread_id).document()
-        msg_data = {
-            "id": msg_ref.id,
-            "role": role,
-            "content": content,
-            "createdAt": firestore.SERVER_TIMESTAMP,
-        }
-
-        if sender:
-            msg_data["sender"] = sender
-        if character_id:
-            msg_data["characterId"] = character_id
-        if session_id:
-            msg_data["sessionId"] = session_id
-
-        msg_ref.set(msg_data)
-        print(f"[video_chat] ✅ Saved message: id={msg_ref.id}, role={role}, thread={thread_id}")
-
-        # Update thread's lastMessageAt
-        _threads_ref(uid).document(thread_id).set({
-            "lastMessageAt": firestore.SERVER_TIMESTAMP,
-            "updatedAt": firestore.SERVER_TIMESTAMP,
-        }, merge=True)
-
-        # Update session's lastMessageAt and userTurnCount
-        if session_id:
-            sref = _session_ref(uid, session_id)
-            sref.set({
-                "updatedAt": firestore.SERVER_TIMESTAMP,
-                "lastMessageAt": firestore.SERVER_TIMESTAMP,
-            }, merge=True)
-
-            if role == 'user':
-                sref.set({
-                    "userTurnCount": firestore.Increment(1),
-                }, merge=True)
-
-    except Exception as e:
-        print(f"[video_chat] ❌ Error saving message: {e}")
 
 def _log_agent_run(ref, payload: Dict[str, Any]) -> None:
     try:
@@ -1799,7 +1785,189 @@ def chat():
     except Exception as e:
         traceback.print_exc()
         return jsonify({'success': False, 'error': f'Character video error: {str(e)}'}), 500
+@video_bp.route('/get_messages', methods=['POST'])
+def get_video_messages():
+    """Get decrypted messages for a video session"""
+    try:
+        data = request.json or {}
+        uid = data.get('uid')
+        session_id = data.get('sessionId')
+        limit = data.get('limit', 100)
 
+        print(f"[get_messages] Request received: uid={uid}, session_id={session_id}")
+
+        if not uid or not session_id:
+            return jsonify({'success': False, 'error': 'uid and sessionId are required'}), 400
+
+        # First get session to find thread_id
+        snap = _session_ref(uid, session_id).get()
+        if not snap.exists:
+            print(f"[get_messages] Session not found: {session_id}")
+            return jsonify({'success': False, 'error': 'Session not found'}), 404
+
+        session_data = snap.to_dict() or {}
+        thread_id = session_data.get('threadId')
+        print(f"[get_messages] Found thread_id: {thread_id}")
+
+        if not thread_id:
+            print(f"[get_messages] No threadId found for session: {session_id}")
+            return jsonify({'success': False, 'error': 'No threadId found for session'}), 404
+
+        messages = get_video_messages_decrypted(uid=uid, thread_id=thread_id, limit=limit)
+        print(f"[get_messages] Retrieved {len(messages)} decrypted messages")
+
+        return jsonify({
+            'success': True,
+            'messages': messages,
+            'sessionId': session_id,
+            'threadId': thread_id,
+            'messageCount': len(messages),
+        })
+    except Exception as e:
+        print(f"[get_messages] ERROR: {e}")
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@video_bp.route('/save_message', methods=['POST'])
+def save_message_encrypted():
+    """Save an encrypted message via backend - called from Flutter"""
+    try:
+        data = request.json or {}
+        uid = data.get('uid')
+        thread_id = data.get('threadId')
+        session_id = data.get('sessionId')
+        role = data.get('role')
+        content = data.get('content')
+        sender = data.get('sender')
+        character_id = data.get('characterId')
+
+        print(f"[save_message] Received: uid={uid}, thread_id={thread_id}, session_id={session_id}, role={role}")
+        print(f"[save_message] content preview: {content[:100] if content else 'empty'}")
+
+        if not all([uid, thread_id, session_id, role, content]):
+            return jsonify({'success': False, 'error': 'Missing required fields'}), 400
+
+        # Save using encrypted store
+        result = append_video_message_encrypted(
+            uid=uid,
+            thread_id=thread_id,
+            role=role,
+            content=content,
+            session_id=session_id,
+            sender=sender,
+            character_id=character_id,
+        )
+
+        print(f"[save_message] ✅ Message saved encrypted: id={result['id']}")
+
+        return jsonify({
+            'success': True,
+            'messageId': result['id'],
+            'createdAt': result['createdAt'],
+        })
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@video_bp.route('/session_history', methods=['GET'])
+def get_video_session_history():
+    """Get session history with decrypted messages for a character"""
+    try:
+        uid = request.args.get('uid')
+        character_id = request.args.get('characterId')
+        limit = int(request.args.get('limit', 50))
+
+        if not uid or not character_id:
+            return jsonify({'success': False, 'error': 'uid and characterId are required'}), 400
+
+        sessions = []
+        snaps = _sessions_ref(uid).where('characterId', '==', character_id).limit(limit).stream()
+
+        for snap in snaps:
+            data = snap.to_dict() or {}
+            session_data = {
+                'id': snap.id,
+                'type': data.get('type'),
+                'characterId': data.get('characterId'),
+                'threadId': data.get('threadId'),
+                'status': data.get('status'),
+                'startedAt': _to_iso(data.get('startedAt')),
+                'endedAt': _to_iso(data.get('endedAt')),
+                'duration': data.get('duration', 0),
+                'title': data.get('title'),
+                'guiderJoined': data.get('guiderJoined', False),
+                'messageCount': data.get('messageCount', 0),
+            }
+
+            # Optionally load messages if requested
+            if request.args.get('includeMessages', 'false').lower() == 'true':
+                thread_id = data.get('threadId')
+                if thread_id:
+                    try:
+                        messages = get_video_messages_decrypted(uid=uid, thread_id=thread_id, limit=200)
+                        session_data['messages'] = messages
+                        session_data['decryptedMessageCount'] = len(messages)
+                    except Exception as e:
+                        print(f"Error loading messages for session {snap.id}: {e}")
+                        session_data['messages'] = []
+
+            sessions.append(session_data)
+
+        return jsonify({
+            'success': True,
+            'sessions': sessions,
+            'total': len(sessions),
+        })
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@video_bp.route('/delete_session_messages', methods=['POST'])
+def delete_video_session_messages():
+    """Delete all messages for a video session"""
+    try:
+        data = request.json or {}
+        uid = data.get('uid')
+        session_id = data.get('sessionId')
+
+        if not uid or not session_id:
+            return jsonify({'success': False, 'error': 'uid and sessionId are required'}), 400
+
+        # Get thread_id from session
+        snap = _session_ref(uid, session_id).get()
+        if not snap.exists:
+            return jsonify({'success': False, 'error': 'Session not found'}), 404
+
+        session_data = snap.to_dict() or {}
+        thread_id = session_data.get('threadId')
+
+        if not thread_id:
+            return jsonify({'success': False, 'error': 'No threadId found for session'}), 404
+
+        deleted_count = delete_video_messages_for_session(uid, thread_id, session_id)
+
+        return jsonify({
+            'success': True,
+            'deletedCount': deleted_count,
+        })
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+def _to_iso(ts: Any) -> Optional[str]:
+    """Convert timestamp to ISO string"""
+    if ts is None:
+        return None
+    if hasattr(ts, "isoformat"):
+        try:
+            return ts.isoformat()
+        except Exception:
+            return str(ts)
+    return str(ts)
 @video_bp.route('/chat_guided', methods=['POST'])
 def chat_guided():
     try:

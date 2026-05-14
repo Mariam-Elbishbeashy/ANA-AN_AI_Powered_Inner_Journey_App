@@ -692,35 +692,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     }
   }
 
-  Future<void> _processQueue() async {
-    if (_speakingQueue.isEmpty) {
-      _isProcessingQueue = false;
-      return;
-    }
 
-    _isProcessingQueue = true;
-    final item = _speakingQueue.removeAt(0);
-    final text = item['text'] as String;
-    final isGuider = item['isGuider'] as bool;
-
-    if (isGuider && _isSpeaking) {
-      print("🛡️ Guider in queue waiting for character to finish...");
-      _speakingQueue.insert(0, item);
-      await Future.delayed(const Duration(milliseconds: 150));
-      _processQueue();
-      return;
-    }
-
-    await _speakText(text, isGuider: isGuider);
-
-    if (isGuider) {
-      await Future.delayed(const Duration(milliseconds: 300));
-    } else {
-      await Future.delayed(const Duration(milliseconds: 150));
-    }
-
-    _processQueue();
-  }
 
   // ==========================
   // LANGUAGE DETECTION
@@ -888,6 +860,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   // AGENT METHODS
   // ==========================
 
+  // Update _sendToAgent method
   Future<Map<String, dynamic>> _sendToAgent({
     required String uid,
     required String transcript,
@@ -955,6 +928,8 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     throw Exception("HTTP ${response.statusCode}");
   }
 
+
+  // Update _sendToGuidedAgent method
   Future<Map<String, dynamic>> _sendToGuidedAgent({
     required String uid,
     required String transcript,
@@ -1018,12 +993,11 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     final stopwatch = Stopwatch()..start();
 
     try {
-      // In _sendToGuidedAgent method, increase timeout
       final response = await _httpClient!.post(
         uri,
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode(requestBody),
-      ).timeout(const Duration(seconds: 30));  // Increased from 15 to 30 seconds
+      ).timeout(const Duration(seconds: 30));
 
       stopwatch.stop();
       print("📥 Guided agent response in ${stopwatch.elapsedMilliseconds}ms");
@@ -1041,11 +1015,23 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     }
   }
 
+
   // ==========================
   // PROCESS USER MESSAGE
   // ==========================
 
+  // Add this helper method at the class level
+  void _logTiming(String phase, Stopwatch stopwatch) {
+    final elapsed = stopwatch.elapsedMilliseconds;
+    print("⏱️ TIMING: $phase took ${elapsed}ms");
+    stopwatch.reset();
+  }
+
+// Update _processUserMessage method
   Future<void> _processUserMessage(String transcript) async {
+    final totalStopwatch = Stopwatch()..start();
+    print("🟢 PROCESSING START: $transcript");
+
     if (_isProcessingMessage) {
       print("⚠️ Already processing a message, queueing...");
       _pendingTranscript = transcript;
@@ -1071,9 +1057,11 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     }
 
     // Stop any current recording or speaking
+    final stopRecordingStopwatch = Stopwatch()..start();
     if (_recorder.isRecording) {
       await _recorder.stopRecorder();
     }
+    _logTiming("Stop recording", stopRecordingStopwatch);
 
     setState(() {
       _isRecording = false;
@@ -1084,21 +1072,26 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       _visibleAiText = "";
     });
 
+    final detectLangStopwatch = Stopwatch()..start();
     final detectedLang = _detectLanguageFromText(transcript);
     if (detectedLang != _detectedLanguage) {
       setState(() => _detectedLanguage = detectedLang);
       await _updateTtsLanguage(detectedLang);
     }
+    _logTiming("Language detection & update", detectLangStopwatch);
 
     setState(() {
       _lastUserText = transcript;
     });
 
+    final saveMsgStopwatch = Stopwatch()..start();
     await _saveMessage('user', transcript, sender: 'user');
+    _logTiming("Save user message", saveMsgStopwatch);
 
     Map<String, dynamic> response;
 
     try {
+      final agentStopwatch = Stopwatch()..start();
       if (_guiderActive) {
         response = await _sendToGuidedAgent(
           uid: user.uid,
@@ -1112,6 +1105,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
           conversationHistory: _conversationHistory,
         );
       }
+      _logTiming("Agent API call (${_guiderActive ? 'GUIDED' : 'STANDARD'})", agentStopwatch);
     } catch (e) {
       print("❌ Agent error: $e");
       setState(() {
@@ -1173,6 +1167,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
 
         print("📢 Response order: $responseOrder");
 
+        final saveMessagesStopwatch = Stopwatch()..start();
         if (characterMessage.isNotEmpty && !suppressCharacter) {
           await _saveMessage('assistant', characterMessage, sender: _characterIdForBackend);
           _conversationHistory.add({
@@ -1190,6 +1185,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
             'isGuider': true,
           });
         }
+        _logTiming("Save assistant messages", saveMessagesStopwatch);
 
         final List<Map<String, dynamic>> speechQueue = [];
 
@@ -1222,11 +1218,15 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
             _isBusy = false;
           });
 
-          // Speak sequentially
+          // Speak sequentially with timing
+          final ttsStopwatch = Stopwatch()..start();
           for (int i = 0; i < speechQueue.length; i++) {
+            final speakStopwatch = Stopwatch()..start();
             await _speakText(speechQueue[i]['text'], isGuider: speechQueue[i]['isGuider']);
+            _logTiming("TTS - ${speechQueue[i]['isGuider'] ? 'Guider' : 'Character'} message ${i+1}/${speechQueue.length}", speakStopwatch);
             await Future.delayed(const Duration(milliseconds: 200));
           }
+          _logTiming("Total TTS for ${speechQueue.length} message(s)", ttsStopwatch);
         } else {
           setState(() {
             _isBusy = false;
@@ -1238,19 +1238,24 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       } else {
         characterMessage = response['assistantMessage'] ?? '';
         if (characterMessage.isNotEmpty) {
+          final saveMsgStopwatch2 = Stopwatch()..start();
           await _saveMessage('assistant', characterMessage, sender: _characterIdForBackend);
           _conversationHistory.add({
             'role': 'assistant',
             'content': characterMessage,
             'isGuider': false,
           });
+          _logTiming("Save character message", saveMsgStopwatch2);
+
           _startTypingAnimation(characterMessage);
 
           setState(() {
             _isBusy = false;
           });
 
+          final ttsStopwatch = Stopwatch()..start();
           await _speakText(characterMessage, isGuider: false);
+          _logTiming("TTS - Character message", ttsStopwatch);
         } else {
           setState(() {
             _isBusy = false;
@@ -1277,6 +1282,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     }
 
     _isProcessingMessage = false;
+    _logTiming("TOTAL PROCESSING (from start to finish)", totalStopwatch);
 
     if (_pendingTranscript.isNotEmpty) {
       final pending = _pendingTranscript;
@@ -1284,6 +1290,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       _processUserMessage(pending);
     }
   }
+
 
 // Add this new helper method
   void _scheduleVoiceLoopRestart() {
@@ -1792,7 +1799,11 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     }
   }
 
+  // Update _speakText method
   Future<void> _speakText(String text, {bool isGuider = false}) async {
+    final ttsStopwatch = Stopwatch()..start();
+    print("🔊 TTS START: ${isGuider ? 'Guider' : 'Character'} - ${text.substring(0, text.length > 50 ? 50 : text.length)}...");
+
     if (text.isEmpty) return;
 
     if (isGuider && _isSpeaking) {
@@ -1820,7 +1831,9 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     final speechCompleter = Completer<void>();
 
     void onSpeechComplete() {
-      print("✅ Speech finished");
+      final elapsed = ttsStopwatch.elapsedMilliseconds;
+      print("✅ TTS COMPLETE: ${isGuider ? 'Guider' : 'Character'} took ${elapsed}ms");
+
       if (mounted) {
         setState(() {
           if (isGuider) {
@@ -1893,6 +1906,41 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     }
   }
 
+// Update _processQueue method to track queue processing time
+  Future<void> _processQueue() async {
+    if (_speakingQueue.isEmpty) {
+      _isProcessingQueue = false;
+      return;
+    }
+
+    _isProcessingQueue = true;
+    final item = _speakingQueue.removeAt(0);
+    final text = item['text'] as String;
+    final isGuider = item['isGuider'] as bool;
+
+    if (isGuider && _isSpeaking) {
+      print("🛡️ Guider in queue waiting for character to finish...");
+      _speakingQueue.insert(0, item);
+      await Future.delayed(const Duration(milliseconds: 150));
+      _processQueue();
+      return;
+    }
+
+    final queueStopwatch = Stopwatch()..start();
+    print("📋 QUEUE PROCESSING: ${isGuider ? 'Guider' : 'Character'} message");
+
+    await _speakText(text, isGuider: isGuider);
+
+    _logTiming("Queue item (${isGuider ? 'Guider' : 'Character'})", queueStopwatch);
+
+    if (isGuider) {
+      await Future.delayed(const Duration(milliseconds: 300));
+    } else {
+      await Future.delayed(const Duration(milliseconds: 150));
+    }
+
+    _processQueue();
+  }
   void _startTypingAnimation(String fullText) {
     _typingTimer?.cancel();
     setState(() {

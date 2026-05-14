@@ -64,6 +64,110 @@ class VideoSessionRemoteDataSource {
     }
   }
 
+  /// Get decrypted messages for a session from the backend
+  Future<List<Map<String, dynamic>>> getDecryptedMessagesForSession({
+    required String uid,
+    required String sessionId,
+    int limit = 100,
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse("$_backendUrl/video/get_messages"),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'uid': uid,
+          'sessionId': sessionId,
+          'limit': limit,
+        }),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['success'] == true) {
+          print('✅ Retrieved ${data['messages']?.length ?? 0} decrypted messages for session: $sessionId');
+          return List<Map<String, dynamic>>.from(data['messages'] ?? []);
+        }
+      }
+      print('❌ Failed to get decrypted messages: ${response.body}');
+      return [];
+    } catch (e) {
+      print('❌ Error getting decrypted messages: $e');
+      return [];
+    }
+  }
+
+  /// Get session history with decrypted messages for a character
+  Future<List<Map<String, dynamic>>> getCharacterSessionHistory({
+    required String uid,
+    required String characterId,
+    int limit = 50,
+    bool includeMessages = false,
+  }) async {
+    try {
+      final response = await http.get(
+        Uri.parse("$_backendUrl/video/session_history?uid=$uid&characterId=$characterId&limit=$limit&includeMessages=$includeMessages"),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['success'] == true) {
+          print('✅ Retrieved ${data['sessions']?.length ?? 0} sessions for character: $characterId');
+          return List<Map<String, dynamic>>.from(data['sessions'] ?? []);
+        }
+      }
+      return [];
+    } catch (e) {
+      print('❌ Error getting session history: $e');
+      return [];
+    }
+  }
+
+  /// Save a message using backend encryption (RECOMMENDED)
+  /// THIS IS THE KEY METHOD - CALL THIS FOR ENCRYPTION
+  Future<void> saveMessageEncrypted({
+    required String uid,
+    required String threadId,
+    required String sessionId,
+    required String role,
+    required String content,
+    String? sender,
+    String? characterId,
+  }) async {
+    if (threadId.isEmpty) {
+      print('❌ Cannot save encrypted message: threadId is empty');
+      return;
+    }
+
+    try {
+      print('🔐 Saving encrypted message via backend: role=$role, thread=$threadId, session=$sessionId');
+
+      final response = await http.post(
+        Uri.parse("$_backendUrl/video/save_message"),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'uid': uid,
+          'threadId': threadId,
+          'sessionId': sessionId,
+          'role': role,
+          'content': content,
+          'sender': sender,
+          'characterId': characterId,
+        }),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['success'] == true) {
+          print('✅ Message saved encrypted via backend: id=${data['messageId']}');
+          return;
+        }
+      }
+      print('❌ Failed to save encrypted message: ${response.body}');
+    } catch (e) {
+      print('❌ Error saving encrypted message: $e');
+    }
+  }
+
   /// Get active video session for a character via backend
   Future<VideoSessionModel?> getActiveVideoSession({
     required String uid,
@@ -108,13 +212,12 @@ class VideoSessionRemoteDataSource {
     }
   }
 
-  /// Stream all video sessions for a character - FIXED VERSION
+  /// Stream all video sessions for a character
   Stream<List<VideoSessionModel>> streamVideoSessionsForCharacter({
     required String uid,
     required String characterId,
     int limit = 50,
   }) {
-    // Simple query to avoid index issues
     return _sessionsRef(uid)
         .where('characterId', isEqualTo: characterId)
         .orderBy('startedAt', descending: true)
@@ -130,8 +233,6 @@ class VideoSessionRemoteDataSource {
           final status = data['status'] ?? 'ended';
           final duration = (data['duration'] as num?)?.toInt() ?? 0;
 
-          // Include video sessions AND sessions without type (backward compatibility)
-          // Also include sessions with duration > 0 OR active sessions
           final isValidType = (type == 'video' || type == null);
           final hasContent = duration > 0 || status == 'active';
 
@@ -140,7 +241,6 @@ class VideoSessionRemoteDataSource {
           }
         } catch (e) {
           print('❌ Error parsing session: $e');
-          // Skip this document
         }
       }
 
@@ -152,7 +252,9 @@ class VideoSessionRemoteDataSource {
     });
   }
 
-  /// Save a message via Firestore
+  /// Legacy save method - DO NOT USE FOR NEW MESSAGES
+  /// This saves plaintext directly to Firestore
+  @Deprecated('Use saveMessageEncrypted instead')
   Future<void> saveMessage({
     required String uid,
     required String threadId,
@@ -165,7 +267,9 @@ class VideoSessionRemoteDataSource {
     if (threadId.isEmpty) return;
 
     try {
-      // Save directly to Firestore
+      print('⚠️ WARNING: Using deprecated saveMessage (plaintext)! Use saveMessageEncrypted instead.');
+
+      // Save directly to Firestore (PLAINTEXT - NOT ENCRYPTED)
       final msgRef = _messagesRef(uid, threadId).doc();
       await msgRef.set({
         'id': msgRef.id,
@@ -192,13 +296,13 @@ class VideoSessionRemoteDataSource {
         });
       }
 
-      print('✅ Message saved to Firestore');
+      print('✅ Message saved to Firestore (PLAINTEXT - NOT RECOMMENDED)');
     } catch (e) {
       print('❌ Error saving message: $e');
     }
   }
 
-  /// Get all messages from a specific thread
+  /// Get all messages from a specific thread (legacy - returns unencrypted)
   Future<List<Map<String, dynamic>>> getMessages({
     required String uid,
     required String threadId,
@@ -236,13 +340,12 @@ class VideoSessionRemoteDataSource {
     }
   }
 
-  /// Get messages for a specific session
+  /// Get messages for a specific session (legacy - returns unencrypted)
   Future<List<Map<String, dynamic>>> getMessagesForSession({
     required String uid,
     required String sessionId,
   }) async {
     try {
-      // First get the session to find the threadId
       final sessionDoc = await _sessionsRef(uid).doc(sessionId).get();
       if (!sessionDoc.exists) {
         print('❌ Session not found: $sessionId');
@@ -257,7 +360,6 @@ class VideoSessionRemoteDataSource {
         return [];
       }
 
-      // Then get messages from that thread
       return await getMessages(uid: uid, threadId: threadId.toString());
     } catch (e) {
       print('❌ Error getting messages for session: $e');
@@ -274,7 +376,6 @@ class VideoSessionRemoteDataSource {
     try {
       final session = await getVideoSession(uid: uid, sessionId: sessionId);
 
-      // Ensure duration is at least 0
       final safeDuration = duration < 0 ? 0 : duration;
 
       await _sessionsRef(uid).doc(sessionId).update({
