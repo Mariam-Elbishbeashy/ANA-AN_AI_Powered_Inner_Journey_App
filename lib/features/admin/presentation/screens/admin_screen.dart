@@ -13,7 +13,9 @@ import 'package:ana_ifs_app/core/widgets/shared_widgets.dart';
 import 'package:ana_ifs_app/features/profile/presentation/screens/profile_screen.dart';
 import 'package:ana_ifs_app/features/questionnaire/presentation/screens/initial_motivation_screen.dart';
 import 'package:ana_ifs_app/l10n/app_strings.dart';
+import 'package:ana_ifs_app/features/admin/presentation/screens/admin_character_analytics_screen.dart';
 import 'package:ana_ifs_app/features/admin/presentation/screens/admin_inner_characters_screen.dart';
+import 'package:ana_ifs_app/features/admin/presentation/screens/admin_user_activity_screen.dart';
 
 class AdminScreen extends StatefulWidget {
   const AdminScreen({super.key});
@@ -75,8 +77,9 @@ class _AdminScreenState extends State<AdminScreen> {
 
   Future<void> _loadInnerCharactersCount() async {
     try {
-      final raw = await rootBundle
-          .loadString('assets/data/inner_characters_data.json');
+      final raw = await rootBundle.loadString(
+        'assets/data/inner_characters_data.json',
+      );
       final decoded = jsonDecode(raw);
       final count = decoded is List ? decoded.length : 0;
       if (!mounted) return;
@@ -111,9 +114,9 @@ class _AdminScreenState extends State<AdminScreen> {
   Future<void> _retakeQuestionnaire() async {
     await _firestoreService.clearQuestionnaireData();
     if (!mounted) return;
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const InitialMotivationScreen()),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const InitialMotivationScreen()));
   }
 
   Future<void> _switchLanguage() async {
@@ -122,13 +125,7 @@ class _AdminScreenState extends State<AdminScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(
-          tr(
-            context,
-            'Language updated',
-            'تم تغيير اللغة',
-          ),
-        ),
+        content: Text(tr(context, 'Language updated', 'تم تغيير اللغة')),
       ),
     );
   }
@@ -149,7 +146,11 @@ class _AdminScreenState extends State<AdminScreen> {
     final email = _emailController.text.trim();
     if (email.isEmpty) {
       _showSnack(
-        tr(context, 'Enter an email address first.', 'أدخل البريد الإلكتروني أولاً.'),
+        tr(
+          context,
+          'Enter an email address first.',
+          'أدخل البريد الإلكتروني أولاً.',
+        ),
       );
       return;
     }
@@ -159,14 +160,26 @@ class _AdminScreenState extends State<AdminScreen> {
       if (!mounted) return;
       _showSnack(
         isAdmin
-            ? tr(context, 'Admin granted successfully.', 'تم منح صلاحية الإدارة.')
-            : tr(context, 'Admin removed successfully.', 'تم إزالة صلاحية الإدارة.'),
+            ? tr(
+                context,
+                'Admin granted successfully.',
+                'تم منح صلاحية الإدارة.',
+              )
+            : tr(
+                context,
+                'Admin removed successfully.',
+                'تم إزالة صلاحية الإدارة.',
+              ),
       );
       _emailController.clear();
     } catch (e) {
       if (!mounted) return;
       _showSnack(
-        tr(context, 'Failed to update admin user.', 'فشل تحديث صلاحية الإدارة.'),
+        tr(
+          context,
+          'Failed to update admin user.',
+          'فشل تحديث صلاحية الإدارة.',
+        ),
       );
     } finally {
       if (mounted) setState(() => _updatingAdmin = false);
@@ -195,9 +208,9 @@ class _AdminScreenState extends State<AdminScreen> {
   }
 
   void _showSnack(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   void _openScreen(Widget screen) {
@@ -207,12 +220,7 @@ class _AdminScreenState extends State<AdminScreen> {
   void _openUserCharacters(String userId, Map<String, dynamic> data) {
     final displayName = data['firstName']?.toString().trim();
     final email = data['email']?.toString() ?? userId;
-    final label = tr(
-      context,
-      'Characters for',
-      'شخصيات',
-      listen: false,
-    );
+    final label = tr(context, 'Characters for', 'شخصيات', listen: false);
     final title = (displayName != null && displayName.isNotEmpty)
         ? '$label $displayName'
         : '$label $email';
@@ -221,17 +229,18 @@ class _AdminScreenState extends State<AdminScreen> {
         title: title,
         collection: _firestoreService.userCharactersCollection
             .withConverter<Map<String, dynamic>>(
-          fromFirestore: (snap, _) => snap.data() ?? {},
-          toFirestore: (data, _) => data,
-        ),
+              fromFirestore: (snap, _) => snap.data() ?? {},
+              toFirestore: (data, _) => data,
+            ),
         listQuery: _firestoreService.userCharactersCollection
             .where('userId', isEqualTo: userId)
             .withConverter<Map<String, dynamic>>(
-          fromFirestore: (snap, _) => snap.data() ?? {},
-          toFirestore: (data, _) => data,
-        ),
+              fromFirestore: (snap, _) => snap.data() ?? {},
+              toFirestore: (data, _) => data,
+            ),
         type: AdminCollectionType.characters,
         summaryBuilder: _characterSummary,
+        targetUserId: userId,
         emptyMessage: tr(
           context,
           'No characters yet.',
@@ -242,15 +251,20 @@ class _AdminScreenState extends State<AdminScreen> {
     );
   }
 
+  void _openUserActivity(String userId, Map<String, dynamic> data) {
+    final displayName = data['firstName']?.toString().trim();
+    final email = data['email']?.toString() ?? userId;
+    final activityLabel = tr(context, 'Activity for', 'نشاط', listen: false);
+    final title = (displayName != null && displayName.isNotEmpty)
+        ? '$activityLabel $displayName'
+        : '$activityLabel $email';
+    _openScreen(AdminUserActivityScreen(userId: userId, title: title));
+  }
+
   void _openUserAnswers(String userId, Map<String, dynamic> data) {
     final displayName = data['firstName']?.toString().trim();
     final email = data['email']?.toString() ?? userId;
-    final label = tr(
-      context,
-      'Answers for',
-      'إجابات',
-      listen: false,
-    );
+    final label = tr(context, 'Answers for', 'إجابات', listen: false);
     final title = (displayName != null && displayName.isNotEmpty)
         ? '$label $displayName'
         : '$label $email';
@@ -259,16 +273,16 @@ class _AdminScreenState extends State<AdminScreen> {
         title: title,
         collection: _firestoreService.userAnswersCollection
             .withConverter<Map<String, dynamic>>(
-          fromFirestore: (snap, _) => snap.data() ?? {},
-          toFirestore: (data, _) => data,
-        ),
+              fromFirestore: (snap, _) => snap.data() ?? {},
+              toFirestore: (data, _) => data,
+            ),
         listQuery: _firestoreService.userAnswersCollection
             .where('userId', isEqualTo: userId)
             .orderBy('questionNumber')
             .withConverter<Map<String, dynamic>>(
-          fromFirestore: (snap, _) => snap.data() ?? {},
-          toFirestore: (data, _) => data,
-        ),
+              fromFirestore: (snap, _) => snap.data() ?? {},
+              toFirestore: (data, _) => data,
+            ),
         type: AdminCollectionType.answers,
         summaryBuilder: _answerSummary,
         emptyMessage: tr(
@@ -281,14 +295,15 @@ class _AdminScreenState extends State<AdminScreen> {
     );
   }
 
-
   String _userSummary(Map<String, dynamic> data, String docId) {
     final email = data['email']?.toString() ?? docId;
     final first = data['firstName']?.toString().trim() ?? '';
     final last = data['lastName']?.toString().trim() ?? '';
     final name = [first, last].where((part) => part.isNotEmpty).join(' ');
     final isAdmin = data['isAdmin'] == true;
-    final role = isAdmin ? tr(context, 'Admin', 'مسؤول') : tr(context, 'User', 'مستخدم');
+    final role = isAdmin
+        ? tr(context, 'Admin', 'مسؤول')
+        : tr(context, 'User', 'مستخدم');
     if (name.isEmpty) return '$email • $role';
     return '$name • $email • $role';
   }
@@ -300,13 +315,14 @@ class _AdminScreenState extends State<AdminScreen> {
   }
 
   String _answerSummary(Map<String, dynamic> data, String docId) {
-    final userId = data['userId']?.toString() ?? 'unknown';
     final number = data['questionNumber']?.toString() ?? '?';
-    return 'User $userId • Q$number';
+    final lang = (data['language']?.toString() ?? 'en').toUpperCase();
+    return 'Q$number • $lang';
   }
 
   String _characterSummary(Map<String, dynamic> data, String docId) {
-    final name = data['displayName']?.toString() ??
+    final name =
+        data['displayName']?.toString() ??
         data['characterName']?.toString() ??
         docId;
     final userId = data['userId']?.toString();
@@ -344,7 +360,10 @@ class _AdminScreenState extends State<AdminScreen> {
           backgroundColor: Colors.transparent,
           elevation: 0,
           leading: IconButton(
-            icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF6A5CFF)),
+            icon: const Icon(
+              Icons.arrow_back_rounded,
+              color: Color(0xFF6A5CFF),
+            ),
             onPressed: () => Navigator.pop(context),
           ),
         ),
@@ -375,7 +394,11 @@ class _AdminScreenState extends State<AdminScreen> {
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    tr(context, 'Admin access required', 'يتطلب صلاحية الإدارة'),
+                    tr(
+                      context,
+                      'Admin access required',
+                      'يتطلب صلاحية الإدارة',
+                    ),
                     style: const TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.w800,
@@ -480,14 +503,14 @@ class _AdminScreenState extends State<AdminScreen> {
                             ),
                             collection: _firestoreService.usersCollection
                                 .withConverter<Map<String, dynamic>>(
-                              fromFirestore: (snap, _) =>
-                                  snap.data() ?? {},
-                              toFirestore: (data, _) => data,
-                            ),
+                                  fromFirestore: (snap, _) => snap.data() ?? {},
+                                  toFirestore: (data, _) => data,
+                                ),
                             type: AdminCollectionType.users,
                             summaryBuilder: _userSummary,
                             onUserTap: _openUserCharacters,
                             onUserAnswersTap: _openUserAnswers,
+                            onUserActivityTap: _openUserActivity,
                           ),
                         ),
                       ),
@@ -505,10 +528,9 @@ class _AdminScreenState extends State<AdminScreen> {
                             ),
                             collection: _firestoreService.questionsCollection
                                 .withConverter<Map<String, dynamic>>(
-                              fromFirestore: (snap, _) =>
-                                  snap.data() ?? {},
-                              toFirestore: (data, _) => data,
-                            ),
+                                  fromFirestore: (snap, _) => snap.data() ?? {},
+                                  toFirestore: (data, _) => data,
+                                ),
                             type: AdminCollectionType.questions,
                             summaryBuilder: _questionSummary,
                           ),
@@ -516,27 +538,14 @@ class _AdminScreenState extends State<AdminScreen> {
                       ),
                       _StatCard(
                         icon: Icons.groups_rounded,
-                        label:
-                            tr(context, 'User Characters', 'شخصيات المستخدمين'),
-                        value: _stats['characters'] ?? 0,
-                        onTap: () => _openScreen(
-                          AdminCollectionScreen(
-                            title: tr(
-                              context,
-                              'User Characters',
-                              'شخصيات المستخدمين',
-                              listen: false,
-                            ),
-                            collection: _firestoreService.userCharactersCollection
-                                .withConverter<Map<String, dynamic>>(
-                              fromFirestore: (snap, _) =>
-                                  snap.data() ?? {},
-                              toFirestore: (data, _) => data,
-                            ),
-                            type: AdminCollectionType.characters,
-                            summaryBuilder: _characterSummary,
-                          ),
+                        label: tr(
+                          context,
+                          'User Characters',
+                          'شخصيات المستخدمين',
                         ),
+                        value: _stats['characters'] ?? 0,
+                        onTap: () =>
+                            _openScreen(const AdminCharacterAnalyticsScreen()),
                       ),
                       _StatCard(
                         icon: Icons.psychology_rounded,
@@ -563,15 +572,13 @@ class _AdminScreenState extends State<AdminScreen> {
                             ),
                             collection: _firestoreService.usersCollection
                                 .withConverter<Map<String, dynamic>>(
-                              fromFirestore: (snap, _) =>
-                                  snap.data() ?? {},
-                              toFirestore: (data, _) => data,
-                            ),
+                                  fromFirestore: (snap, _) => snap.data() ?? {},
+                                  toFirestore: (data, _) => data,
+                                ),
                             listQuery: _firestoreService.usersCollection
                                 .where('isAdmin', isEqualTo: true)
                                 .withConverter<Map<String, dynamic>>(
-                                  fromFirestore: (snap, _) =>
-                                      snap.data() ?? {},
+                                  fromFirestore: (snap, _) => snap.data() ?? {},
                                   toFirestore: (data, _) => data,
                                 ),
                             type: AdminCollectionType.users,
@@ -581,8 +588,11 @@ class _AdminScreenState extends State<AdminScreen> {
                       ),
                       _StatCard(
                         icon: Icons.check_circle_rounded,
-                        label:
-                            tr(context, 'Completed Questionnaire', 'أكملوا الاستبيان'),
+                        label: tr(
+                          context,
+                          'Completed Questionnaire',
+                          'أكملوا الاستبيان',
+                        ),
                         value: _stats['completedQuestionnaire'] ?? 0,
                         onTap: () => _openScreen(
                           AdminCollectionScreen(
@@ -594,16 +604,16 @@ class _AdminScreenState extends State<AdminScreen> {
                             ),
                             collection: _firestoreService.usersCollection
                                 .withConverter<Map<String, dynamic>>(
-                              fromFirestore: (snap, _) =>
-                                  snap.data() ?? {},
-                              toFirestore: (data, _) => data,
-                            ),
+                                  fromFirestore: (snap, _) => snap.data() ?? {},
+                                  toFirestore: (data, _) => data,
+                                ),
                             listQuery: _firestoreService.usersCollection
-                                .where('hasCompletedQuestionnaire',
-                                    isEqualTo: true)
+                                .where(
+                                  'hasCompletedQuestionnaire',
+                                  isEqualTo: true,
+                                )
                                 .withConverter<Map<String, dynamic>>(
-                                  fromFirestore: (snap, _) =>
-                                      snap.data() ?? {},
+                                  fromFirestore: (snap, _) => snap.data() ?? {},
                                   toFirestore: (data, _) => data,
                                 ),
                             type: AdminCollectionType.users,
@@ -614,9 +624,7 @@ class _AdminScreenState extends State<AdminScreen> {
                     ],
                   ),
             const SizedBox(height: 24),
-            _SectionTitle(
-              title: tr(context, 'Admin Tools', 'أدوات الإدارة'),
-            ),
+            _SectionTitle(title: tr(context, 'Admin Tools', 'أدوات الإدارة')),
             const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.all(18),
@@ -701,7 +709,7 @@ class _AdminScreenState extends State<AdminScreen> {
                       Switch(
                         value: _isAdmin,
                         onChanged: _updatingAdmin ? null : _toggleSelfAdmin,
-                        activeColor: const Color(0xFF8E7CFF),
+                        activeThumbColor: const Color(0xFF8E7CFF),
                       ),
                     ],
                   ),
@@ -721,7 +729,10 @@ class _AdminScreenState extends State<AdminScreen> {
                       'The user must have signed up at least once.',
                       'يجب أن يكون المستخدم قد سجل مرة واحدة على الأقل.',
                     ),
-                    style: const TextStyle(fontSize: 12, color: Color(0xFF7A6A5A)),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFF7A6A5A),
+                    ),
                   ),
                   const SizedBox(height: 12),
                   TextField(
@@ -836,10 +847,7 @@ class _HeaderCard extends StatelessWidget {
               'Manage features, content, and access in one place.',
               'تحكم في الميزات والمحتوى والصلاحيات من مكان واحد.',
             ),
-            style: const TextStyle(
-              color: Colors.white,
-              height: 1.4,
-            ),
+            style: const TextStyle(color: Colors.white, height: 1.4),
           ),
         ],
       ),

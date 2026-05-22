@@ -1,4 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'package:ana_ifs_app/l10n/app_strings.dart';
@@ -10,6 +11,7 @@ import 'package:ana_ifs_app/features/chat/data/models/inner_character_profile.da
 import 'package:ana_ifs_app/features/chat/presentation/screens/character_chat_sessions_screen.dart';
 import 'package:ana_ifs_app/features/chat/presentation/widgets/chat_conversation.dart';
 import 'package:ana_ifs_app/features/chat/presentation/widgets/guider_avatar.dart';
+import 'package:ana_ifs_app/core/services/session_idle_monitor_service.dart';
 
 /// The "normal" chat screen for an ACTIVE session.
 ///
@@ -43,11 +45,62 @@ class ChatSessionScreen extends StatefulWidget {
 class _ChatSessionScreenState extends State<ChatSessionScreen> {
   final _chatRemoteDataSource = ChatRemoteDataSource();
   final _chatAiRemoteDataSource = ChatAiRemoteDataSource();
+  StreamSubscription<ChatSessionModel?>? _sessionStatusSub;
 
   // Guider state is still supported (same as the existing character chat screen).
   bool _isGuiderInChat = false;
 
   bool _ending = false;
+  bool _handledExternalEnd = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _startIdleMonitoring();
+    _watchSessionStatus();
+  }
+
+  @override
+  void dispose() {
+    _sessionStatusSub?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _watchSessionStatus() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    _sessionStatusSub = _chatRemoteDataSource
+        .streamSessionById(uid: user.uid, sessionId: widget.session.id)
+        .listen((session) async {
+          if (!mounted || _handledExternalEnd) return;
+          if (session == null || !session.isActive) {
+            _handledExternalEnd = true;
+            await SessionIdleMonitorService.instance.stopMonitoring(
+              sessionId: widget.session.id,
+            );
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Session ended automatically due to inactivity.'),
+              ),
+            );
+            if (Navigator.of(context).canPop()) {
+              Navigator.of(context).pop();
+            }
+          }
+        });
+  }
+
+  Future<void> _startIdleMonitoring() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    await SessionIdleMonitorService.instance.beginMonitoring(
+      uid: user.uid,
+      sessionId: widget.session.id,
+      threadId: widget.session.threadId,
+      characterId: widget.characterId,
+    );
+  }
 
   /// Show modal to invite or remove the Guider.
   ///
@@ -130,14 +183,17 @@ class _ChatSessionScreenState extends State<ChatSessionScreen> {
         sessionId: widget.session.id,
         threadId: widget.session.threadId,
       );
+      await SessionIdleMonitorService.instance.stopMonitoring(
+        sessionId: widget.session.id,
+      );
 
       if (!mounted) return;
       Navigator.of(context).pop(); // back to session history
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to end session: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to end session: $e')));
       setState(() => _ending = false);
     }
   }
@@ -154,10 +210,10 @@ class _ChatSessionScreenState extends State<ChatSessionScreen> {
 
   @override
   Widget build(BuildContext context) {
-
     // display the character name directly from firestore (`UserCharacter`)
-    final title =
-        widget.character.getDisplayName(isArabic(context) ? 'ar' : 'en');
+    final title = widget.character.getDisplayName(
+      isArabic(context) ? 'ar' : 'en',
+    );
 
     return PopScope(
       // we block pop, and perform it ourselves after ending the session
@@ -173,11 +229,7 @@ class _ChatSessionScreenState extends State<ChatSessionScreen> {
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
-              colors: [
-                Color(0xFFF7F2FF),
-                Color(0xFFF2ECFF),
-                Color(0xFFEDE7FF),
-              ],
+              colors: [Color(0xFFF7F2FF), Color(0xFFF2ECFF), Color(0xFFEDE7FF)],
             ),
           ),
           child: SafeArea(
@@ -317,10 +369,7 @@ class _GuiderIconButton extends StatelessWidget {
   final bool isGuiderInChat;
   final VoidCallback onTap;
 
-  const _GuiderIconButton({
-    required this.isGuiderInChat,
-    required this.onTap,
-  });
+  const _GuiderIconButton({required this.isGuiderInChat, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -349,8 +398,9 @@ class _GuiderIconButton extends StatelessWidget {
           child: GuiderAvatar(
             size: 44,
             backgroundColor: Colors.transparent,
-            fallbackIconColor:
-                isGuiderInChat ? Colors.white : const Color(0xFF2A1E3B),
+            fallbackIconColor: isGuiderInChat
+                ? Colors.white
+                : const Color(0xFF2A1E3B),
             fallbackIconSize: 22,
           ),
         ),
@@ -396,121 +446,129 @@ class _GuiderModal extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-            // Handle bar
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: const Color(0xFFE5DEFF),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(height: 20),
-            // Guider avatar
-            const GuiderAvatar(
-              size: 80,
-              backgroundColor: const Color(0xFFB79CFF),
-              fallbackIconSize: 36,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              tr(context, 'The Guider', 'المُرشد'),
-              style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w800,
-                color: Color(0xFF2A1E3B),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              isGuiderInChat
-                  ? tr(
-                      context,
-                      'The Guider is currently in this conversation, helping you and your $characterName understand each other better.',
-                      'المُرشد موجود حاليًا في هذه المحادثة، يساعدك أنت و$characterName على فهم بعضكم البعض بشكل أفضل.',
-                    )
-                  : tr(
-                      context,
-                      'Would you like The Guider to join this conversation? They can help you and your $characterName communicate with more clarity and compassion.',
-                      'هل تريد أن ينضم المُرشد إلى هذه المحادثة؟ يمكنه مساعدتك أنت و$characterName على التواصل بوضوح وتعاطف أكبر.',
-                    ),
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 15,
-                color: Color(0xFF6B5C82),
-                height: 1.5,
-              ),
-            ),
-            const SizedBox(height: 24),
-            if (isGuiderInChat)
-              // Remove Guider button
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton(
-                  onPressed: onRemoveGuider,
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: const Color(0xFF8B7EC8),
-                    side: const BorderSide(color: Color(0xFFB79CFF)),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                  ),
-                  child: Text(
-                    tr(context, 'Continue without The Guider', 'استمر بدون المُرشد'),
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
+              // Handle bar
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE5DEFF),
+                  borderRadius: BorderRadius.circular(2),
                 ),
-              )
-            else
-              // Invite Guider buttons
-              Column(
-                children: [
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: onInviteGuider,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFB79CFF),
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                      ),
-                      child: Text(
-                        tr(context, 'Yes, invite The Guider', 'نعم، ادعُ المُرشد'),
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      style: TextButton.styleFrom(
-                        foregroundColor: const Color(0xFF8B7EC8),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                      ),
-                      child: Text(
-                        tr(context, 'Not now', 'ليس الآن'),
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
               ),
+              const SizedBox(height: 20),
+              // Guider avatar
+              const GuiderAvatar(
+                size: 80,
+                backgroundColor: const Color(0xFFB79CFF),
+                fallbackIconSize: 36,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                tr(context, 'The Guider', 'المُرشد'),
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF2A1E3B),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                isGuiderInChat
+                    ? tr(
+                        context,
+                        'The Guider is currently in this conversation, helping you and your $characterName understand each other better.',
+                        'المُرشد موجود حاليًا في هذه المحادثة، يساعدك أنت و$characterName على فهم بعضكم البعض بشكل أفضل.',
+                      )
+                    : tr(
+                        context,
+                        'Would you like The Guider to join this conversation? They can help you and your $characterName communicate with more clarity and compassion.',
+                        'هل تريد أن ينضم المُرشد إلى هذه المحادثة؟ يمكنه مساعدتك أنت و$characterName على التواصل بوضوح وتعاطف أكبر.',
+                      ),
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 15,
+                  color: Color(0xFF6B5C82),
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 24),
+              if (isGuiderInChat)
+                // Remove Guider button
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton(
+                    onPressed: onRemoveGuider,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF8B7EC8),
+                      side: const BorderSide(color: Color(0xFFB79CFF)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                    child: Text(
+                      tr(
+                        context,
+                        'Continue without The Guider',
+                        'استمر بدون المُرشد',
+                      ),
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                )
+              else
+                // Invite Guider buttons
+                Column(
+                  children: [
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: onInviteGuider,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFB79CFF),
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                        child: Text(
+                          tr(
+                            context,
+                            'Yes, invite The Guider',
+                            'نعم، ادعُ المُرشد',
+                          ),
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        style: TextButton.styleFrom(
+                          foregroundColor: const Color(0xFF8B7EC8),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                        child: Text(
+                          tr(context, 'Not now', 'ليس الآن'),
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               const SizedBox(height: 8),
             ],
           ),
@@ -519,4 +577,3 @@ class _GuiderModal extends StatelessWidget {
     );
   }
 }
-

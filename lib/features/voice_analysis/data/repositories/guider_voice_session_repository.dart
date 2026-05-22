@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../domain/entities/guider_voice_session.dart';
 import '../../domain/entities/guider_voice_message.dart';
+import 'package:ana_ifs_app/core/security/message_encryption.dart';
 
 class GuiderVoiceSessionRepository {
   final FirebaseFirestore _firestore;
@@ -177,7 +178,7 @@ class GuiderVoiceSessionRepository {
     return 0;
   }
 
-  /// Get messages from a specific thread
+  /// Get messages from a specific thread (with decryption)
   Future<List<GuiderVoiceMessage>> getMessages({
     required String uid,
     required String threadId,
@@ -193,17 +194,27 @@ class GuiderVoiceSessionRepository {
 
       return snapshot.docs.map((doc) {
         final data = doc.data();
-        return GuiderVoiceMessage(
-          id: doc.id,
-          role: data['role'] ?? 'user',
-          content: data['content'] ?? '',
-          sender: data['sender'],
-          createdAt: _toDateTime(data['createdAt']),
-        );
+        // ✅ FIXED: Pass uid to fromFirestore for decryption
+        return GuiderVoiceMessage.fromFirestore(doc.id, data, uid);
       }).toList();
     } catch (e) {
       print('❌ Error getting messages: $e');
       return [];
+    }
+  }
+
+  /// ✅ NEW: Save message with encryption
+  Future<void> saveMessage({
+    required String uid,
+    required String threadId,
+    required GuiderVoiceMessage message,
+  }) async {
+    try {
+      await _messagesRef(uid, threadId).add(message.toMapForFirestore(uid));
+      print("✅ Saved encrypted Guider message to thread: $threadId");
+    } catch (e) {
+      print("❌ Error saving Guider message: $e");
+      rethrow;
     }
   }
 }

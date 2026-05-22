@@ -11,6 +11,7 @@ import 'package:ana_ifs_app/features/chat/data/models/chat_session_model.dart';
 import 'package:ana_ifs_app/features/chat/data/models/inner_character_profile.dart';
 import 'package:ana_ifs_app/features/chat/presentation/screens/chat_session_screen.dart';
 import 'package:ana_ifs_app/features/chat/presentation/screens/chat_session_viewer_screen.dart';
+import 'package:ana_ifs_app/core/services/session_idle_monitor_service.dart';
 
 /// Session history screen for ONE character.
 
@@ -25,7 +26,7 @@ class CharacterChatSessionsScreen extends StatefulWidget {
 
   /// if this screen was opened from an already-active session, pass the session id
   /// here so we can avoid pushing a duplicate chat screen when the user taps it
-  
+
   /// - user is chatting (active session)
   /// - user opens "history" to view previous sessions
   /// - If they tap the same active session, we just go back to the chat screen.
@@ -42,7 +43,8 @@ class CharacterChatSessionsScreen extends StatefulWidget {
       _CharacterChatSessionsScreenState();
 }
 
-class _CharacterChatSessionsScreenState extends State<CharacterChatSessionsScreen> {
+class _CharacterChatSessionsScreenState
+    extends State<CharacterChatSessionsScreen> {
   final _chatRemoteDataSource = ChatRemoteDataSource();
   final _characterLocalDataSource = InnerCharacterLocalDataSource();
 
@@ -53,7 +55,9 @@ class _CharacterChatSessionsScreenState extends State<CharacterChatSessionsScree
   void initState() {
     super.initState();
     _characterFuture = _loadCharacterProfile();
-    _assistantAvatarPath = _getImagePathForCharacter(widget.character.characterName);
+    _assistantAvatarPath = _getImagePathForCharacter(
+      widget.character.characterName,
+    );
   }
 
   Future<InnerCharacterProfile?> _loadCharacterProfile() {
@@ -63,7 +67,11 @@ class _CharacterChatSessionsScreenState extends State<CharacterChatSessionsScree
     final secondaryName = widget.character.characterName;
     return _characterLocalDataSource
         .findCharacterByName(primaryName)
-        .then((value) => value ?? _characterLocalDataSource.findCharacterByName(secondaryName));
+        .then(
+          (value) =>
+              value ??
+              _characterLocalDataSource.findCharacterByName(secondaryName),
+        );
   }
 
   String _fallbackCharacterId() {
@@ -180,6 +188,9 @@ class _CharacterChatSessionsScreenState extends State<CharacterChatSessionsScree
         sessionId: active.id,
         threadId: active.threadId,
       );
+      await SessionIdleMonitorService.instance.stopMonitoring(
+        sessionId: active.id,
+      );
     }
 
     final session = await _chatRemoteDataSource.createNewChatSession(
@@ -291,7 +302,13 @@ class _CharacterChatSessionsScreenState extends State<CharacterChatSessionsScree
       return Scaffold(
         backgroundColor: const Color(0xFFF9F6FF),
         body: Center(
-          child: Text(tr(context, 'Please sign in to continue.', 'يرجى تسجيل الدخول للمتابعة.')),
+          child: Text(
+            tr(
+              context,
+              'Please sign in to continue.',
+              'يرجى تسجيل الدخول للمتابعة.',
+            ),
+          ),
         ),
       );
     }
@@ -304,8 +321,9 @@ class _CharacterChatSessionsScreenState extends State<CharacterChatSessionsScree
         final characterType = 'inner_character';
 
         // display the character name from Firestore (`UserCharacter`)
-        final title =
-            widget.character.getDisplayName(isArabic(context) ? 'ar' : 'en');
+        final title = widget.character.getDisplayName(
+          isArabic(context) ? 'ar' : 'en',
+        );
 
         return Scaffold(
           backgroundColor: const Color(0xFFF9F6FF),
@@ -362,17 +380,21 @@ class _CharacterChatSessionsScreenState extends State<CharacterChatSessionsScree
                   ),
                   Expanded(
                     child: StreamBuilder<List<ChatSessionModel>>(
-                      stream: _chatRemoteDataSource.streamChatSessionsForCharacter(
-                        uid: user.uid,
-                        characterId: characterId,
-                      ),
+                      stream: _chatRemoteDataSource
+                          .streamChatSessionsForCharacter(
+                            uid: user.uid,
+                            characterId: characterId,
+                          ),
                       builder: (context, snapshot) {
-                        final sessions = snapshot.data ?? const <ChatSessionModel>[];
+                        final sessions =
+                            snapshot.data ?? const <ChatSessionModel>[];
 
                         if (sessions.isEmpty) {
                           return Center(
                             child: Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 28),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 28,
+                              ),
                               child: Text(
                                 tr(
                                   context,
@@ -392,7 +414,8 @@ class _CharacterChatSessionsScreenState extends State<CharacterChatSessionsScree
                         return ListView.separated(
                           padding: const EdgeInsets.fromLTRB(18, 8, 18, 100),
                           itemCount: sessions.length,
-                          separatorBuilder: (_, __) => const SizedBox(height: 10),
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 10),
                           itemBuilder: (context, index) {
                             final s = sessions[index];
                             final when = _formatWhen(s.startedAt);
@@ -408,11 +431,7 @@ class _CharacterChatSessionsScreenState extends State<CharacterChatSessionsScree
                                 'الجلسة ${sessions.length - index}',
                               ),
                               subtitle: ended
-                                  ? tr(
-                                      context,
-                                      'Started: $when',
-                                      'بدأت: $when',
-                                    )
+                                  ? tr(context, 'Started: $when', 'بدأت: $when')
                                   : tr(
                                       context,
                                       'Started: $when',
@@ -461,7 +480,9 @@ class _CharacterChatSessionsScreenState extends State<CharacterChatSessionsScree
                           profile: profile,
                         ),
                         icon: const Icon(Icons.add_rounded),
-                        label: Text(tr(context, 'Start a new session', 'ابدأ جلسة جديدة')),
+                        label: Text(
+                          tr(context, 'Start a new session', 'ابدأ جلسة جديدة'),
+                        ),
                       ),
                     ),
                   ),
@@ -614,7 +635,9 @@ class _SessionTile extends StatelessWidget {
               ),
               child: Icon(
                 isActive ? Icons.chat_bubble_rounded : Icons.history_rounded,
-                color: isActive ? const Color(0xFF8E7CFF) : const Color(0xFF6B5C82),
+                color: isActive
+                    ? const Color(0xFF8E7CFF)
+                    : const Color(0xFF6B5C82),
                 size: 20,
               ),
             ),
@@ -656,7 +679,9 @@ class _SessionTile extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
-                  color: isActive ? const Color(0xFF8E7CFF) : const Color(0xFF6B5C82),
+                  color: isActive
+                      ? const Color(0xFF8E7CFF)
+                      : const Color(0xFF6B5C82),
                 ),
               ),
             ),
@@ -668,4 +693,3 @@ class _SessionTile extends StatelessWidget {
     );
   }
 }
-

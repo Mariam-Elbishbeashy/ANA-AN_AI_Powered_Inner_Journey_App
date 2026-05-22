@@ -1,3 +1,4 @@
+// lib/features/video_chat/presentation/screens/video_chat_history_screen.dart
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:ana_ifs_app/l10n/app_strings.dart';
@@ -5,6 +6,7 @@ import 'package:ana_ifs_app/features/character/domain/entities/user_character.da
 import 'package:ana_ifs_app/features/video_chat/domain/entities/video_session.dart';
 import 'package:ana_ifs_app/features/video_chat/domain/entities/video_message.dart';
 import 'package:ana_ifs_app/features/video_chat/data/repositories/video_session_repository.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class VideoChatHistoryScreen extends StatefulWidget {
   final UserCharacter character;
@@ -43,26 +45,96 @@ class _VideoChatHistoryScreenState extends State<VideoChatHistoryScreen> {
       return;
     }
 
-    if (widget.session.threadId == null || widget.session.threadId!.isEmpty) {
+    if (widget.session.id == null || widget.session.id.isEmpty) {
       setState(() {
-        _error = 'No chat history available for this session';
+        _error = 'No session ID available';
         _isLoading = false;
       });
       return;
     }
 
-    try {
-      final messages = await _sessionRepository.getMessages(
-        uid: user.uid,
-        threadId: widget.session.threadId!,
-      );
+    // First try: Use threadId to read directly from Firestore (decrypt locally)
+    if (widget.session.threadId != null && widget.session.threadId!.isNotEmpty) {
+      try {
+        print('📖 Loading messages from thread: ${widget.session.threadId}');
+
+        final messagesRef = FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .collection('chat_threads')
+            .doc(widget.session.threadId)
+            .collection('messages');
+
+        final snapshot = await messagesRef
+            .orderBy('createdAt', descending: false)
+            .get();
+
+        print('✅ Found ${snapshot.docs.length} raw messages');
+
+        final List<VideoMessage> decryptedMessages = [];
+
+        for (var doc in snapshot.docs) {
+          final data = doc.data();
+          final createdAt = data['createdAt'];
+          DateTime? dateTime;
+          if (createdAt is Timestamp) {
+            dateTime = createdAt.toDate();
+          } else if (createdAt is DateTime) {
+            dateTime = createdAt;
+          }
+
+          String content = '';
+
+          // Check if message is encrypted (has ciphertext)
+          if (data['contentCiphertext'] != null) {
+            // Try to decrypt via backend
+            try {
+              final decrypted = await _sessionRepository.getDecryptedMessagesForSession(
+                uid: user.uid,
+                sessionId: widget.session.id,
+              );
+              // If we get decrypted messages, use those instead
+              if (decrypted.isNotEmpty) {
+                setState(() {
+                  _messages = decrypted;
+                  _isLoading = false;
+                });
+                print('✅ Loaded ${decrypted.length} decrypted messages via backend');
+                return;
+              }
+            } catch (e) {
+              print('⚠️ Backend decryption failed: $e');
+            }
+            content = '[Encrypted message]';
+          } else {
+            content = data['content'] ?? '';
+          }
+
+          decryptedMessages.add(VideoMessage(
+            id: doc.id,
+            role: data['role'] ?? 'user',
+            content: content,
+            sender: data['sender'],
+            createdAt: dateTime,
+          ));
+        }
+
+        setState(() {
+          _messages = decryptedMessages;
+          _isLoading = false;
+        });
+        print('✅ Loaded ${decryptedMessages.length} messages');
+
+      } catch (e) {
+        print('❌ Error loading messages: $e');
+        setState(() {
+          _error = 'Error loading messages: $e';
+          _isLoading = false;
+        });
+      }
+    } else {
       setState(() {
-        _messages = messages;
-        _isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        _error = 'Error loading messages: $e';
+        _error = 'No thread ID available for this session';
         _isLoading = false;
       });
     }
@@ -241,6 +313,21 @@ class _VideoChatHistoryScreenState extends State<VideoChatHistoryScreen> {
               textAlign: TextAlign.center,
               style: const TextStyle(color: Color(0xFF6B5C82), fontSize: 14),
             ),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: () {
+                setState(() {
+                  _isLoading = true;
+                  _error = null;
+                });
+                _loadMessages();
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF8E7CFF),
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Retry'),
+            ),
           ],
         ),
       );
@@ -355,7 +442,6 @@ class _ChatBubble extends StatelessWidget {
         mainAxisAlignment: isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Character avatar for non-user messages
           if (!isUser)
             Container(
               width: 36,
@@ -387,7 +473,6 @@ class _ChatBubble extends StatelessWidget {
             child: Column(
               crossAxisAlignment: isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
               children: [
-                // Sender name for non-user messages
                 if (!isUser)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 4, left: 4),
@@ -403,7 +488,6 @@ class _ChatBubble extends StatelessWidget {
                     ),
                   ),
 
-                // Message bubble - white with border
                 Container(
                   constraints: BoxConstraints(
                     maxWidth: MediaQuery.of(context).size.width * 0.72,

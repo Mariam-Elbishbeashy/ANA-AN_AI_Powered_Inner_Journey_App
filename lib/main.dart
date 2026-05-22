@@ -5,8 +5,10 @@ import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import 'core/services/daily_task_notification_service.dart';
 import 'firebase_options.dart';
 import 'core/localization/app_language_provider.dart';
+import 'core/services/session_idle_monitor_service.dart';
 import 'core/theme/app_theme.dart';
 import 'core/services/firestore_service.dart';
 import 'features/admin/presentation/screens/admin_screen.dart';
@@ -14,6 +16,8 @@ import 'features/admin/presentation/screens/admin_screen.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  await SessionIdleMonitorService.instance.initialize();
+  await DailyTaskNotificationService.init();
   runApp(const AnaApp());
 }
 

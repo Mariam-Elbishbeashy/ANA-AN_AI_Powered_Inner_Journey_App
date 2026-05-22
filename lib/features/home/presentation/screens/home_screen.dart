@@ -2111,11 +2111,11 @@ class _HomeScreenState extends State<HomeScreen>
                                         final computedTwoColumnWidth =
                                             (constraints.maxWidth - spacing) / 2;
                                         final responsiveCardWidth =
-                                            canUseTwoColumns
-                                                ? (computedTwoColumnWidth < 150
-                                                    ? computedTwoColumnWidth
-                                                    : 150.0)
-                                                : constraints.maxWidth;
+                                        canUseTwoColumns
+                                            ? (computedTwoColumnWidth < 150
+                                            ? computedTwoColumnWidth
+                                            : 150.0)
+                                            : constraints.maxWidth;
                                         Widget buildCard(
                                             UserCharacter character) {
                                           final color = _getCharacterColor(
