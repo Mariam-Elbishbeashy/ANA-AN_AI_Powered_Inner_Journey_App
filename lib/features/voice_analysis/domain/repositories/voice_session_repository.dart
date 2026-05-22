@@ -1,10 +1,11 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:ana_ifs_app/core/security/message_encryption.dart';
 
 // ============================================================
 // ENTITY CLASSES
 // ============================================================
 
-// ✅ ADD THIS - VoiceToneData class for voice emotion tracking
+// VoiceToneData class for voice emotion tracking
 class VoiceToneData {
   final String? dominant;
   final double averageConfidence;
@@ -42,7 +43,7 @@ class VoiceToneData {
   }
 }
 
-// ✅ UPDATE VoiceSession class to include voiceTone (with null safety for old sessions)
+// VoiceSession class
 class VoiceSession {
   final String id;
   final String uid;
@@ -77,7 +78,6 @@ class VoiceSession {
   });
 
   factory VoiceSession.fromFirestore(String id, Map<String, dynamic> map) {
-    // Safely parse voiceTone - handle case where it doesn't exist
     VoiceToneData? voiceToneData;
     if (map['voiceTone'] != null && map['voiceTone'] is Map<String, dynamic>) {
       try {
@@ -111,6 +111,7 @@ class VoiceSession {
   }
 }
 
+// ✅ FIXED: VoiceMessage with PROPER decryption using uid
 class VoiceMessage {
   final String id;
   final String role;
@@ -126,14 +127,36 @@ class VoiceMessage {
     required this.createdAt,
   });
 
-  factory VoiceMessage.fromFirestore(String id, Map<String, dynamic> map) {
+  // ✅ FIXED: Now accepts uid parameter AND decrypts the content
+  factory VoiceMessage.fromFirestore(String id, Map<String, dynamic> map, String uid) {
+    String decryptedContent = '';
+    final encryptedContent = map['content'] ?? '';
+
+    if (encryptedContent.isNotEmpty) {
+      // Decrypt the message using the user's uid
+      decryptedContent = MessageEncryption.decryptMessage(encryptedContent, uid);
+      print("Decrypted message: ${decryptedContent.substring(0, decryptedContent.length > 50 ? 50 : decryptedContent.length)}...");
+    }
+
     return VoiceMessage(
       id: id,
       role: map['role'] ?? '',
-      content: map['content'] ?? '',
+      content: decryptedContent,  // Now this is the DECRYPTED content!
       sender: map['sender'],
       createdAt: (map['createdAt'] as Timestamp).toDate(),
     );
+  }
+
+  // Method to encrypt before saving (used for new messages)
+  Map<String, dynamic> toMapForFirestore(String uid) {
+    final encryptedContent = MessageEncryption.encryptMessage(content, uid);
+
+    return {
+      'role': role,
+      'content': encryptedContent,
+      'sender': sender,
+      'createdAt': FieldValue.serverTimestamp(),
+    };
   }
 }
 
@@ -225,7 +248,7 @@ class VoiceSessionRepository {
   }
 
   // ============================================================
-  // GET MESSAGES FOR SESSION THREAD
+  // GET MESSAGES FOR SESSION THREAD - FIXED: Passes uid for decryption
   // ============================================================
   Future<List<VoiceMessage>> getMessages({
     required String uid,
@@ -241,7 +264,26 @@ class VoiceSessionRepository {
         .get();
 
     return snapshot.docs.map((doc) {
-      return VoiceMessage.fromFirestore(doc.id, doc.data());
+      // ✅ FIXED: Pass the uid to fromFirestore for decryption
+      return VoiceMessage.fromFirestore(doc.id, doc.data(), uid);
     }).toList();
+  }
+
+  // ============================================================
+  // NEW: SAVE MESSAGE WITH ENCRYPTION
+  // ============================================================
+  Future<void> saveMessage({
+    required String uid,
+    required String threadId,
+    required VoiceMessage message,
+  }) async {
+    final messagesRef = _firestore
+        .collection('users')
+        .doc(uid)
+        .collection('chat_threads')
+        .doc(threadId)
+        .collection('messages');
+
+    await messagesRef.add(message.toMapForFirestore(uid));
   }
 }

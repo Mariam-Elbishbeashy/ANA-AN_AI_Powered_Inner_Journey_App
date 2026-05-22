@@ -8,9 +8,10 @@ from datetime import datetime, timezone
 import time
 import uuid
 from typing import Dict, List, Any, Optional
-
+import hashlib
 from flask import Blueprint, request, jsonify, send_file
 from openai import OpenAI
+
 
 # =============================
 # Blueprint
@@ -148,6 +149,78 @@ def _ensure_session_doc(uid: str, session_id: str, character_id: str, thread_id:
     except Exception as e:
         print(f"[voice] Error creating session doc: {e}")
 
+
+
+# =============================
+# Message Encryption Functions
+# =============================
+
+def _derive_key_from_uid(uid: str) -> bytes:
+    """Derive encryption key from user UID using PBKDF2"""
+    salt = b'ANA_IFS_VOICE_SALT'
+    iterations = 10000
+    key_length = 32
+
+    key = hashlib.pbkdf2_hmac(
+        'sha256',
+        uid.encode('utf-8'),
+        salt,
+        iterations,
+        key_length
+    )
+    return key
+
+def encrypt_message(plain_text: str, uid: str) -> str:
+    """Encrypt message using XOR with derived key"""
+    try:
+        if not plain_text:
+            return ""
+
+        key = _derive_key_from_uid(uid)
+        text_bytes = plain_text.encode('utf-8')
+
+        # XOR encryption
+        encrypted = bytearray()
+        for i, byte in enumerate(text_bytes):
+            encrypted.append(byte ^ key[i % len(key)])
+
+        # Add random salt prefix (8 bytes)
+        salt = os.urandom(8)
+        result = salt + encrypted
+
+        return base64.b64encode(result).decode('utf-8')
+    except Exception as e:
+        print(f"Encryption error: {e}")
+        return f"FB:{base64.b64encode(plain_text.encode('utf-8')).decode('utf-8')}"
+
+def decrypt_message(encrypted_base64: str, uid: str) -> str:
+    """Decrypt message using XOR with derived key"""
+    try:
+        if not encrypted_base64:
+            return ""
+
+        # Check for fallback
+        if encrypted_base64.startswith("FB:"):
+            return base64.b64decode(encrypted_base64[3:]).decode('utf-8')
+
+        encrypted_data = base64.b64decode(encrypted_base64)
+        if len(encrypted_data) < 8:
+            return "[Encrypted message]"
+
+        # Remove salt prefix
+        encrypted = encrypted_data[8:]
+        key = _derive_key_from_uid(uid)
+
+        # XOR decryption
+        decrypted = bytearray()
+        for i, byte in enumerate(encrypted):
+            decrypted.append(byte ^ key[i % len(key)])
+
+        return decrypted.decode('utf-8')
+    except Exception as e:
+        print(f"Decryption error: {e}")
+        return "[Encrypted message]"
+
 def _ensure_thread_doc(uid: str, thread_id: str, session_id: str, character_id: str, character_profile: Dict) -> None:
     if not db:
         return
@@ -174,11 +247,14 @@ def _save_message(uid: str, thread_id: str, role: str, content: str, sender: str
     if not db or not thread_id:
         return
     try:
+        # ✅ ENCRYPT the message content before saving
+        encrypted_content = encrypt_message(content, uid)
+
         msg_ref = _messages_ref(uid, thread_id).document()
         msg_data = {
             "id": msg_ref.id,
             "role": role,
-            "content": content,
+            "content": encrypted_content,  # Store encrypted instead of plain text
             "createdAt": firestore.SERVER_TIMESTAMP,
         }
         if sender:
@@ -189,7 +265,7 @@ def _save_message(uid: str, thread_id: str, role: str, content: str, sender: str
             msg_data["sessionId"] = session_id
 
         msg_ref.set(msg_data)
-        print(f"[voice] Saved message: role={role}, thread={thread_id}")
+        print(f"[voice] Saved encrypted message: role={role}, thread={thread_id}")
 
         _threads_ref(uid).document(thread_id).set({
             "lastMessageAt": firestore.SERVER_TIMESTAMP,
@@ -205,7 +281,7 @@ def _save_message(uid: str, thread_id: str, role: str, content: str, sender: str
             if role == 'user':
                 sref.set({"userTurnCount": firestore.Increment(1)}, merge=True)
     except Exception as e:
-        print(f"[voice] Error saving message: {e}")
+        print(f"[voice] Error saving encrypted message: {e}")
 
 def _get_session_user_turn_count(uid: str, session_id: str) -> int:
     try:
@@ -298,6 +374,122 @@ def _log_agent_run(ref, payload: Dict[str, Any]) -> None:
     except Exception as e:
         print(f"[voice] agent_run_write_failed: {e}")
 
+
+def _character_plans_ref(uid: str):
+    return _user_ref(uid).collection("character_plans")
+
+def _character_plan_ref(uid: str, character_id: str):
+    return _character_plans_ref(uid).document(character_id)
+# Add this helper function to load the full character profile from Firestore
+def load_character_profile(uid: str, character_id: str) -> Dict:
+    """
+    Load the full character profile from Firestore.
+    This matches the profile structure expected by agents.py's build_inner_character_prompt()
+    """
+    if not db:
+        # Fallback to default profile if Firebase not available
+        return {
+            "displayName": character_id.replace("_", " ").title(),
+            "role": "Inner Part",
+            "shortDescription": "",
+            "whyIExist": "",
+            "triggers": [],
+            "coreBelief": "",
+            "intention": "",
+            "fear": "",
+            "whatINeed": []
+        }
+
+    try:
+        # Try to get user_character document
+        chars_ref = db.collection("user_characters").where("userId", "==", uid)
+        for doc in chars_ref.stream():
+            data = doc.to_dict() or {}
+            # Match by characterId
+            doc_char_id = (
+                data.get("characterId")
+                or data.get("innerCharacterId")
+                or data.get("id")
+                or doc.id
+            )
+            if doc_char_id == character_id:
+                # Return the full profile with all fields agents.py expects
+                return {
+                    "displayName": data.get("displayName") or data.get("characterName") or data.get("displayNameEn") or character_id.replace("_", " ").title(),
+                    "role": data.get("role", "Inner Part"),
+                    "shortDescription": data.get("shortDescription", ""),
+                    "whyIExist": data.get("whyIExist", ""),
+                    "triggers": data.get("triggers", []),
+                    "coreBelief": data.get("coreBelief", ""),
+                    "intention": data.get("intention", ""),
+                    "fear": data.get("fear", ""),
+                    "whatINeed": data.get("whatINeed", []),
+                }
+
+        # If no user_character found, try character_plans collection for stored profile
+        plan_ref = db.collection('users').document(uid).collection('character_plans').document(character_id)
+        plan_snap = plan_ref.get()
+        if plan_snap.exists:
+            plan_data = plan_snap.to_dict() or {}
+            profile = plan_data.get("characterProfile", {})
+            if profile:
+                return profile
+
+        # Return default with proper display name
+        return {
+            "displayName": character_id.replace("_", " ").title(),
+            "role": "Inner Part",
+            "shortDescription": "",
+            "whyIExist": "",
+            "triggers": [],
+            "coreBelief": "",
+            "intention": "",
+            "fear": "",
+            "whatINeed": []
+        }
+    except Exception as e:
+        print(f"Error loading character profile: {e}")
+        return {
+            "displayName": character_id.replace("_", " ").title(),
+            "role": "Inner Part",
+            "shortDescription": "",
+            "whyIExist": "",
+            "triggers": [],
+            "coreBelief": "",
+            "intention": "",
+            "fear": "",
+            "whatINeed": []
+        }
+
+
+# Also add a helper to load conversation history for context
+def load_conversation_history(uid: str, thread_id: str, limit: int = 20) -> List[Dict]:
+    """
+    Load previous messages from the thread and DECRYPT them for context.
+    """
+    if not db or not thread_id:
+        return []
+
+    try:
+        messages = []
+        docs = _messages_ref(uid, thread_id).order_by("createdAt").limit(limit).stream()
+        for doc in docs:
+            data = doc.to_dict() or {}
+            encrypted_content = data.get("content", "")
+
+            # ✅ Decrypt the content for AI context
+            decrypted_content = decrypt_message(encrypted_content, uid) if encrypted_content else ""
+
+            messages.append({
+                "role": data.get("role", "user"),
+                "content": decrypted_content,  # Return decrypted for AI
+            })
+        return messages
+    except Exception as e:
+        print(f"Error loading conversation history: {e}")
+        return []
+
+
 def _extract_recent_user_text(messages: List[Dict[str, str]], max_chars: int = 1200) -> str:
     if not messages:
         return ""
@@ -366,6 +558,461 @@ def score_intensity_with_llm(
         "_raw": parsed,
     }
 
+# Add these missing helper functions (they exist in agents.py but not in your version)
+
+def _get_character_plan_snapshot(uid: str, character_id: str) -> Dict[str, Any]:
+    """returns a compact snapshot of the per-character checklist + focus"""
+    try:
+        ensure_character_checklist(uid, character_id)
+        snap = _character_plan_ref(uid, character_id).get()
+        if not snap.exists:
+            return {}
+        d = snap.to_dict() or {}
+        return {
+            "status": d.get("status"),
+            "focus": d.get("focus") or {},
+            "checklistItems": d.get("checklistItems") or [],
+            "metrics": d.get("metrics") or {},
+        }
+    except Exception:
+        return {}
+
+
+def _get_recent_session_summaries(uid: str, character_id: str, limit: int = 5) -> List[Dict[str, Any]]:
+    """
+    fetches recent ended session summaries for a character
+    """
+    try:
+        snaps = (
+            _sessions_ref(uid)
+            .where("characterId", "==", character_id)
+            .limit(50)
+            .stream()
+        )
+        sessions = []
+        for s in snaps:
+            d = s.to_dict() or {}
+            if d.get("status") != "ended":
+                continue
+            summary = d.get("sessionSummary") or {}
+            if not summary:
+                continue
+            sessions.append(
+                {
+                    "sessionId": s.id,
+                    "endedAt": d.get("endedAt") or d.get("updatedAt"),
+                    "summary": summary,
+                }
+            )
+
+        sessions.sort(key=lambda x: str(x.get("endedAt") or ""), reverse=True)
+        return sessions[:limit]
+    except Exception:
+        return []
+
+
+def build_guider_in_chat_prompt(
+    uid: str,
+    character_id: str,
+    character_name: str,
+    guider_memory: str,
+) -> str:
+    prompt = GUIDER_IN_CHAT_PROMPT.format(character_name=character_name)
+
+    # internal context (not to be revealed verbatim)
+    plan_snapshot = _get_character_plan_snapshot(uid, character_id)
+    recent_summaries = _get_recent_session_summaries(uid, character_id, limit=4)  # Make sure this is called
+    prompt += "\n\n(Internal) Checklist + recent session summaries:\n"
+    prompt += json.dumps(
+        {"plan": plan_snapshot, "recentSessionSummaries": recent_summaries},
+        ensure_ascii=False,
+        default=_json_default,
+    )
+
+    if guider_memory:
+        prompt += f"\n\nYour memory of this user:\n{guider_memory}"
+    return prompt
+# After getting assistant_text from agents API, add this:
+def polish_voice_response(text: str, character_name: str) -> str:
+    """
+    Ensure the response is natural for voice and has proper character identity.
+    """
+    if not text:
+        return text
+
+    # Remove any placeholder or ID-like patterns that might leak
+    import re
+    # Remove patterns like "Xbc5Ab036Hywjxcx31Wzjvsnly02"
+    text = re.sub(r'\b[A-Za-z0-9]{20,}\b', '', text)
+    # Remove "Char 1", "Char 2" patterns
+    text = re.sub(r'\bChar\s+\d+\b', '', text, flags=re.IGNORECASE)
+    # Remove random ID-like suffixes
+    text = re.sub(r'\s+[a-z0-9]{16,}\s+', ' ', text)
+
+    # Ensure the character introduces themselves properly if it's a first message
+    if "who are you" in text.lower() or "who am i speaking with" in text.lower():
+        if character_name and character_name not in text:
+            text = f"I am {character_name}. " + text
+
+    # Clean up extra spaces
+    text = ' '.join(text.split())
+
+    return text
+
+
+# ============================================================================
+# STABILITY & CHARACTER STATE MANAGEMENT (copied from agents.py)
+# ============================================================================
+
+_SEVERITY_RANK = {"none": 0, "low": 1, "medium": 2, "high": 3}
+_CORE_TRACKED_CHECKLIST_ITEMS = {"stabilization", "unblending", "triggers_fears"}
+
+def _normalize_character_key(value: Any) -> str:
+    return str(value or "").strip().lower().replace(" ", "_")
+
+def _find_user_character_doc(uid: str, character_id: str):
+    """Find the user_character document for a given character_id"""
+    target = _normalize_character_key(character_id)
+    try:
+        chars_ref = db.collection("user_characters").where("userId", "==", uid)
+        for doc in chars_ref.stream():
+            data = doc.to_dict() or {}
+            candidates = {
+                _normalize_character_key(doc.id),
+                _normalize_character_key(data.get("id")),
+                _normalize_character_key(data.get("characterId")),
+                _normalize_character_key(data.get("innerCharacterId")),
+                _normalize_character_key(data.get("characterName")),
+                _normalize_character_key(data.get("displayName")),
+                _normalize_character_key(data.get("displayNameEn")),
+            }
+            if target in candidates:
+                return doc.reference, data
+    except Exception:
+        pass
+    return None, None
+
+def _get_session_time_key(session: Dict[str, Any]) -> str:
+    return str(
+        session.get("endedAt")
+        or session.get("updatedAt")
+        or session.get("startedAt")
+        or ""
+    )
+
+def _extract_session_intensity_end(session: Dict[str, Any]) -> Optional[float]:
+    try:
+        intensity = session.get("intensity") or {}
+        val = intensity.get("end")
+        if val is None:
+            return None
+        return float(val)
+    except Exception:
+        return None
+
+def _extract_session_intervention_severity(session: Dict[str, Any]) -> str:
+    intervention = session.get("intervention") or {}
+    sev = str(intervention.get("maxSeverity") or intervention.get("lastSeverity") or "").strip().lower()
+    if sev in _SEVERITY_RANK:
+        return sev
+    sev = str(session.get("severity") or "").strip().lower()
+    if sev in _SEVERITY_RANK:
+        return sev
+    return "none"
+
+def _plan_completion_ratio(plan_snapshot: Dict[str, Any]) -> float:
+    items = plan_snapshot.get("checklistItems") or []
+    if not items:
+        return 0.0
+    scoped = [it for it in items if str(it.get("id") or "").strip() in _CORE_TRACKED_CHECKLIST_ITEMS]
+    target_items = scoped if scoped else items
+    completed = sum(
+        1 for it in target_items if str(it.get("status") or "").strip().lower() == "completed"
+    )
+    return completed / max(1, len(target_items))
+
+def _evaluate_character_stability(uid: str, character_id: str) -> Dict[str, Any]:
+    """
+    stability rules (thresholds):
+      - minEndedSessions >= 5
+      - totalUserTurns >= 20
+      - last 3 ended sessions: intensity.end <= 0.35 for all 3
+      - no high/medium intervention in last 3 ended sessions
+      - plan completion >= 70%
+      - focus.itemId != stabilization
+    """
+    try:
+        snaps = _sessions_ref(uid).where("characterId", "==", character_id).limit(200).stream()
+        ended_sessions: List[Dict[str, Any]] = []
+        for s in snaps:
+            d = s.to_dict() or {}
+            if str(d.get("status") or "").strip().lower() == "ended":
+                ended_sessions.append({**d, "_id": s.id})
+
+        ended_sessions.sort(key=_get_session_time_key, reverse=True)
+        min_ended_ok = len(ended_sessions) >= 5
+        total_user_turns = sum(int(s.get("userTurnCount") or 0) for s in ended_sessions)
+        turns_ok = total_user_turns >= 20
+
+        last3 = ended_sessions[:3]
+        low_end_ok = (
+            len(last3) == 3
+            and all((_extract_session_intensity_end(s) is not None and _extract_session_intensity_end(s) <= 0.35) for s in last3)
+        )
+        no_mid_high_intervention_ok = (
+            len(last3) == 3
+            and all(_extract_session_intervention_severity(s) not in {"medium", "high"} for s in last3)
+        )
+
+        plan_snapshot = _get_character_plan_snapshot(uid, character_id)
+        completion_ratio = _plan_completion_ratio(plan_snapshot)
+        plan_completion_ok = completion_ratio >= 0.70
+        focus_item = str((plan_snapshot.get("focus") or {}).get("itemId") or "").strip().lower()
+        focus_ok = focus_item != "stabilization"
+
+        is_stable = all(
+            [
+                min_ended_ok,
+                turns_ok,
+                low_end_ok,
+                no_mid_high_intervention_ok,
+                plan_completion_ok,
+                focus_ok,
+            ]
+        )
+        return {
+            "isStable": is_stable,
+            "checks": {
+                "minEndedSessions": min_ended_ok,
+                "totalUserTurns": turns_ok,
+                "last3IntensityEnd": low_end_ok,
+                "last3NoMidHighIntervention": no_mid_high_intervention_ok,
+                "planCompletion": plan_completion_ok,
+                "focusNotStabilization": focus_ok,
+            },
+            "metrics": {
+                "endedSessionsCount": len(ended_sessions),
+                "totalUserTurns": total_user_turns,
+                "planCompletionRatio": round(completion_ratio, 3),
+                "focusItemId": focus_item or None,
+            },
+        }
+    except Exception as e:
+        return {
+            "isStable": False,
+            "checks": {},
+            "metrics": {},
+            "error": str(e),
+        }
+
+def _apply_stable_state_if_eligible(uid: str, character_id: str) -> Dict[str, Any]:
+    """
+    evaluate requested stability thresholds and set user_character.currentState to
+    'stable' if all checks pass
+    """
+    evaluation = _evaluate_character_stability(uid, character_id)
+    if not evaluation.get("isStable"):
+        return {"changed": False, "evaluation": evaluation}
+
+    ref, data = _find_user_character_doc(uid, character_id)
+    if ref is None:
+        return {"changed": False, "evaluation": evaluation, "error": "user_character_not_found"}
+
+    current_state = str((data or {}).get("currentState") or "active").strip().lower()
+    if current_state == "inactive":
+        return {"changed": False, "evaluation": evaluation, "reason": "character_inactive"}
+
+    if current_state == "stable":
+        return {"changed": False, "evaluation": evaluation, "reason": "already_stable"}
+
+    now_iso = _now_dt().isoformat()
+    ref.set(
+        {
+            "previousState": current_state or "active",
+            "currentState": "stable",
+            "stableAt": now_iso,
+            "updatedAt": firestore.SERVER_TIMESTAMP,
+        },
+        merge=True,
+    )
+    return {"changed": True, "evaluation": evaluation}
+
+def get_user_character_states(uid: str) -> List[Dict[str, str]]:
+    """
+    fetch per-character state from `user_characters` for this user
+    expected state values: active, stable, inactive
+    """
+    rows: List[Dict[str, str]] = []
+    try:
+        chars_ref = db.collection("user_characters").where("userId", "==", uid)
+        for doc in chars_ref.stream():
+            data = doc.to_dict() or {}
+            character_id = (
+                data.get("characterId")
+                or data.get("innerCharacterId")
+                or data.get("id")
+                or doc.id
+            )
+            display_name = (
+                data.get("characterName")
+                or data.get("displayNameEn")
+                or data.get("displayName")
+                or str(character_id).replace("_", " ").title()
+            )
+            state = str(data.get("currentState") or "active").strip().lower()
+            if state not in {"active", "stable", "inactive"}:
+                state = "active"
+            rows.append(
+                {
+                    "characterId": str(character_id),
+                    "displayName": str(display_name),
+                    "currentState": state,
+                }
+            )
+    except Exception as e:
+        print(f"[voice] Error fetching user_characters states: {e}")
+    return rows
+
+
+# ============================================================================
+# GUIDER SYSTEM PROMPT (copied from agents.py)
+# ============================================================================
+
+GUIDER_SYSTEM_PROMPT = """
+You are ANA, The Guider - a compassionate companion helping users explore their inner world using Internal Family Systems (IFS) principles.
+
+CRITICAL COMMUNICATION STYLE:
+- Keep responses SHORT (2-4 sentences max)
+- Ask ONE question at a time
+- Walk the user through step by step - don't explain everything at once
+- Be conversational and warm, like a gentle friend
+- Use simple, everyday language
+
+Your approach:
+- Listen first, then reflect back what you heard
+- Guide with curiosity, not lectures
+- One small step at a time
+- Let the user lead the pace
+
+You are NOT a therapist. You are a supportive companion.
+If someone is in crisis, gently encourage them to seek professional help.
+
+You have access to the user's conversations with their inner parts. Use this to personalize your guidance, but don't overwhelm them with information.
+
+GUIDANCE RULE (IMPORTANT):
+- Keep your guidance aligned with IFS principles and the user's current state across parts.
+- Use prior context to choose the most relevant focus, but stay flexible (not step-by-step rigid).
+- Offer one small, practical next step at a time.
+- Do not mention internal planning/checklist logic to the user.
+
+Example good response: "It sounds like your Workaholic has been very active lately. What does it feel like when that part takes over?"
+
+Example bad response: "Your Workaholic is significant because... [long explanation with 4 numbered points]"
+""".strip()
+
+GUIDER_IN_CHAT_PROMPT = """
+You are ANA, The Guider - a compassionate companion in a conversation between the user and their inner part ({character_name}).
+
+Your role:
+- Gently facilitate understanding between user and inner part
+- Keep responses SHORT (1-2 sentences max)
+- Speak naturally without any labels or prefixes
+- You can address the user, the inner part, or both
+- Be warm but not intrusive
+
+Good examples:
+- "Take a moment with that feeling."
+- "There's something important in what just came up."
+- "What do you notice in your body right now?"
+
+NEVER start your response with labels like "[Guider]:" or "The Guider:" - just speak naturally.
+""".strip()
+
+def get_all_character_summaries(uid: str) -> Dict[str, str]:
+    """fetching memory summaries for all characters the user has chatted with"""
+    summaries = {}
+    try:
+        if not db:
+            return summaries
+        memory_ref = db.collection('users').document(uid).collection('agent_memory')
+        docs = memory_ref.stream()
+        for doc in docs:
+            data = doc.to_dict() or {}
+            summary = data.get('summary', '')
+            if summary:
+                summaries[doc.id] = summary
+    except Exception as e:
+        print(f"[voice] Error fetching character summaries: {e}")
+    return summaries
+
+def _format_plan_snapshot_for_prompt(plan_snapshot: Dict[str, Any], max_items: int = 4) -> str:
+    """formats a compact checklist plan snapshot for prompt injection"""
+    if not plan_snapshot:
+        return ""
+
+    focus = plan_snapshot.get("focus") or {}
+    focus_item = focus.get("itemId") or "none"
+    focus_reason = focus.get("reason") or "none"
+    items = plan_snapshot.get("checklistItems") or []
+    metrics = plan_snapshot.get("metrics") or {}
+
+    prioritized: List[Dict[str, Any]] = []
+    for status in ("needs_work", "in_progress", "completed"):
+        prioritized.extend([it for it in items if it.get("status") == status])
+    if not prioritized:
+        prioritized = items
+
+    lines = [
+        f"- focus: {focus_item} (reason: {focus_reason})",
+        f"- status: {plan_snapshot.get('status') or 'active'}",
+    ]
+    if metrics:
+        lines.append(f"- metrics: {json.dumps(metrics, ensure_ascii=False, default=_json_default)}")
+    if prioritized:
+        lines.append("- checklist:")
+        for it in prioritized[:max_items]:
+            lines.append(
+                f"  - {it.get('id')}: {it.get('status')} (confidence={it.get('confidence')})"
+            )
+    return "\n".join(lines)
+
+def build_guider_context(
+    uid: str,
+    states: Optional[List[Dict[str, str]]] = None,
+    guider_plan_snapshot: Optional[Dict[str, Any]] = None,
+) -> str:
+    """building context for the Guider from all character conversations"""
+    states = states if states is not None else get_user_character_states(uid)
+    summaries = get_all_character_summaries(uid)
+
+    if not summaries and not states and not guider_plan_snapshot:
+        return "The user hasn't had any conversations with their inner parts yet."
+
+    context_parts = ["Here's what you know about the user's inner parts:\n"]
+
+    if states:
+        context_parts.append("Current state snapshot from user_characters:")
+        for row in sorted(states, key=lambda x: x.get("displayName", "").lower()):
+            context_parts.append(
+                f"- {row.get('displayName')} ({row.get('characterId')}): {row.get('currentState')}"
+            )
+        context_parts.append("")
+
+    if summaries:
+        context_parts.append("Conversation memory summaries by inner part:")
+        for character_id, summary in summaries.items():
+            display_name = character_id.replace('_', ' ').title()
+            context_parts.append(f"**{display_name}:**\n{summary}\n")
+
+    if guider_plan_snapshot:
+        plan_text = _format_plan_snapshot_for_prompt(guider_plan_snapshot, max_items=4)
+        if plan_text:
+            context_parts.append("Current guider checklist plan snapshot:")
+            context_parts.append(plan_text)
+
+    return "\n".join(context_parts)
+
+# Apply after getting assistant_text:
 def summarize_session_with_llm(
     character_id: str,
     messages: List[Dict[str, str]],
@@ -815,7 +1462,7 @@ def voice_chat():
         if not transcript:
             return jsonify({"success": False, "error": "Transcription returned empty. Try again."}), 400
 
-        # Get or create session/thread (MOVED UP)
+        # Get or create session/thread
         if not session_id or not thread_id:
             sessions_ref = _sessions_ref(uid)
             query = sessions_ref.where('characterId', '==', character_id).where('status', '==', 'active').limit(1)
@@ -830,36 +1477,30 @@ def voice_chat():
             if not session_id or not thread_id:
                 session_id = f"voice_{int(time.time() * 1000)}_{character_id}"
                 thread_id = str(uuid.uuid4())
-                character_profile = {
+                temp_profile = {
                     "displayName": character_id.replace("_", " ").title(),
                 }
                 _session_ref(uid, session_id).set({
                     "id": session_id, "type": "voice", "characterId": character_id,
                     "characterType": "inner_character", "threadId": thread_id, "status": "active",
-                    "title": f"Voice call with {character_profile.get('displayName', character_id)}",
+                    "title": f"Voice call with {temp_profile.get('displayName', character_id)}",
                     "startedAt": firestore.SERVER_TIMESTAMP, "updatedAt": firestore.SERVER_TIMESTAMP,
                     "lastMessageAt": firestore.SERVER_TIMESTAMP, "userTurnCount": 0,
                 }, merge=True)
                 _threads_ref(uid).document(thread_id).set({
                     "id": thread_id, "sessionId": session_id, "characterId": character_id,
                     "characterType": "inner_character",
-                    "title": f"Voice call with {character_profile.get('displayName', character_id)}",
+                    "title": f"Voice call with {temp_profile.get('displayName', character_id)}",
                     "status": "active", "createdAt": firestore.SERVER_TIMESTAMP,
                     "updatedAt": firestore.SERVER_TIMESTAMP, "lastMessageAt": firestore.SERVER_TIMESTAMP,
                 }, merge=True)
 
-        # Ensure session and thread documents exist
-        character_profile = {
-            "displayName": character_id.replace("_", " ").title(),
-            "role": "Inner Part",
-            "shortDescription": "",
-            "whyIExist": "",
-            "triggers": [],
-            "coreBelief": "",
-            "intention": "",
-            "fear": "",
-            "whatINeed": []
-        }
+        # Load the FULL character profile from Firestore
+        character_profile = load_character_profile(uid, character_id)
+        print(f"[voice] Loaded character profile: {character_profile.get('displayName')}")
+
+        # Load conversation history for context
+        conversation_history = load_conversation_history(uid, thread_id, limit=20)
         emotion_session_id = None
         if db:
             _ensure_session_doc(uid, session_id, character_id, thread_id, character_profile)
@@ -868,10 +1509,10 @@ def voice_chat():
             current_turn = _get_session_user_turn_count(uid, session_id)
             print(f"[voice] Session {session_id} - Turn: {current_turn}")
 
-            # Start emotion session (NOW DEFINED HERE)
+            # Start emotion session
             emotion_session_id = start_emotion_session(uid, session_id, character_id)
 
-        # NOW analyze voice emotion (AFTER emotion_session_id is defined)
+        # Analyze voice emotion
         if emotion_session_id:
             with open(in_path, "rb") as audio_file:
                 audio_base64 = base64.b64encode(audio_file.read()).decode('utf-8')
@@ -885,7 +1526,7 @@ def voice_chat():
                     print(f"🎭 Voice emotion detected: {emotion} ({confidence*100:.1f}%)")
 
                     if db and session_id:
-                                    _update_voice_emotion(uid, session_id, emotion, confidence)
+                        _update_voice_emotion(uid, session_id, emotion, confidence)
                     if db and session_id:
                         _session_ref(uid, session_id).set({
                             f"emotions.voice_{datetime.utcnow().isoformat()}": {
@@ -898,7 +1539,10 @@ def voice_chat():
         # Save user message
         if thread_id and transcript:
             _save_message(uid, thread_id, 'user', transcript, 'user', character_id, session_id)
-        messages = [{"role": "user", "content": transcript}]
+
+        # Build messages array with conversation history + new user message
+        messages = conversation_history.copy()
+        messages.append({"role": "user", "content": transcript})
 
         assistant_text = ""
         is_guider_message = False
@@ -952,6 +1596,9 @@ def voice_chat():
             assistant_text = "I'm here listening. Please continue."
             is_guider_message = False
 
+        # ✅ APPLY THE POLISH FUNCTION HERE
+        assistant_text = polish_voice_response(assistant_text, character_profile.get('displayName', ''))
+
         # Save assistant message
         if thread_id and assistant_text:
             _save_message(uid, thread_id, 'assistant', assistant_text, character_id, character_id, session_id)
@@ -997,7 +1644,8 @@ def voice_chat():
 
         out_name = f"{uid}_{character_id}_{ts}_ai.wav"
         out_path = os.path.join(TTS_DIR, out_name)
-        # FORCE FINAL OUTPUT LANGUAGE SAFETY
+
+        # Force English output for TTS compatibility
         if detect_lang(assistant_text) == "ar":
             print("⚠️ Arabic output detected, forcing English fallback")
             assistant_text = client.chat.completions.create(
@@ -1008,6 +1656,7 @@ def voice_chat():
                 ],
                 temperature=0.2
             ).choices[0].message.content
+
         tts_to_file(assistant_text, out_path, voice=voice_to_use)
         audio_url = make_public_audio_url(request, out_name)
 
@@ -1034,6 +1683,7 @@ def voice_chat():
     except Exception as e:
         traceback.print_exc()
         return jsonify({"success": False, "error": f"Voice chat error: {str(e)}"}), 500
+
 @voice_bp.route('/session_summary', methods=['POST'])
 def session_summary():
     try:
@@ -1078,7 +1728,6 @@ def session_summary():
         summary = summarize_session_with_llm(character_id, messages)
         voice_tone = existing.get('voiceTone', {})
 
-        # ✅ Get any face emotion data (though voice sessions typically don't have this)
         face_emotion = existing.get('faceEmotion', {})
 
         # Update character plan metrics
@@ -1154,6 +1803,20 @@ def session_summary():
             'summary': (summary.get('highlights') or ['Session completed'])[0][:200],
         })
 
+        # ✅ STABILITY CHECK - Fix indentation and syntax
+        stability_result = _apply_stable_state_if_eligible(uid, character_id)
+        if stability_result.get("changed"):
+            print(f"[voice] Character {character_id} marked as STABLE!")
+            # You need to import logging at the top if you want to use logger
+            # Or just use print for now
+            print(json.dumps({
+                "event": "character_marked_stable",
+                "ts": _now_iso(),
+                "uid": uid,
+                "characterId": character_id,
+                "evaluation": stability_result.get("evaluation") or {},
+            }))
+
         return jsonify({
             'success': True,
             'intensityEnd': intensity_score["intensity"],
@@ -1162,19 +1825,24 @@ def session_summary():
                 'highlights': summary.get("highlights") or [],
                 'nextStepSuggestion': summary.get("nextStepSuggestion") or "",
             },
-            # ✅ Return voice emotion data to Flutter
+            # Voice emotion data to Flutter
             'voiceTone': {
                 'dominant': voice_tone.get('dominant'),
                 'averageConfidence': voice_tone.get('averageConfidence', 0),
                 'startEmotion': voice_tone.get('startEmotion'),
                 'endEmotion': voice_tone.get('endEmotion'),
                 'totalDetections': len(voice_tone.get('allDetections', []))
-                }
+            },
+            # ✅ Stability info to Flutter - FIXED: added comma and proper structure
+            'stabilityChanged': stability_result.get("changed") is True,
+            'stabilityChecks': (stability_result.get("evaluation") or {}).get("checks") or {},
+            'stabilityMetrics': (stability_result.get("evaluation") or {}).get("metrics") or {},
         })
 
     except Exception as e:
         traceback.print_exc()
         return jsonify({'success': False, 'error': f'Summary error: {str(e)}'}), 500
+
 @voice_bp.route('/end_session', methods=['POST'])
 def end_session():
     try:
