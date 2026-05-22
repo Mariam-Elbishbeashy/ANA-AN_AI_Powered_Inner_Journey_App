@@ -43,13 +43,12 @@ CORS(app, origins=["*"])
 
 MODEL_DIR = "model_files"
 
-# Initialize MediaPipe for hand detection
 mp_hands = mp.solutions.hands
 mp_drawing = mp.solutions.drawing_utils
 hands = mp_hands.Hands(
-    static_image_mode=True,
+    static_image_mode=False,
     max_num_hands=2,
-    min_detection_confidence=0.5,
+    min_detection_confidence=0.7,
     min_tracking_confidence=0.5
 )
 
@@ -85,11 +84,10 @@ keypoint_classifier = None
 keypoint_classifier_labels = None
 
 try:
-    # Check what files we have
     hand_dir = f'{MODEL_DIR}/hand'
     print(f"   Looking for hand model files in: {hand_dir}")
 
-    # Load labels first
+    # Load labels from CSV
     labels_path = f'{hand_dir}/keypoint_classifier_label.csv'
     if os.path.exists(labels_path):
         keypoint_classifier_labels = pd.read_csv(labels_path, header=None)
@@ -97,56 +95,84 @@ try:
             keypoint_classifier_labels = keypoint_classifier_labels[0].values.tolist()
         else:
             keypoint_classifier_labels = keypoint_classifier_labels.values.flatten().tolist()
+        # Clean up labels (remove BOM and whitespace)
+        keypoint_classifier_labels = [str(label).strip().replace('\ufeff', '') for label in keypoint_classifier_labels]
         print(f"✓ Hand gesture labels loaded: {len(keypoint_classifier_labels)} labels")
         print(f"   Labels: {keypoint_classifier_labels}")
     else:
-        print(f"   Hand labels not found at {labels_path}")
-        # Create default labels if file doesn't exist
-        keypoint_classifier_labels = ['thumbs_up', 'thumbs_down', 'victory', 'ok', 'fist', 'open_palm', 'pointing']
+        print(f"✗ Hand labels not found at {labels_path}")
+        keypoint_classifier_labels = ['Hello', 'Angry', 'Pointer', 'OK', 'Peace sign', 'Bad', 'Perfect']
         print(f"   Using default labels: {keypoint_classifier_labels}")
 
-    # Try to load the model architecture from config.json
+    # Load model from config.json (which contains the full model architecture)
     config_path = f'{hand_dir}/config.json'
-    if os.path.exists(config_path):
-        with open(config_path, 'r') as f:
-            config = json.load(f)
-            print(f"   Loaded config.json")
+    weights_path = f'{hand_dir}/model.weights.h5'
 
-            # Check if model architecture is in config
-            if 'model_architecture' in config:
-                print(f"   Building model from config...")
-                keypoint_classifier = model_from_json(json.dumps(config['model_architecture']))
+    if os.path.exists(config_path) and os.path.exists(weights_path):
+        print(f"   Loading model from config.json + weights...")
+        try:
+            with open(config_path, 'r') as f:
+                config = json.load(f)
 
-                # Load weights
-                weights_path = f'{hand_dir}/model.weights.h5'
-                if os.path.exists(weights_path):
-                    keypoint_classifier.load_weights(weights_path)
-                    print(f"✓ Hand gesture model loaded from config + weights")
-                else:
-                    print(f"   Weights file not found: {weights_path}")
-            else:
-                print(f"   No model architecture in config.json")
+            # The config.json contains the full Keras model configuration
+            # Convert to JSON string and load
+            model_json = json.dumps(config)
+            keypoint_classifier = model_from_json(model_json)
 
-    # If model not loaded yet, try to create a simple one
+            # Load weights
+            keypoint_classifier.load_weights(weights_path)
+
+            # Recompile the model
+            keypoint_classifier.compile(
+                optimizer='adam',
+                loss='sparse_categorical_crossentropy',
+                metrics=['accuracy']
+            )
+
+            print(f"✓ Hand gesture model loaded successfully!")
+            print(f"   Input shape: {keypoint_classifier.input_shape}")
+            print(f"   Output shape: {keypoint_classifier.output_shape}")
+
+        except Exception as e:
+            print(f"   Error loading model: {e}")
+            traceback.print_exc()
+            keypoint_classifier = None
+    else:
+        print(f"✗ Model files not found: config.json or model.weights.h5")
+        if not os.path.exists(config_path):
+            print(f"   Missing: {config_path}")
+        if not os.path.exists(weights_path):
+            print(f"   Missing: {weights_path}")
+
+    # If model still not loaded, create fallback with correct input size
     if keypoint_classifier is None:
-        print(f"   Creating simple hand gesture model for testing...")
-        # Create a simple model (42 landmarks * 3 coordinates = 126 features)
+        print(f"   Creating fallback model with input size 42...")
         keypoint_classifier = tf.keras.Sequential([
-            tf.keras.layers.Input(shape=(126,)),
-            tf.keras.layers.Dense(64, activation='relu'),
-            tf.keras.layers.Dropout(0.3),
-            tf.keras.layers.Dense(32, activation='relu'),
+            tf.keras.layers.Input(shape=(42,)),  # 42 features (21 landmarks * 2 hands? or normalized)
+            tf.keras.layers.Dropout(0.2),
+            tf.keras.layers.Dense(20, activation='relu'),
+            tf.keras.layers.Dropout(0.4),
+            tf.keras.layers.Dense(10, activation='relu'),
             tf.keras.layers.Dense(len(keypoint_classifier_labels), activation='softmax')
         ])
-
-        # Compile the model (weights will be random)
-        keypoint_classifier.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
-        print(f"   Created simple model for testing with {len(keypoint_classifier_labels)} output classes")
+        keypoint_classifier.compile(
+            optimizer='adam',
+            loss='sparse_categorical_crossentropy',
+            metrics=['accuracy']
+        )
+        print(f"   Created fallback model with {len(keypoint_classifier_labels)} output classes")
+        print(f"⚠️  Using fallback model - predictions may not be accurate")
 
 except Exception as e:
     print(f"✗ Error loading hand gesture models: {e}")
     traceback.print_exc()
+    keypoint_classifier = None
 
+# Print final status
+if keypoint_classifier is not None:
+    print(f"✅ Hand gesture model ready")
+else:
+    print(f"❌ Hand gesture model NOT loaded")
 # Load voice model (using the same structure from your working code)
 print("Loading voice model...")
 scaler = pca = knn = le_voice = None
@@ -184,42 +210,263 @@ def validate_base64_data(base64_string, min_size=1024):
         return True
     except Exception as e:
         return False
-
 def decode_audio_base64(base64_string):
-    """Decode base64 audio"""
+    """Decode base64 audio - IMPROVED VERSION with better validation"""
     try:
-        if not validate_base64_data(base64_string, min_size=2048):
-            print("   Invalid audio data")
-            return None, None
-
+        # Remove data URL prefix if present
         if 'base64,' in base64_string:
             base64_string = base64_string.split('base64,')[1]
 
-        audio_bytes = base64.b64decode(base64_string)
+        # Remove whitespace and newlines
+        base64_string = base64_string.strip()
 
+        # Check minimum size (reduced to 500 bytes for very short recordings)
+        if len(base64_string) < 100:  # Much lower threshold
+            print(f"   Audio base64 too short: {len(base64_string)} chars")
+            return None, None
+
+        # Decode base64
+        audio_bytes = base64.b64decode(base64_string)
+        print(f"   Decoded {len(audio_bytes)} bytes of audio data")
+
+        # Check if we have enough data
+        if len(audio_bytes) < 1000:  # Less than 1KB is probably too small
+            print(f"   Audio data too small: {len(audio_bytes)} bytes")
+            return None, None
+
+        # Save to temp file
         with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
             tmp.write(audio_bytes)
             tmp_path = tmp.name
 
+        # Try to read with scipy
         try:
-            audio, sr = librosa.load(tmp_path, sr=22050, duration=30, mono=True)
-            print(f"   Audio loaded: {len(audio)} samples, {sr}Hz, {len(audio)/sr:.1f}s")
-        except Exception as e:
-            print(f"   Failed to load audio: {e}")
-            return None, None
+            import scipy.io.wavfile as wavfile
+            sample_rate, audio = wavfile.read(tmp_path)
+            print(f"   Read via scipy: {len(audio)} samples, {sample_rate}Hz")
 
-        # Cleanup
-        try:
+            # Convert to float32
+            if audio.dtype == np.int16:
+                audio = audio.astype(np.float32) / 32768.0
+            elif audio.dtype == np.int32:
+                audio = audio.astype(np.float32) / 2147483648.0
+            elif audio.dtype == np.uint8:
+                audio = audio.astype(np.float32) / 128.0 - 1.0
+
+            # Ensure mono
+            if len(audio.shape) > 1:
+                audio = np.mean(audio, axis=1)
+
+            # Resample to 22050Hz if needed (for consistency)
+            if sample_rate != 22050:
+                audio = librosa.resample(audio, orig_sr=sample_rate, target_sr=22050)
+                sample_rate = 22050
+                print(f"   Resampled to {sample_rate}Hz")
+
             os.unlink(tmp_path)
-        except:
-            pass
+            return audio, sample_rate
 
-        return audio, sr
+        except Exception as e:
+            print(f"   Scipy read failed: {e}, trying wave...")
+
+            # Fallback to wave module
+            try:
+                with wave.open(tmp_path, 'rb') as wav_file:
+                    sample_rate = wav_file.getframerate()
+                    n_frames = wav_file.getnframes()
+                    frames = wav_file.readframes(n_frames)
+
+                    # Convert to numpy
+                    audio = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+
+                    print(f"   Read via wave: {len(audio)} samples, {sample_rate}Hz")
+
+                    # Resample if needed
+                    if sample_rate != 22050:
+                        audio = librosa.resample(audio, orig_sr=sample_rate, target_sr=22050)
+                        sample_rate = 22050
+                        print(f"   Resampled to {sample_rate}Hz")
+
+                    os.unlink(tmp_path)
+                    return audio, sample_rate
+
+            except Exception as wave_error:
+                print(f"   Wave read also failed: {wave_error}")
+                os.unlink(tmp_path)
+                return None, None
 
     except Exception as e:
         print(f"Audio decode error: {e}")
+        traceback.print_exc()
         return None, None
 
+
+def preprocess_audio_for_recognition(audio, sample_rate):
+     """Preprocess audio to improve speech recognition"""
+     try:
+         # Normalize volume
+         max_amp = np.max(np.abs(audio))
+         if max_amp < 0.01:
+             print("   Audio too quiet, skipping...")
+             return None
+
+         # Apply simple gain if too quiet
+         if max_amp < 0.1:
+             gain = 0.3 / max_amp
+             audio = audio * gain
+             audio = np.clip(audio, -1.0, 1.0)
+             print(f"   Applied gain of {gain:.2f}x")
+
+         # Remove DC offset
+         audio = audio - np.mean(audio)
+
+         # Apply simple noise gate (remove very low amplitude noise)
+         noise_gate_threshold = 0.01
+         audio[np.abs(audio) < noise_gate_threshold] = 0
+
+         # Ensure we have enough samples
+         min_samples = int(0.5 * sample_rate)  # At least 0.5 seconds
+         if len(audio) < min_samples:
+             audio = np.pad(audio, (0, min_samples - len(audio)), mode='constant')
+             print(f"   Padded audio to {len(audio)} samples")
+
+         return audio
+
+     except Exception as e:
+         print(f"Audio preprocessing error: {e}")
+         return audio
+
+
+def speech_to_text_with_arabic_support(audio, sample_rate=22050):
+    """Convert speech to text with preprocessing"""
+    try:
+        if audio is None or len(audio) == 0:
+            print("   No audio data provided")
+            return "", False, None
+
+        # Preprocess audio
+        audio = preprocess_audio_for_recognition(audio, sample_rate)
+        if audio is None:
+            print("   Audio preprocessing failed")
+            return "", False, None
+
+        # Check audio level
+        max_amp = np.max(np.abs(audio))
+        print(f"   Audio max amplitude: {max_amp:.4f}")
+
+        if max_amp < 0.02:  # Still too quiet after preprocessing
+            print("   Audio too quiet for recognition")
+            return "", False, None
+
+        recognizer = sr.Recognizer()
+
+        # IMPORTANT: Fix audio conversion
+        # Ensure audio is in correct range
+        audio = np.clip(audio, -1.0, 1.0)
+
+        # Convert to int16
+        audio_int16 = (audio * 32767).astype(np.int16)
+
+        # Create AudioData
+        audio_data = sr.AudioData(
+            audio_int16.tobytes(),
+            sample_rate,
+            2  # 2 bytes per sample for 16-bit audio
+        )
+
+        # Also save audio for debugging (optional)
+        # with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as f:
+        #     wavfile.write(f.name, sample_rate, audio_int16)
+        #     print(f"   Saved debug audio to: {f.name}")
+
+        # Try recognition with different languages
+        languages_to_try = [
+            ("ar-EG", "egyptian"),
+            ("ar-SA", "arabic"),
+            ("ar", "arabic"),
+            ("en-US", "english")
+        ]
+
+        for lang_code, lang_name in languages_to_try:
+            try:
+                print(f"   Trying {lang_code}...")
+                text = recognizer.recognize_google(audio_data, language=lang_code)
+                if text and len(text.strip()) > 3:
+                    print(f"   ✓ Detected {lang_name} speech: '{text[:100]}'")
+
+                    # If not English, translate
+                    if lang_name != 'english':
+                        english_text = translate_arabic_to_english(text, lang_name)
+                        print(f"   ✓ Translated to: '{english_text[:100]}'")
+                        return english_text, True, lang_name
+                    else:
+                        print(f"   ✓ English text: '{text[:100]}'")
+                        return text, False, 'english'
+                else:
+                    print(f"   No meaningful text from {lang_code}")
+
+            except sr.UnknownValueError:
+                print(f"   No speech detected in {lang_code}")
+                continue
+            except sr.RequestError as e:
+                print(f"   API error for {lang_code}: {e}")
+                continue
+            except Exception as e:
+                print(f"   Error for {lang_code}: {e}")
+                continue
+
+        print("   No speech detected in any language")
+        return "", False, None
+
+    except Exception as e:
+        print(f"Speech recognition error: {e}")
+        traceback.print_exc()
+        return "", False, None
+@app.route('/api/debug/test-audio', methods=['POST'])
+def debug_test_audio():
+    """Debug endpoint to test audio processing"""
+    try:
+        data = request.get_json()
+        if not data or 'audio' not in data:
+            return jsonify({'success': False, 'error': 'No audio data'}), 400
+
+        # Decode audio
+        audio, sr = decode_audio_base64(data['audio'])
+
+        if audio is None:
+            return jsonify({'success': False, 'error': 'Failed to decode audio'}), 400
+
+        # Get audio info
+        audio_info = {
+            'success': True,
+            'sample_rate': sr,
+            'duration': len(audio) / sr if sr else 0,
+            'max_amplitude': float(np.max(np.abs(audio))),
+            'mean_amplitude': float(np.mean(np.abs(audio))),
+            'min_amplitude': float(np.min(audio)),
+            'max_amplitude': float(np.max(audio)),
+            'is_silent': bool(np.max(np.abs(audio)) < 0.01),
+            'shape': audio.shape,
+            'dtype': str(audio.dtype)
+        }
+
+        # Try speech recognition
+        recognizer = sr.Recognizer()
+        audio_int16 = (audio * 32767).astype(np.int16)
+        audio_data = sr.AudioData(audio_int16.tobytes(), int(sr), 2)
+
+        try:
+            text = recognizer.recognize_google(audio_data, language="en-US")
+            audio_info['test_recognition'] = text
+            audio_info['recognition_success'] = True
+        except Exception as e:
+            audio_info['test_recognition'] = str(e)
+            audio_info['recognition_success'] = False
+
+        return jsonify(audio_info)
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 # ======================= FACE EMOTION FUNCTIONS =======================
 def preprocess_face_for_emotion(frame):
     """Preprocess frame for face emotion detection"""
@@ -333,7 +580,7 @@ def detect_hand_landmarks(frame):
         return [], []
 
 def preprocess_hand_landmarks(landmarks):
-    """Preprocess hand landmarks for classification"""
+    """Preprocess hand landmarks for classification - expects 42 features"""
     try:
         if len(landmarks) == 0:
             return None
@@ -341,37 +588,49 @@ def preprocess_hand_landmarks(landmarks):
         # Use the first hand detected
         hand_points = landmarks[0]
 
-        # Convert to relative coordinates
-        base_x, base_y, base_z = hand_points[0]
-        relative_points = []
-
+        # Extract x, y coordinates for all 21 landmarks (21 * 2 = 42 features)
+        # Ignore z coordinate as your model likely uses only x,y
+        features = []
         for point in hand_points:
-            relative_points.append([point[0] - base_x, point[1] - base_y, point[2] - base_z])
+            features.append(point[0])  # x coordinate
+            features.append(point[1])  # y coordinate
 
-        # Flatten
-        flattened = np.array(relative_points).flatten()
+        # Convert to numpy array
+        features_array = np.array(features, dtype=np.float32)
 
-        # Ensure we have exactly 126 features (42 landmarks * 3 coordinates)
-        if len(flattened) < 126:
-            flattened = np.pad(flattened, (0, 126 - len(flattened)), mode='constant')
-        elif len(flattened) > 126:
-            flattened = flattened[:126]
+        # Normalize by the bounding box size for scale invariance
+        if len(hand_points) > 0:
+            x_coords = [p[0] for p in hand_points]
+            y_coords = [p[1] for p in hand_points]
+            min_x, max_x = min(x_coords), max(x_coords)
+            min_y, max_y = min(y_coords), max(y_coords)
 
-        # Normalize
-        max_val = np.max(np.abs(flattened))
-        if max_val > 0:
-            normalized = flattened / max_val
-        else:
-            normalized = flattened
+            width = max_x - min_x
+            height = max_y - min_y
+            max_dim = max(width, height)
 
-        return normalized.reshape(1, -1)
+            if max_dim > 0:
+                # Normalize coordinates relative to bounding box
+                features_array[0::2] = (features_array[0::2] - min_x) / max_dim
+                features_array[1::2] = (features_array[1::2] - min_y) / max_dim
+
+        # Ensure exactly 42 features
+        if len(features_array) < 42:
+            features_array = np.pad(features_array, (0, 42 - len(features_array)), mode='constant')
+        elif len(features_array) > 42:
+            features_array = features_array[:42]
+
+        # Reshape for model input
+        return features_array.reshape(1, -1)
 
     except Exception as e:
         print(f"Hand preprocessing error: {e}")
+        traceback.print_exc()
         return None
 
+
 def predict_hand_gesture(frame):
-    """Predict hand gesture using actual model"""
+    """Predict hand gesture using your trained model"""
     try:
         if keypoint_classifier is None:
             return "Model Not Loaded", "Model Not Loaded", 0.0, []
@@ -382,7 +641,7 @@ def predict_hand_gesture(frame):
         if len(landmarks) == 0:
             return "No Hand Detected", "No Hand Detected", 0.0, []
 
-        # Preprocess landmarks
+        # Preprocess landmarks (now returns 42 features)
         processed_landmarks = preprocess_hand_landmarks(landmarks)
         if processed_landmarks is None:
             return "Preprocessing Failed", "Preprocessing Failed", 0.0, []
@@ -402,23 +661,16 @@ def predict_hand_gesture(frame):
 
         # Map gesture to emotion
         gesture_to_emotion = {
-            'thumbs_up': 'happy',
-            'thumbs_down': 'sad',
-            'victory': 'happy',
-            'ok': 'neutral',
-            'fist': 'angry',
-            'open_palm': 'neutral',
-            'pointing': 'neutral',
-            'peace': 'happy',
-            'like': 'happy',
-            'dislike': 'sad',
-            'call_me': 'neutral',
-            'rock': 'angry',
-            'paper': 'neutral',
-            'scissors': 'neutral',
+            'Hello': 'neutral',
+            'Angry': 'angry',
+            'Pointer': 'neutral',
+            'OK': 'happy',
+            'Peace sign': 'happy',
+            'Bad': 'sad',
+            'Perfect': 'happy',
         }
 
-        emotion = gesture_to_emotion.get(gesture.lower(), 'neutral')
+        emotion = gesture_to_emotion.get(gesture, 'neutral')
 
         # Get top 3 gestures
         top_indices = np.argsort(predictions[0])[-3:][::-1]
@@ -439,6 +691,7 @@ def predict_hand_gesture(frame):
 
     except Exception as e:
         print(f"Hand gesture prediction error: {e}")
+        traceback.print_exc()
         return "Error", "Error", 0.0, []
 
 # ======================= ARABIC TRANSLATION FUNCTIONS (from working code) =======================
@@ -1028,26 +1281,64 @@ def process_video_analysis(video_path, audio_base64=None, text_input=""):
                 results['face_emotion'] = most_common_emotion
                 results['face_confidence'] = float(avg_confidence)
 
+        # Improved hand gesture aggregation - FIXED INDENTATION
         if hand_predictions_all:
-            gestures = [p['gesture'] for p in hand_predictions_all if p['gesture'] not in ['Error', 'Model Not Loaded', 'No Hand Detected', 'Preprocessing Failed']]
-            if gestures:
-                most_common_gesture = Counter(gestures).most_common(1)[0][0]
-                # Calculate average confidence for the most common gesture
-                confidences = [p['confidence'] for p in hand_predictions_all if p['gesture'] == most_common_gesture]
-                avg_confidence = np.mean(confidences) if confidences else 0.0
+            # Filter out invalid predictions
+            valid_gestures = []
+            for p in hand_predictions_all:
+                gesture = p['gesture']
+                # Skip invalid gestures
+                if gesture not in ['Error', 'Model Not Loaded', 'No Hand Detected', 'Preprocessing Failed']:
+                    valid_gestures.append({
+                        'gesture': gesture,
+                        'gesture_emotion': p['gesture_emotion'],
+                        'confidence': p['confidence']
+                    })
+
+            if valid_gestures:
+                # Find most common gesture
+                gesture_counts = Counter([g['gesture'] for g in valid_gestures])
+                most_common_gesture = gesture_counts.most_common(1)[0][0]
+
+                # Get all predictions with that gesture
+                matching_predictions = [g for g in valid_gestures if g['gesture'] == most_common_gesture]
+
+                # Calculate average confidence
+                avg_confidence = np.mean([g['confidence'] for g in matching_predictions])
+
+                # Get the associated emotion (use the one with highest confidence)
+                best_prediction = max(matching_predictions, key=lambda x: x['confidence'])
+
                 results['hand_gesture'] = most_common_gesture
+                results['hand_gesture_emotion'] = best_prediction['gesture_emotion']
                 results['hand_gesture_confidence'] = float(avg_confidence)
+
+                print(f"   Final hand gesture: {most_common_gesture} -> {best_prediction['gesture_emotion']} (avg conf: {avg_confidence:.3f})")
+            else:
+                # No valid gestures detected
+                results['hand_gesture'] = 'No Hand Detected'
+                results['hand_gesture_emotion'] = 'Neutral'
+                results['hand_gesture_confidence'] = 0.0
 
         # Process audio if provided
         if audio_base64 and validate_base64_data(audio_base64, min_size=2048):
+            print("   Processing audio from video...")
             audio, sr = decode_audio_base64(audio_base64)
             if audio is not None:
                 # Voice emotion analysis
                 voice_predictions = predict_voice_emotion(audio)
                 results['voice_emotions'] = voice_predictions
+                print(f"   Voice emotions: {voice_predictions}")
 
                 # Speech to text with Arabic support
                 speech_text, is_translated, detected_lang = speech_to_text_with_arabic_support(audio)
+
+                # Log the result
+                if speech_text:
+                    print(f"   ✓ Transcribed text: '{speech_text[:200]}'")
+                else:
+                    print(f"   ✗ No speech transcribed")
+
                 results['transcribed_text'] = speech_text
                 results['is_translated'] = is_translated
                 results['detected_language'] = detected_lang
@@ -1056,8 +1347,11 @@ def process_video_analysis(video_path, audio_base64=None, text_input=""):
                     'duration': len(audio) / sr if sr else 0,
                     'sample_rate': sr,
                     'is_translated': is_translated,
-                    'detected_language': detected_lang
+                    'detected_language': detected_lang,
+                    'has_transcript': bool(speech_text)
                 }
+            else:
+                print("   Failed to decode audio")
 
         # Process text input if provided
         analysis_text = text_input
@@ -1095,7 +1389,6 @@ def process_video_analysis(video_path, audio_base64=None, text_input=""):
         print(f"Video processing error: {e}")
         traceback.print_exc()
         return None
-
 # ======================= API ENDPOINTS =======================
 @app.route('/api/health', methods=['GET'])
 def health_check():
@@ -1392,7 +1685,54 @@ def debug_test_hand():
 
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+@app.route('/api/debug/test-hand-gesture', methods=['POST'])
+def debug_test_hand_gesture():
+    """Test hand gesture detection on uploaded image"""
+    try:
+        data = request.get_json()
+        if not data or 'image' not in data:
+            return jsonify({'success': False, 'error': 'No image data'}), 400
 
+        # Decode base64 image
+        if 'base64,' in data['image']:
+            image_data = data['image'].split('base64,')[1]
+        else:
+            image_data = data['image']
+
+        image_bytes = base64.b64decode(image_data)
+
+        # Convert to numpy array
+        nparr = np.frombuffer(image_bytes, np.uint8)
+        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+        if frame is None:
+            return jsonify({'success': False, 'error': 'Failed to decode image'}), 400
+
+        # Detect hand landmarks
+        landmarks, hand_rects = detect_hand_landmarks(frame)
+
+        if len(landmarks) == 0:
+            return jsonify({
+                'success': True,
+                'hand_detected': False,
+                'message': 'No hand detected in image'
+            })
+
+        # Predict gesture
+        gesture, emotion, confidence, top_gestures = predict_hand_gesture(frame)
+
+        return jsonify({
+            'success': True,
+            'hand_detected': True,
+            'num_hands': len(landmarks),
+            'gesture': gesture,
+            'emotion': emotion,
+            'confidence': confidence,
+            'top_gestures': top_gestures
+        })
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 # ======================= MAIN =======================
 if __name__ == '__main__':
     print("=" * 60)

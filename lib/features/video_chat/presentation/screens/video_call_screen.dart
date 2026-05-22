@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
@@ -11,6 +13,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter_tts/flutter_tts.dart';
+import 'package:video_player/video_player.dart';
+import 'package:flutter/services.dart';
 
 import 'package:ana_ifs_app/l10n/app_strings.dart';
 import 'package:ana_ifs_app/features/character/domain/entities/user_character.dart';
@@ -48,6 +52,16 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   late final String _characterModelPath;
   final O3DController _o3dController = O3DController();
 
+  // Background video player for full-screen animation
+  VideoPlayerController? _backgroundVideoController;
+  bool _isBackgroundVideoInitialized = false;
+  bool _useVideoFallback = false;
+
+  // Legacy video player for circle display (kept for compatibility)
+  VideoPlayerController? _videoController;
+  bool _isVideoInitialized = false;
+  bool _isPlayingVideo = false;
+
   // Guider participation
   bool _guiderActive = false;
   bool _guiderSpeaking = false;
@@ -66,7 +80,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
 
   // Emotion detection variables
   String _emotionSessionId = "";
-  static const String _emotionServerUrl = "http://10.0.2.2:5002";
+  static const String _emotionServerUrl = "http://192.168.100.7:5002";
   Timer? _emotionFrameTimer;
   bool _emotionActive = false;
   int _frameSkip = 0;
@@ -76,21 +90,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   double _lastVoiceConfidence = 0.0;
   Timer? _emotionSendTimer;
   bool _hasPendingEmotionUpdate = false;
-
-  // Emotion detection keywords for local intervention
-  final List<String> _harshEmotionKeywords = [
-    'hate', 'hate it', 'i hate', 'fucking', 'shit', 'damn',
-    'angry', 'mad', 'furious', 'rage', 'annoying', 'stressed',
-    'overwhelmed', 'too much', 'can\'t handle', 'i can\'t', 'i cant',
-    'depressed', 'hopeless', 'worthless', 'useless', 'stupid',
-    'sick of', 'tired of', 'done with', 'give up', 'giving up',
-    'scared', 'terrified', 'anxious', 'panic',
-  ];
-
-  final List<String> _crisisKeywords = [
-    'suicidal', 'suicide', 'kill myself', 'hurt myself', 'self-harm',
-    'end my life', 'don\'t want to live', 'better off dead',
-  ];
 
   // Voice & agent variables
   final FlutterSoundRecorder _recorder = FlutterSoundRecorder();
@@ -120,7 +119,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   final List<String> _textBuffer = [];
   String _visibleAiText = "";
   String _error = "";
-  List<Map<String, String>> _conversationHistory = [];
+  List<Map<String, dynamic>> _conversationHistory = [];
 
   Timer? _maxTimer;
   Timer? _silenceTimer;
@@ -131,8 +130,8 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   static const int _sampleRate = 16000;
   static const int _numChannels = 1;
   static const Duration _maxRecord = Duration(seconds: 15);
-  static const Duration _silenceThreshold = Duration(seconds: 2);
-  static const double _silenceDbThreshold = -45.0;
+  static const Duration _silenceThreshold = Duration(milliseconds: 500);
+  static const double _silenceDbThreshold = -38.0;
 
   DateTime? _recordStartAt;
   String? _wavPath;
@@ -140,15 +139,39 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   double _currentDbLevel = -100.0;
   bool _stopping = false;
 
-  // Backend endpoints - CORRECT for agents.py (port 5001)
-  static const String _agentServerUrl = "http://10.0.2.2:5001";
-  static const String _videoServerUrl = "http://10.0.2.2:5003";
+  // OPTIMIZATION: Pre-warmed connection and response caching
+  http.Client? _httpClient;
+  bool _isProcessingMessage = false;
+  String _lastProcessedTranscript = "";
+  DateTime? _lastProcessTime;
+  static const Duration _minProcessInterval = Duration(milliseconds: 800);
+
+  // OPTIMIZATION: Parallel processing
+  bool _isTranscribing = false;
+  String _pendingTranscript = "";
+  Completer<void>? _currentSpeechCompleter;
+
+  // OPTIMIZATION: Faster recording start
+  bool _isRecorderReady = false;
+  Timer? _readyCheckTimer;
+
+  // Backend endpoints
+  static const String _agentServerUrl = "http://192.168.100.7:5001";
+  static const String _videoServerUrl = "http://192.168.100.7:5003";
   static const String _guiderUpdateEmotionsEndpoint = "/guider/update_emotions";
-  static const String _chatEndpoint = "/chat";                    // ← CHANGE: remove /video/
-  static const String _chatGuidedEndpoint = "/chat_guided";       // ← CHANGE: remove /video/
+  static const String _chatEndpoint = "/chat";
+  static const String _chatGuidedEndpoint = "/chat_guided";
   static const String _transcribeEndpoint = "/video/transcribe";
   static const String _sessionSummaryEndpoint = "/video/session_summary";
-  static const String _endSessionEndpoint = "/video/end_session";
+
+  // Queue for sequential speaking (prevents overlap)
+  final List<Map<String, dynamic>> _speakingQueue = [];
+  bool _isProcessingQueue = false;
+
+  // Guider waiting mechanism
+  bool _isGuiderWaiting = false;
+  Timer? _guiderWaitTimer;
+
   // ==========================
   // LOCALIZATION HELPERS
   // ==========================
@@ -256,6 +279,12 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     return _detectedLanguage == 'ar' ? 'مطفية' : 'OFF';
   }
 
+  // Helper method to check if character uses video
+  bool _usesVideo() {
+    return !_useVideoFallback &&
+        (_characterModelPath.endsWith('.mp4') || _characterModelPath.endsWith('.webm'));
+  }
+
   @override
   void initState() {
     super.initState();
@@ -263,6 +292,9 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     _characterIdForBackend = _getCharacterIdForBackend(widget.character.characterName);
     print("🎯 Character ID for backend: $_characterIdForBackend");
     _characterModelPath = _getModelPathForCharacter(widget.character.characterName);
+
+    _httpClient = http.Client();
+
     _initializeCamera();
     _initAudio();
     _loadCharacterProfile();
@@ -270,6 +302,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     _initTts();
     _initializeEmotionSession();
     _startDurationTracking();
+    _initializeBackgroundVideo();
   }
 
   String _getCharacterIdForBackend(String characterName) {
@@ -367,11 +400,101 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   }
 
   // ==========================
-  // EMOTION DETECTION & INTERVENTION (FROM OLD CODE)
+  // BACKGROUND VIDEO METHODS
+  // ==========================
+
+  String _getModelPathForCharacter(String characterName) {
+    final modelMap = {
+      'Inner Critic': 'assets/animations/innner.mp4',
+      'Lonely Part': 'assets/animations/lonly.mp4',
+      'People Pleaser': 'assets/models/people_pleaser.glb',
+      'Jealous Part': 'assets/models/jealous_part.glb',
+      'Ashamed Part': 'assets/models/ashamed_part.glb',
+      'Workaholic': 'assets/models/workaholic.glb',
+      'Perfectionist': 'assets/models/perfectionist.glb',
+      'Procrastinator': 'assets/models/procastinator.glb',
+      'Excessive Gamer': 'assets/models/excessive_gamer.glb',
+      'Confused Part': 'assets/models/confused_part.glb',
+      'Dependent Part': 'assets/models/dependent_part.glb',
+      'Fearful Part': 'assets/models/fearful_part.glb',
+      'Neglected Part': 'assets/models/neglected_part.glb',
+      'Overeater': 'assets/models/overeater-binger.glb',
+      'Binger': 'assets/models/overeater-binger.glb',
+      'Overeater/Binger': 'assets/models/overeater-binger.glb',
+      'Overwhelmed Part': 'assets/models/overwhelmed_part.glb',
+      'Stoic Part': 'assets/models/stoic_part.glb',
+      'Wounded Child': 'assets/models/wounded_child.glb',
+      'Controller': 'assets/models/controller_part.glb',
+      'Controller Part': 'assets/models/controller_part.glb',
+    };
+    return modelMap[characterName] ?? 'assets/models/inner_critic.glb';
+  }
+
+  Future<void> _initializeBackgroundVideo() async {
+    if (!_characterModelPath.endsWith('.mp4') && !_characterModelPath.endsWith('.webm')) {
+      print("📹 Character uses 3D model, not video");
+      return;
+    }
+
+    try {
+      try {
+        await rootBundle.load(_characterModelPath);
+      } catch (e) {
+        print("❌ Video asset not found: $_characterModelPath");
+        _useVideoFallback = true;
+        if (mounted) setState(() {});
+        return;
+      }
+
+      _backgroundVideoController = VideoPlayerController.asset(_characterModelPath);
+      await _backgroundVideoController!.initialize();
+
+      _backgroundVideoController!.setLooping(true);
+      _backgroundVideoController!.setVolume(0);
+
+      // Don't auto-play - wait for character to speak
+      await _backgroundVideoController!.pause();
+
+      if (mounted) {
+        setState(() {
+          _isBackgroundVideoInitialized = true;
+        });
+      }
+
+      print("✅ Background video initialized for character: ${widget.character.characterName}");
+    } catch (e) {
+      print("❌ Error initializing background video: $e");
+      _useVideoFallback = true;
+      if (mounted) setState(() {});
+    }
+  }
+
+  void _startBackgroundVideo() {
+    if (_backgroundVideoController != null &&
+        _isBackgroundVideoInitialized &&
+        mounted &&
+        !_backgroundVideoController!.value.isPlaying) {
+      _backgroundVideoController!.play();
+      print("🎬 Background video started (character speaking)");
+    }
+  }
+
+  void _pauseBackgroundVideo() {
+    if (_backgroundVideoController != null &&
+        _isBackgroundVideoInitialized &&
+        mounted &&
+        _backgroundVideoController!.value.isPlaying) {
+      _backgroundVideoController!.pause();
+      print("⏸️ Background video paused (character stopped speaking)");
+    }
+  }
+
+  // ==========================
+  // EMOTION DETECTION
   // ==========================
   Future<void> _initializeEmotionSession() async {
     try {
-      final response = await http.post(
+      final response = await _httpClient!.post(
         Uri.parse("$_emotionServerUrl/emotion/start_session"),
         headers: {'Content-Type': 'application/json'},
         body: json.encode({
@@ -417,7 +540,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       final bytes = await imageFile.readAsBytes();
       final base64Image = base64.encode(bytes);
 
-      final response = await http.post(
+      final response = await _httpClient!.post(
         Uri.parse("$_emotionServerUrl/emotion/analyze_face"),
         headers: {'Content-Type': 'application/json'},
         body: json.encode({
@@ -449,7 +572,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       final bytes = await File(audioPath).readAsBytes();
       final base64Audio = base64.encode(bytes);
 
-      final response = await http.post(
+      final response = await _httpClient!.post(
         Uri.parse("$_emotionServerUrl/emotion/analyze_audio"),
         headers: {'Content-Type': 'application/json'},
         body: json.encode({
@@ -495,7 +618,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
 
-      final response = await http.post(
+      final response = await _httpClient!.post(
         Uri.parse("$_videoServerUrl$_guiderUpdateEmotionsEndpoint"),
         headers: {'Content-Type': 'application/json'},
         body: json.encode({
@@ -527,7 +650,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     await _sendPendingEmotions();
 
     try {
-      await http.post(
+      await _httpClient!.post(
         Uri.parse("$_emotionServerUrl/emotion/end_session"),
         headers: {'Content-Type': 'application/json'},
         body: json.encode({'session_id': _emotionSessionId}),
@@ -539,144 +662,37 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   }
 
   // ==========================
-  // LOCAL EMOTION DETECTION & INTERVENTION (FROM OLD CODE)
+  // SPEAKING QUEUE
   // ==========================
-  void _checkEmotionAndIntervene(String transcript) {
-    if (_guiderActive || _showingIntervention) return;
+  Future<void> _speakWithQueue(String text, {bool isGuider = false}) async {
+    if (text.isEmpty) return;
 
-    final lowerText = transcript.toLowerCase();
+    if (isGuider && _isSpeaking) {
+      print("🛡️ Guider message waiting - character is speaking");
+      _isGuiderWaiting = true;
 
-    // Check for crisis keywords
-    for (final keyword in _crisisKeywords) {
-      if (lowerText.contains(keyword)) {
-        _showGuiderInvitation('crisis', 'high',
-            "I notice you're expressing very difficult feelings. Would you like The Guider to join and help you through this?");
-        return;
-      }
-    }
-
-    // Count harsh emotion keywords
-    int harshCount = 0;
-    for (final keyword in _harshEmotionKeywords) {
-      if (lowerText.contains(keyword)) {
-        harshCount++;
-      }
-    }
-
-    // Trigger based on intensity
-    if (harshCount >= 3) {
-      _showGuiderInvitation('high_emotion', 'high',
-          "I can hear you're going through something intense. Would you like The Guider to join and provide support?");
-    } else if (harshCount >= 2) {
-      _showGuiderInvitation('emotional', 'medium',
-          "It sounds like you're feeling strong emotions. The Guider is here if you'd like someone to talk to.");
-    } else if (harshCount >= 1) {
-      _showGuiderInvitation('mild_emotion', 'low',
-          "I'm here for you. Would you like The Guider to join our conversation?");
-    }
-  }
-
-  void _showGuiderInvitation(String reason, String severity, String message) {
-    if (_showingIntervention || _guiderActive) return;
-
-    setState(() {
-      _intervention = GuiderInterventionModel(
-        shouldIntervene: true,
-        reason: reason,
-        severity: severity,
-        guiderMessage: message,
-      );
-      _showingIntervention = true;
-      _status = "INVITING_GUIDER";
-      _stopAll();
-    });
-  }
-
-  Future<void> _handleGuiderInvitation(bool accept) async {
-    if (!mounted) return;
-
-    setState(() {
-      _showingIntervention = false;
-    });
-
-    if (accept) {
-      setState(() {
-        _guiderActive = true;
-        _status = "GUIDED";
-        _intervention = GuiderInterventionModel.none;
-      });
-
-      if (_currentSessionId != null) {
-        final user = FirebaseAuth.instance.currentUser;
-        if (user != null) {
-          await _sessionRepository.setGuiderJoined(
-            uid: user.uid,
-            sessionId: _currentSessionId!,
-            guiderJoined: true,
-          );
-        }
-      }
-
-      final message = _getGuiderWelcomeMessage();
-      await _speakText(message, isGuider: true);
-      _guiderMessage = _getGuiderSupportMessage();
-
-      await Future.delayed(const Duration(milliseconds: 500));
-      _startVoiceLoop();
-    } else {
-      setState(() {
-        _status = "LIVE";
-        _intervention = GuiderInterventionModel.none;
-      });
-      _startVoiceLoop();
-    }
-  }
-
-  Future<void> _toggleGuider() async {
-    if (_guiderActive) {
-      final confirm = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text(_getEndGuiderTitle()),
-          content: Text(_getEndGuiderContent()),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: Text(_getCancelText()),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: Text(_getEndText()),
-            ),
-          ],
-        ),
-      );
-
-      if (confirm == true && mounted) {
-        setState(() {
-          _guiderActive = false;
-          _guiderMessage = "";
-          _status = "LIVE";
-        });
-
-        if (_currentSessionId != null) {
-          final user = FirebaseAuth.instance.currentUser;
-          if (user != null) {
-            await _sessionRepository.setGuiderJoined(
-              uid: user.uid,
-              sessionId: _currentSessionId!,
-              guiderJoined: false,
-            );
+      _guiderWaitTimer?.cancel();
+      _guiderWaitTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
+        if (!_isSpeaking && mounted && _isGuiderWaiting) {
+          timer.cancel();
+          _isGuiderWaiting = false;
+          _speakingQueue.add({'text': text, 'isGuider': isGuider});
+          if (!_isProcessingQueue) {
+            _processQueue();
           }
         }
+      });
+      return;
+    }
 
-        final message = _getGuiderExitMessage();
-        await _speakText(message, isGuider: true);
-      }
-    } else {
-      _showGuiderInvitation('manual', 'low', _getManualInterventionMessage());
+    _speakingQueue.add({'text': text, 'isGuider': isGuider});
+
+    if (!_isProcessingQueue) {
+      _processQueue();
     }
   }
+
+
 
   // ==========================
   // LANGUAGE DETECTION
@@ -727,70 +743,128 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       }
     }
   }
-
-  // ==========================
-  // CHARACTER-SPECIFIC VOICE SETTINGS (FROM OLD CODE)
-  // ==========================
+// ==========================
+// CHARACTER-SPECIFIC VOICE SETTINGS
+// ==========================
   Map<String, dynamic> _getCharacterVoiceSettings(String characterName) {
     final Map<String, dynamic> settings = {
-      'rate': 0.45,
+      'rate': 0.46,
       'pitch': 1.0,
       'volume': 1.0,
+      'voiceName': 'echo',
     };
 
-    final List<String> maleCharacters = [
-      'Dependent Part', 'Lonely Part', 'Excessive Gamer', 'Inner Critic',
-      'Workaholic', 'Controller', 'Controller Part',
-    ];
+    const voiceMap = {
+      // =========================
+      // MALE CHARACTERS - Realistic Deep/Adult Male Voices
+      // =========================
+      'inner_critic': 'en-US-Neural2-D',    // Deep, authoritative male (like a stern father)
+      'workaholic': 'en-US-Neural2-J',      // Professional, mature male (corporate executive)
+      'controller': 'en-US-Neural2-I',      // Calm, controlled, deep male voice
+      'dependent': 'en-US-Wavenet-B',       // Softer, more emotional male (younger sounding)
+      'excessive_gamer': 'en-US-Neural2-C', // Energetic, younger male (teen/young adult)
 
-    final List<String> femaleCharacters = [
-      'Jealous Part', 'Neglected Part', 'Stoic Part', 'Overeater',
-      'Binger', 'Overeater/Binger', 'Wounded Child', 'People Pleaser',
-      'Ashamed Part', 'Fearful Part', 'Overwhelmed Part', 'Perfectionist',
-      'Procrastinator', 'Confused Part',
-    ];
+      // =========================
+      // FEMALE CHARACTERS - Realistic Female Voices
+      // =========================
+      'stoic': 'en-US-Neural2-A',           // Calm, measured, mature female
+      'people_pleaser': 'en-US-Neural2-F',  // Warm, friendly, caring female
+      'jealous': 'en-US-Standard-C',        // Expressive, emotional female
+      'wounded_child': 'en-US-Neural2-C',   // Younger, vulnerable female (child/teen-like)
+      'ashamed': 'en-US-Standard-E',        // Soft, quiet, gentle female
+      'fearful': 'en-US-Neural2-A',         // Anxious-capable, expressive female
+      'overwhelmed': 'en-US-Neural2-F',     // Emotional, stressed female voice
+      'perfectionist': 'en-US-Neural2-F',   // Precise, clear female voice
+      'neglected': 'en-US-Wavenet-F',       // Melancholic, sad female voice
+      'overater_binger': 'en-US-Wavenet-F', // Soft, emotional female
+      'confused': 'en-US-Neural2-A',        // Questioning, uncertain female
+      'procrastinator': 'en-US-Neural2-F',  // Relaxed, easygoing female
+      'lonely': 'en-US-Standard-C',         // Sad, lonely-sounding female
+    };
 
-    if (maleCharacters.contains(characterName)) {
-      settings['pitch'] = 0.85;
-      settings['rate'] = 0.48;
-    } else if (femaleCharacters.contains(characterName)) {
-      settings['pitch'] = 1.25;
-      settings['rate'] = 0.52;
-    }
+    settings['voiceName'] = voiceMap[characterName] ?? 'en-US-Neural2-F';
 
     switch (characterName) {
-      case 'Inner Critic':
-        settings['rate'] = 0.50;
-        settings['pitch'] = 0.75;
-        settings['volume'] = 1.1;
+    // =========================
+    // MALE TUNING - Keep your existing rate/pitch adjustments
+    // =========================
+      case 'inner_critic':
+        settings['rate'] = 0.40;
+        settings['pitch'] = 0.58; // deeper male tone
+        settings['volume'] = 1.10;
         break;
-      case 'Wounded Child':
-        settings['rate'] = 0.32;
-        settings['pitch'] = 1.65;
-        settings['volume'] = 0.55;
+
+      case 'workaholic':
+        settings['rate'] = 0.56;
+        settings['pitch'] = 0.60; // calm male corporate tone
+        settings['volume'] = 1.05;
         break;
-      case 'Workaholic':
-        settings['rate'] = 0.65;
-        settings['pitch'] = 0.88;
+
+      case 'controller':
+        settings['rate'] = 0.42;
+        settings['pitch'] = 0.50; // dominant deep voice
+        settings['volume'] = 1.00;
+        break;
+
+      case 'dependent':
+        settings['rate'] = 0.46;
+        settings['pitch'] = 0.65; // softer male tone
         settings['volume'] = 0.95;
         break;
-      case 'People Pleaser':
-        settings['rate'] = 0.58;
-        settings['pitch'] = 1.35;
-        settings['volume'] = 1.0;
+
+      case 'excessive_gamer':
+        settings['rate'] = 0.62;
+        settings['pitch'] = 0.68; // energetic young male tone
+        settings['volume'] = 1.10;
+        break;
+
+      case 'stoic':
+        settings['rate'] = 0.36;
+        settings['pitch'] = 0.68;
+        settings['volume'] = 0.95;
+        break;
+
+    // =========================
+    // FEMALE TUNING - Keep your existing adjustments
+    // =========================
+      case 'wounded_child':
+        settings['rate'] = 0.55;
+        settings['pitch'] = 1.55;
+        settings['volume'] = 0.82;
+        break;
+
+      case 'fearful':
+        settings['rate'] = 0.62;
+        settings['pitch'] = 1.45;
+        break;
+
+      case 'procrastinator':
+        settings['rate'] = 0.36;
+        settings['pitch'] = 0.96;
+        break;
+
+      case 'ashamed':
+        settings['rate'] = 0.40;
+        settings['volume'] = 0.85;
+        break;
+
+      case 'overwhelmed':
+        settings['rate'] = 0.52;
+        settings['volume'] = 0.88;
         break;
     }
 
     return settings;
   }
-
   // ==========================
   // AGENT METHODS
   // ==========================
+
+  // Update _sendToAgent method
   Future<Map<String, dynamic>> _sendToAgent({
     required String uid,
     required String transcript,
-    required List<Map<String, String>> conversationHistory,
+    required List<Map<String, dynamic>> conversationHistory,
   }) async {
     final uri = Uri.parse("$_agentServerUrl$_chatEndpoint");
 
@@ -809,10 +883,19 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       };
     }
 
-    final List<Map<String, String>> messages = [
-      ...conversationHistory,
-      {'role': 'user', 'content': transcript}
-    ];
+    final List<Map<String, String>> messages = [];
+    final recentHistory = conversationHistory.length > 6
+        ? conversationHistory.sublist(conversationHistory.length - 8)
+        : conversationHistory;
+
+    for (final msg in recentHistory) {
+      if (msg['role'] == 'user') {
+        messages.add({'role': 'user', 'content': msg['content'] as String});
+      } else if (msg['role'] == 'assistant' && msg['isGuider'] != true) {
+        messages.add({'role': 'assistant', 'content': msg['content'] as String});
+      }
+    }
+    messages.add({'role': 'user', 'content': transcript});
 
     final requestBody = {
       'uid': uid,
@@ -821,33 +904,36 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       'messages': messages,
       'sessionId': _currentSessionId,
       'threadId': _currentThreadId,
-      'checkIntervention': false, // We handle emotion detection locally
+      'checkIntervention': true,
       'language': _detectedLanguage,
     };
 
-    print("📤 Sending to agent at ${uri.toString()}");
-    print("📤 Language: ${_detectedLanguage == 'ar' ? 'Egyptian Arabic' : 'English'}");
-    print("📤 CharacterId: $_characterIdForBackend");
-
-    final response = await http.post(
+    print("📤 Sending to agent...");
+    final stopwatch = Stopwatch()..start();
+    final response = await _httpClient!.post(
       uri,
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode(requestBody),
-    ).timeout(const Duration(seconds: 30));
+    ).timeout(const Duration(seconds: 15));
+
+    stopwatch.stop();
+    print("📥 Agent response in ${stopwatch.elapsedMilliseconds}ms");
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
       print("✅ Agent response received");
       return data;
     }
-    print("❌ Agent error: ${response.statusCode} - ${response.body}");
+    print("❌ Agent error: ${response.statusCode}");
     throw Exception("HTTP ${response.statusCode}");
   }
 
+
+  // Update _sendToGuidedAgent method
   Future<Map<String, dynamic>> _sendToGuidedAgent({
     required String uid,
     required String transcript,
-    required List<Map<String, String>> conversationHistory,
+    required List<Map<String, dynamic>> conversationHistory,
   }) async {
     final uri = Uri.parse("$_agentServerUrl$_chatGuidedEndpoint");
 
@@ -867,16 +953,31 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     }
 
     final List<Map<String, dynamic>> guidedMessages = [];
-    for (final msg in conversationHistory) {
-      guidedMessages.add({
-        'sender': msg['role'] == 'user' ? 'user' : widget.character.displayNameEn,
-        'content': msg['content'],
-      });
+    final recentHistory = conversationHistory.length > 8
+        ? conversationHistory.sublist(conversationHistory.length - 8)
+        : conversationHistory;
+
+    for (final msg in recentHistory) {
+      final isGuider = msg['isGuider'] == true;
+      final role = msg['role'] as String? ?? '';
+      final content = msg['content'] as String? ?? '';
+
+      if (content.isEmpty) continue;
+
+      if (role == 'user') {
+        guidedMessages.add({'sender': 'user', 'content': content});
+      } else if (role == 'assistant') {
+        if (isGuider) {
+          guidedMessages.add({'sender': 'guider', 'content': content});
+        } else {
+          guidedMessages.add({'sender': widget.character.displayNameEn, 'content': content});
+        }
+      }
     }
-    guidedMessages.add({
-      'sender': 'user',
-      'content': transcript,
-    });
+
+    guidedMessages.add({'sender': 'user', 'content': transcript});
+
+    print("📤 Guided messages count: ${guidedMessages.length}");
 
     final requestBody = {
       'uid': uid,
@@ -888,73 +989,172 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       'language': _detectedLanguage,
     };
 
-    print("📤 Sending to guided agent at ${uri.toString()}");
-    print("📤 Language: ${_detectedLanguage == 'ar' ? 'Egyptian Arabic' : 'English'}");
-    print("📤 CharacterId: $_characterIdForBackend");
-    final response = await http.post(
-      uri,
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode(requestBody),
-    ).timeout(const Duration(seconds: 30));
+    print("📤 Sending to guided agent...");
+    final stopwatch = Stopwatch()..start();
 
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      print("✅ Guided agent response received");
-      return data;
+    try {
+      final response = await _httpClient!.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(requestBody),
+      ).timeout(const Duration(seconds: 30));
+
+      stopwatch.stop();
+      print("📥 Guided agent response in ${stopwatch.elapsedMilliseconds}ms");
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        print("✅ Guided agent response received");
+        return data;
+      }
+      print("❌ Guided agent error: ${response.statusCode}");
+      throw Exception("HTTP ${response.statusCode}");
+    } catch (e) {
+      print("❌ Guided agent request failed: $e");
+      rethrow;
     }
-    print("❌ Guided agent error: ${response.statusCode} - ${response.body}");
-    throw Exception("HTTP ${response.statusCode}");
   }
 
+
+  // ==========================
+  // PROCESS USER MESSAGE
+  // ==========================
+
+  // Add this helper method at the class level
+  void _logTiming(String phase, Stopwatch stopwatch) {
+    final elapsed = stopwatch.elapsedMilliseconds;
+    print("⏱️ TIMING: $phase took ${elapsed}ms");
+    stopwatch.reset();
+  }
+
+// Update _processUserMessage method
   Future<void> _processUserMessage(String transcript) async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) throw Exception("User not logged in");
+    final totalStopwatch = Stopwatch()..start();
+    print("🟢 PROCESSING START: $transcript");
 
-    print("📝 Processing user message: '$transcript'");
-
-    final detectedLang = _detectLanguageFromText(transcript);
-    if (detectedLang != _detectedLanguage) {
-      print("🌐 Language changed: ${_detectedLanguage} -> $detectedLang");
-      setState(() {
-        _detectedLanguage = detectedLang;
-        _languageDetected = true;
-      });
-      await _updateTtsLanguage(detectedLang);
+    if (_isProcessingMessage) {
+      print("⚠️ Already processing a message, queueing...");
+      _pendingTranscript = transcript;
+      return;
     }
 
-    setState(() {
-      _lastUserText = transcript;
-      _status = "THINKING";
-    });
-
-    await _saveMessage('user', transcript, sender: 'user');
-
-    // Check emotion and trigger intervention if needed (FROM OLD CODE)
-    if (!_guiderActive && !_showingIntervention) {
-      _checkEmotionAndIntervene(transcript);
-      if (_showingIntervention) {
-        setState(() => _isBusy = false);
+    if (_lastProcessTime != null) {
+      final elapsed = DateTime.now().difference(_lastProcessTime!);
+      if (elapsed < _minProcessInterval && transcript == _lastProcessedTranscript) {
+        print("⚠️ Skipping duplicate rapid message");
         return;
       }
     }
 
-    // Send to appropriate endpoint
+    _isProcessingMessage = true;
+    _lastProcessedTranscript = transcript;
+    _lastProcessTime = DateTime.now();
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      _isProcessingMessage = false;
+      throw Exception("User not logged in");
+    }
+
+    // Stop any current recording or speaking
+    final stopRecordingStopwatch = Stopwatch()..start();
+    if (_recorder.isRecording) {
+      await _recorder.stopRecorder();
+    }
+    _logTiming("Stop recording", stopRecordingStopwatch);
+
+    setState(() {
+      _isRecording = false;
+      _isSpeaking = false;
+      _guiderSpeaking = false;
+      _isBusy = true;
+      _status = "THINKING";
+      _visibleAiText = "";
+    });
+
+    final detectLangStopwatch = Stopwatch()..start();
+    final detectedLang = _detectLanguageFromText(transcript);
+    if (detectedLang != _detectedLanguage) {
+      setState(() => _detectedLanguage = detectedLang);
+      await _updateTtsLanguage(detectedLang);
+    }
+    _logTiming("Language detection & update", detectLangStopwatch);
+
+    setState(() {
+      _lastUserText = transcript;
+    });
+
+    final saveMsgStopwatch = Stopwatch()..start();
+    await _saveMessage('user', transcript, sender: 'user');
+    _logTiming("Save user message", saveMsgStopwatch);
+
     Map<String, dynamic> response;
-    if (_guiderActive) {
-      response = await _sendToGuidedAgent(
-        uid: user.uid,
-        transcript: transcript,
-        conversationHistory: _conversationHistory,
-      );
-    } else {
-      response = await _sendToAgent(
-        uid: user.uid,
-        transcript: transcript,
-        conversationHistory: _conversationHistory,
-      );
+
+    try {
+      final agentStopwatch = Stopwatch()..start();
+      if (_guiderActive) {
+        response = await _sendToGuidedAgent(
+          uid: user.uid,
+          transcript: transcript,
+          conversationHistory: _conversationHistory,
+        );
+      } else {
+        response = await _sendToAgent(
+          uid: user.uid,
+          transcript: transcript,
+          conversationHistory: _conversationHistory,
+        );
+      }
+      _logTiming("Agent API call (${_guiderActive ? 'GUIDED' : 'STANDARD'})", agentStopwatch);
+    } catch (e) {
+      print("❌ Agent error: $e");
+      setState(() {
+        _status = _guiderActive ? "GUIDED" : "LIVE";
+        _isBusy = false;
+      });
+      _isProcessingMessage = false;
+
+      // Schedule restart
+      _scheduleVoiceLoopRestart();
+
+      if (_pendingTranscript.isNotEmpty) {
+        final pending = _pendingTranscript;
+        _pendingTranscript = "";
+        _processUserMessage(pending);
+      }
+      return;
     }
 
     if (response['success'] == true) {
+      // Check for intervention
+      if (response['intervention'] != null && response['intervention']['shouldIntervene'] == true) {
+        final intervention = GuiderInterventionModel.fromMap(response['intervention']);
+
+        if (intervention.shouldIntervene && mounted && !_guiderActive && !_showingIntervention) {
+          print("🎯 INTERVENTION FROM BACKEND: ${intervention.reason}");
+
+          if (intervention.guiderMessage != null && intervention.guiderMessage!.isNotEmpty) {
+            _intervention = GuiderInterventionModel(
+              shouldIntervene: true,
+              reason: intervention.reason,
+              severity: intervention.severity,
+              guiderMessage: intervention.guiderMessage,
+            );
+          } else {
+            _intervention = intervention;
+          }
+
+          setState(() {
+            _showingIntervention = true;
+            _status = "INVITING_GUIDER";
+            _isBusy = false;
+          });
+
+          _isProcessingMessage = false;
+          return;
+        }
+      }
+
       String characterMessage = '';
       String guiderMessage = '';
 
@@ -962,51 +1162,313 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         characterMessage = response['characterMessage'] ?? '';
         guiderMessage = response['guiderMessage'] ?? '';
 
-        if (characterMessage.isNotEmpty) {
-          print("🤖 Character response: $characterMessage");
+        final String responseOrder = response['respondent'] ?? 'character_only';
+        final bool suppressCharacter = response['suppressCharacter'] ?? false;
+
+        print("📢 Response order: $responseOrder");
+
+        final saveMessagesStopwatch = Stopwatch()..start();
+        if (characterMessage.isNotEmpty && !suppressCharacter) {
           await _saveMessage('assistant', characterMessage, sender: _characterIdForBackend);
-          _startTypingAnimation(characterMessage);
-          await _speakText(characterMessage);
-          await Future.delayed(const Duration(milliseconds: 500));
+          _conversationHistory.add({
+            'role': 'assistant',
+            'content': characterMessage,
+            'isGuider': false,
+          });
         }
 
         if (guiderMessage.isNotEmpty) {
-          print("👤 Guider response: $guiderMessage");
           await _saveMessage('assistant', guiderMessage, sender: 'guider');
-          await _speakText(guiderMessage, isGuider: true);
+          _conversationHistory.add({
+            'role': 'assistant',
+            'content': guiderMessage,
+            'isGuider': true,
+          });
         }
+        _logTiming("Save assistant messages", saveMessagesStopwatch);
+
+        final List<Map<String, dynamic>> speechQueue = [];
+
+        if (responseOrder == 'guider_only') {
+          if (guiderMessage.isNotEmpty) {
+            speechQueue.add({'text': guiderMessage, 'isGuider': true});
+          }
+        }
+        else if (responseOrder == 'guider_first') {
+          if (guiderMessage.isNotEmpty) {
+            speechQueue.add({'text': guiderMessage, 'isGuider': true});
+          }
+          if (characterMessage.isNotEmpty && !suppressCharacter) {
+            speechQueue.add({'text': characterMessage, 'isGuider': false});
+          }
+        }
+        else {
+          if (characterMessage.isNotEmpty && !suppressCharacter) {
+            speechQueue.add({'text': characterMessage, 'isGuider': false});
+          }
+          if (guiderMessage.isNotEmpty) {
+            speechQueue.add({'text': guiderMessage, 'isGuider': true});
+          }
+        }
+
+        if (speechQueue.isNotEmpty) {
+          _startTypingAnimation(speechQueue.first['text']);
+
+          setState(() {
+            _isBusy = false;
+          });
+
+          // Speak sequentially with timing
+          final ttsStopwatch = Stopwatch()..start();
+          for (int i = 0; i < speechQueue.length; i++) {
+            final speakStopwatch = Stopwatch()..start();
+            await _speakText(speechQueue[i]['text'], isGuider: speechQueue[i]['isGuider']);
+            _logTiming("TTS - ${speechQueue[i]['isGuider'] ? 'Guider' : 'Character'} message ${i+1}/${speechQueue.length}", speakStopwatch);
+            await Future.delayed(const Duration(milliseconds: 200));
+          }
+          _logTiming("Total TTS for ${speechQueue.length} message(s)", ttsStopwatch);
+        } else {
+          setState(() {
+            _isBusy = false;
+            _status = _guiderActive ? "GUIDED" : "LIVE";
+          });
+          _scheduleVoiceLoopRestart();
+        }
+
       } else {
         characterMessage = response['assistantMessage'] ?? '';
-        print("🤖 Character response: $characterMessage");
-        await _saveMessage('assistant', characterMessage, sender: _characterIdForBackend);
-        _startTypingAnimation(characterMessage);
-        await _speakText(characterMessage);
+        if (characterMessage.isNotEmpty) {
+          final saveMsgStopwatch2 = Stopwatch()..start();
+          await _saveMessage('assistant', characterMessage, sender: _characterIdForBackend);
+          _conversationHistory.add({
+            'role': 'assistant',
+            'content': characterMessage,
+            'isGuider': false,
+          });
+          _logTiming("Save character message", saveMsgStopwatch2);
+
+          _startTypingAnimation(characterMessage);
+
+          setState(() {
+            _isBusy = false;
+          });
+
+          final ttsStopwatch = Stopwatch()..start();
+          await _speakText(characterMessage, isGuider: false);
+          _logTiming("TTS - Character message", ttsStopwatch);
+        } else {
+          setState(() {
+            _isBusy = false;
+            _status = "LIVE";
+          });
+          _scheduleVoiceLoopRestart();
+        }
       }
 
-      _conversationHistory.add({'role': 'user', 'content': transcript});
-      if (characterMessage.isNotEmpty) {
-        _conversationHistory.add({'role': 'assistant', 'content': characterMessage});
-      }
-
-      if (_conversationHistory.length > 20) {
-        _conversationHistory = _conversationHistory.sublist(_conversationHistory.length - 20);
-      }
+      _conversationHistory.add({
+        'role': 'user',
+        'content': transcript,
+        'isGuider': false,
+      });
 
       setState(() {
         _lastAiText = characterMessage;
         _textBuffer.clear();
         _visibleAiText = "";
-        _isBusy = false;
-        _status = _guiderActive ? "GUIDED" : "LIVE";
       });
+
     } else {
       throw Exception(response['error'] ?? 'Unknown error');
     }
+
+    _isProcessingMessage = false;
+    _logTiming("TOTAL PROCESSING (from start to finish)", totalStopwatch);
+
+    if (_pendingTranscript.isNotEmpty) {
+      final pending = _pendingTranscript;
+      _pendingTranscript = "";
+      _processUserMessage(pending);
+    }
+  }
+
+
+// Add this new helper method
+  void _scheduleVoiceLoopRestart() {
+    if (!mounted) return;
+
+    // Cancel any pending restart
+    _restartTimer?.cancel();
+
+    // Schedule restart after a short delay
+    _restartTimer = Timer(const Duration(milliseconds: 400), () {
+      if (!mounted) return;
+
+      print("🔄 Scheduled voice loop restart - checking conditions...");
+      print("  voiceLoopActive: $_voiceLoopActive");
+      print("  isMuted: $_isMuted");
+      print("  isSpeaking: $_isSpeaking");
+      print("  isProcessingMessage: $_isProcessingMessage");
+      print("  isBusy: $_isBusy");
+      print("  speakingQueue length: ${_speakingQueue.length}");
+      print("  guiderActive: $_guiderActive");
+
+      if (_voiceLoopActive &&
+          !_isMuted &&
+          !_isSpeaking &&
+          !_isProcessingMessage &&
+          !_isBusy &&
+          _speakingQueue.isEmpty) {
+        print("🎙️ Restarting voice loop now");
+        _startRecordingWithAutoStop();
+      } else {
+        print("⏳ Conditions not met, will retry");
+        // If conditions not met, try again
+        if (_voiceLoopActive && !_isMuted && mounted) {
+          _restartTimer = Timer(const Duration(milliseconds: 500), () {
+            if (mounted && _voiceLoopActive && !_isMuted && !_isSpeaking && !_isProcessingMessage && !_isBusy && _speakingQueue.isEmpty) {
+              _startRecordingWithAutoStop();
+            }
+          });
+        }
+      }
+    });
+  }
+  // ==========================
+  // SEQUENTIAL SPEAKER
+  // ==========================
+
+  Future<void> _speakSequentially(List<Map<String, dynamic>> messages) async {
+    if (messages.isEmpty) return;
+
+    print("📢 Starting sequential speech of ${messages.length} message(s)");
+
+    for (int i = 0; i < messages.length; i++) {
+      final item = messages[i];
+      final text = item['text'] as String;
+      final isGuider = item['isGuider'] as bool;
+
+      if (text.isEmpty) continue;
+
+      print("📢 Speaking [${i + 1}/${messages.length}]: ${isGuider ? 'Guider' : 'Character'}");
+
+      final previousRate = _currentSpeechRate;
+      final previousPitch = _currentPitch;
+
+      if (isGuider) {
+        _currentSpeechRate = 0.52;
+        _currentPitch = 1.2;
+        await _tts.setSpeechRate(_currentSpeechRate);
+        await _tts.setPitch(_currentPitch);
+
+        if (mounted) {
+          setState(() {
+            _guiderSpeaking = true;
+            _guiderMessage = text;
+          });
+        }
+      } else {
+        final settings = _getCharacterVoiceSettings(widget.character.characterName);
+        _currentSpeechRate = settings['rate'];
+        _currentPitch = settings['pitch'];
+        await _tts.setSpeechRate(_currentSpeechRate);
+        await _tts.setPitch(_currentPitch);
+
+        if (mounted) {
+          setState(() {
+            _isSpeaking = true;
+            _isBusy = false;
+            _status = "SPEAKING";
+          });
+          // Start background video when character speaks
+          _startBackgroundVideo();
+        }
+      }
+
+      final speechCompleter = Completer<void>();
+
+      void onSpeechComplete() {
+        print("✅ Speech finished");
+        if (mounted) {
+          setState(() {
+            if (isGuider) {
+              _guiderSpeaking = false;
+              _guiderMessage = "";
+            } else {
+              _isSpeaking = false;
+              // Pause background video when character stops
+              _pauseBackgroundVideo();
+            }
+          });
+
+          print("🎙️ Restarting voice loop after speech completion");
+          Future.delayed(const Duration(milliseconds: 300), () {
+            if (mounted && _voiceLoopActive && !_isMuted) {
+              print("🎙️ Actually starting recording now...");
+              _startRecordingWithAutoStop();
+            }
+          });
+        }
+        if (!speechCompleter.isCompleted) {
+          speechCompleter.complete();
+        }
+      }
+
+      _tts.setCompletionHandler(onSpeechComplete);
+
+      print("🗣️ Speaking text: ${text.substring(0, text.length > 50 ? 50 : text.length)}...");
+      await _tts.speak(text);
+      await speechCompleter.future;
+
+      _currentSpeechRate = previousRate;
+      _currentPitch = previousPitch;
+      await _tts.setSpeechRate(previousRate);
+      await _tts.setPitch(previousPitch);
+
+      if (isGuider) {
+        await Future.delayed(const Duration(milliseconds: 400));
+      } else {
+        await Future.delayed(const Duration(milliseconds: 200));
+      }
+
+      if (i + 1 < messages.length && mounted) {
+        _startTypingAnimation(messages[i + 1]['text']);
+      }
+    }
+
+    _tts.setCompletionHandler(() {
+      print("🎯 TTS completion handler triggered");
+      setState(() {
+        _isSpeaking = false;
+        _textBuffer.clear();
+        _visibleAiText = "";
+      });
+
+      _pauseBackgroundVideo();
+
+      if (_speakingQueue.isEmpty) {
+        setState(() {
+          _isBusy = false;
+          _status = _guiderActive ? "GUIDED" : "LIVE";
+        });
+
+        if (_voiceLoopActive && mounted && !_isMuted) {
+          print("🎙️ Default handler: Restarting voice loop");
+          Future.delayed(const Duration(milliseconds: 200), () {
+            if (_voiceLoopActive && !_isMuted && mounted && !_isBusy && _speakingQueue.isEmpty && !_isProcessingMessage) {
+              _startRecordingWithAutoStop();
+            }
+          });
+        }
+      }
+    });
+
+    print("✅ Sequential speech completed");
   }
 
   // ==========================
   // AUDIO & VOICE METHODS
   // ==========================
+
   Future<void> _initAudio() async {
     try {
       print("🎤 Initializing audio...");
@@ -1018,7 +1480,10 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         return;
       }
       await _recorder.openRecorder();
-      _recorder.setSubscriptionDuration(const Duration(milliseconds: 100));
+
+      _isRecorderReady = true;
+
+      _recorder.setSubscriptionDuration(const Duration(milliseconds: 50));
       setState(() {
         _audioReady = true;
       });
@@ -1061,8 +1526,20 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   }
 
   Future<void> _startRecordingWithAutoStop() async {
-    if (!_voiceLoopActive || _isMuted) return;
-    if (_isSpeaking || _isBusy || _isRecording || _guiderSpeaking) return;
+    print("🎙️ _startRecordingWithAutoStop called - voiceLoopActive=$_voiceLoopActive, isMuted=$_isMuted, isSpeaking=$_isSpeaking, isBusy=$_isBusy, isRecording=$_isRecording, guiderSpeaking=$_guiderSpeaking, processingMessage=$_isProcessingMessage");
+
+    if (!_voiceLoopActive || _isMuted) {
+      print("🎙️ Cannot start - voice loop inactive or muted");
+      return;
+    }
+    if (_isSpeaking || _isBusy || _isRecording || _guiderSpeaking) {
+      print("🎙️ Cannot start - currently speaking/busy/recording");
+      return;
+    }
+    if (_isProcessingMessage) {
+      print("🎙️ Cannot start - processing message");
+      return;
+    }
 
     _stopping = false;
     _hasDetectedSpeech = false;
@@ -1070,7 +1547,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     try {
       if (_recorder.isRecording) {
         await _recorder.stopRecorder();
-        await Future.delayed(const Duration(milliseconds: 200));
+        await Future.delayed(const Duration(milliseconds: 50));
       }
 
       setState(() {
@@ -1140,22 +1617,23 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
           _isBusy = false;
         });
         if (_voiceLoopActive && !_isMuted) {
-          Future.delayed(const Duration(milliseconds: 300), () {
+          Future.delayed(const Duration(milliseconds: 200), () {
             if (_voiceLoopActive && !_isMuted && mounted) {
               _startRecordingWithAutoStop();
             }
           });
         }
+        _stopping = false;
         return;
       }
 
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) throw Exception("User not logged in");
 
-      await _analyzeAudioEmotion(path);
+      unawaited(_analyzeAudioEmotion(path));
 
       setState(() => _status = "TRANSCRIBING");
-      final transcript = await _transcribeAudio(path);
+      final transcript = await _fastTranscribe(path);
       if (transcript.isEmpty) {
         throw Exception("Empty transcription");
       }
@@ -1173,7 +1651,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         _error = "Error: $e";
       });
       if (_voiceLoopActive && !_isMuted) {
-        Future.delayed(const Duration(milliseconds: 500), () {
+        Future.delayed(const Duration(milliseconds: 300), () {
           if (_voiceLoopActive && !_isMuted && mounted) {
             _startRecordingWithAutoStop();
           }
@@ -1184,7 +1662,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     }
   }
 
-  Future<String> _transcribeAudio(String wavPath) async {
+  Future<String> _fastTranscribe(String wavPath) async {
     try {
       print("🎤 Transcribing audio: $wavPath");
       final uri = Uri.parse("$_videoServerUrl$_transcribeEndpoint");
@@ -1192,14 +1670,18 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       request.files.add(
         await http.MultipartFile.fromPath('file', wavPath),
       );
+
+      final stopwatch = Stopwatch()..start();
       final streamedResponse = await request.send().timeout(
-        const Duration(seconds: 30),
+        const Duration(seconds: 10),
       );
       final responseBody = await streamedResponse.stream.bytesToString();
+      stopwatch.stop();
+      print("📝 Transcription completed in ${stopwatch.elapsedMilliseconds}ms");
+
       if (streamedResponse.statusCode == 200) {
         final data = jsonDecode(responseBody);
         final transcript = data['transcript'] ?? '';
-        print("📝 Transcription result: '$transcript'");
         return transcript;
       }
       print("❌ Transcription failed: ${streamedResponse.statusCode}");
@@ -1218,17 +1700,20 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     setState(() {
       _voiceLoopActive = true;
     });
-    await Future.delayed(const Duration(milliseconds: 300));
+    await Future.delayed(const Duration(milliseconds: 200));
     await _startRecordingWithAutoStop();
   }
 
   void _stopAll() async {
     print("🛑 Stopping all audio activities");
     _voiceLoopActive = false;
+    _isProcessingMessage = false;
+    _pendingTranscript = "";
     _restartTimer?.cancel();
     _maxTimer?.cancel();
     _silenceTimer?.cancel();
     _typingTimer?.cancel();
+    _guiderWaitTimer?.cancel();
     _recorderSubscription?.cancel();
 
     try {
@@ -1236,6 +1721,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         await _recorder.stopRecorder();
       }
       await _tts.stop();
+      _pauseBackgroundVideo();
     } catch (e) {
       print("Error stopping: $e");
     }
@@ -1246,15 +1732,19 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       _isBusy = false;
       _isSpeaking = false;
       _guiderSpeaking = false;
+      _isGuiderWaiting = false;
       _textBuffer.clear();
       _visibleAiText = "";
+      _speakingQueue.clear();
+      _isProcessingQueue = false;
     });
     _stopping = false;
   }
 
   // ==========================
-  // TTS METHODS (FROM OLD CODE)
+  // TTS METHODS
   // ==========================
+
   Future<void> _initTts() async {
     try {
       final settings = _getCharacterVoiceSettings(widget.character.characterName);
@@ -1271,17 +1761,25 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       }
 
       _tts.setCompletionHandler(() {
+        print("🎯 TTS completion handler triggered");
         setState(() {
           _isSpeaking = false;
-          _isBusy = false;
           _textBuffer.clear();
           _visibleAiText = "";
-          _status = _guiderActive ? "GUIDED" : "LIVE";
         });
 
-        if (_voiceLoopActive && mounted && !_isMuted) {
-          Future.delayed(const Duration(milliseconds: 300), () {
-            if (_voiceLoopActive && !_isMuted && mounted) {
+        _pauseBackgroundVideo();
+
+        if (_speakingQueue.isEmpty) {
+          setState(() {
+            _isBusy = false;
+            _status = _guiderActive ? "GUIDED" : "LIVE";
+          });
+        }
+
+        if (_voiceLoopActive && mounted && !_isMuted && _speakingQueue.isEmpty && !_isProcessingMessage) {
+          Future.delayed(const Duration(milliseconds: 200), () {
+            if (_voiceLoopActive && !_isMuted && mounted && !_isBusy && _speakingQueue.isEmpty && !_isProcessingMessage) {
               _startRecordingWithAutoStop();
             }
           });
@@ -1294,33 +1792,73 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
           _error = "TTS error: $msg";
           _isSpeaking = false;
         });
+        _pauseBackgroundVideo();
       });
     } catch (e) {
       print("❌ TTS init error: $e");
     }
   }
 
+  // Update _speakText method
   Future<void> _speakText(String text, {bool isGuider = false}) async {
+    final ttsStopwatch = Stopwatch()..start();
+    print("🔊 TTS START: ${isGuider ? 'Guider' : 'Character'} - ${text.substring(0, text.length > 50 ? 50 : text.length)}...");
+
     if (text.isEmpty) return;
 
-    // Save current settings
+    if (isGuider && _isSpeaking) {
+      print("🛑 GUARD: Guider prevented from interrupting character speech");
+      _speakingQueue.add({'text': text, 'isGuider': isGuider});
+      return;
+    }
+
     final previousRate = _currentSpeechRate;
     final previousPitch = _currentPitch;
 
     if (isGuider) {
-      // Guider voice settings
       _currentSpeechRate = 0.52;
       _currentPitch = 1.2;
       await _tts.setSpeechRate(_currentSpeechRate);
       await _tts.setPitch(_currentPitch);
     } else {
-      // Character voice settings
       final settings = _getCharacterVoiceSettings(widget.character.characterName);
       _currentSpeechRate = settings['rate'];
       _currentPitch = settings['pitch'];
       await _tts.setSpeechRate(_currentSpeechRate);
       await _tts.setPitch(_currentPitch);
     }
+
+    final speechCompleter = Completer<void>();
+
+    void onSpeechComplete() {
+      final elapsed = ttsStopwatch.elapsedMilliseconds;
+      print("✅ TTS COMPLETE: ${isGuider ? 'Guider' : 'Character'} took ${elapsed}ms");
+
+      if (mounted) {
+        setState(() {
+          if (isGuider) {
+            _guiderSpeaking = false;
+            _guiderMessage = "";
+          } else {
+            _isSpeaking = false;
+            _pauseBackgroundVideo();
+          }
+        });
+
+        print("🎙️ Restarting voice loop after speech completion");
+        Future.delayed(const Duration(milliseconds: 500), () {
+          if (mounted && _voiceLoopActive && !_isMuted && !_isSpeaking && !_isProcessingMessage && !_isBusy && !_guiderSpeaking && _speakingQueue.isEmpty) {
+            print("🎙️ Actually starting recording now...");
+            _startRecordingWithAutoStop();
+          }
+        });
+      }
+      if (!speechCompleter.isCompleted) {
+        speechCompleter.complete();
+      }
+    }
+
+    _tts.setCompletionHandler(onSpeechComplete);
 
     try {
       setState(() {
@@ -1331,19 +1869,16 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
           _isSpeaking = true;
           _isBusy = false;
           _status = "SPEAKING";
+          _startBackgroundVideo();
         }
       });
 
+      print("🗣️ Speaking text in _speakText: ${text.substring(0, text.length > 50 ? 50 : text.length)}...");
       await _tts.speak(text);
+      await speechCompleter.future;
 
-      setState(() {
-        if (isGuider) {
-          _guiderSpeaking = false;
-          _guiderMessage = "";
-        } else {
-          _isSpeaking = false;
-        }
-      });
+      print("✅ Speech completed for this message");
+
     } catch (e) {
       print("❌ TTS Error: $e");
       setState(() {
@@ -1351,8 +1886,19 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         _guiderSpeaking = false;
         _error = "TTS error: $e";
       });
+      _pauseBackgroundVideo();
+      if (!speechCompleter.isCompleted) {
+        speechCompleter.complete();
+      }
+
+      if (_voiceLoopActive && !_isMuted && mounted) {
+        Future.delayed(const Duration(milliseconds: 500), () {
+          if (mounted && _voiceLoopActive && !_isMuted && !_isSpeaking && !_isProcessingMessage) {
+            _startRecordingWithAutoStop();
+          }
+        });
+      }
     } finally {
-      // Restore previous settings
       _currentSpeechRate = previousRate;
       _currentPitch = previousPitch;
       await _tts.setSpeechRate(previousRate);
@@ -1360,6 +1906,41 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     }
   }
 
+// Update _processQueue method to track queue processing time
+  Future<void> _processQueue() async {
+    if (_speakingQueue.isEmpty) {
+      _isProcessingQueue = false;
+      return;
+    }
+
+    _isProcessingQueue = true;
+    final item = _speakingQueue.removeAt(0);
+    final text = item['text'] as String;
+    final isGuider = item['isGuider'] as bool;
+
+    if (isGuider && _isSpeaking) {
+      print("🛡️ Guider in queue waiting for character to finish...");
+      _speakingQueue.insert(0, item);
+      await Future.delayed(const Duration(milliseconds: 150));
+      _processQueue();
+      return;
+    }
+
+    final queueStopwatch = Stopwatch()..start();
+    print("📋 QUEUE PROCESSING: ${isGuider ? 'Guider' : 'Character'} message");
+
+    await _speakText(text, isGuider: isGuider);
+
+    _logTiming("Queue item (${isGuider ? 'Guider' : 'Character'})", queueStopwatch);
+
+    if (isGuider) {
+      await Future.delayed(const Duration(milliseconds: 300));
+    } else {
+      await Future.delayed(const Duration(milliseconds: 150));
+    }
+
+    _processQueue();
+  }
   void _startTypingAnimation(String fullText) {
     _typingTimer?.cancel();
     setState(() {
@@ -1370,7 +1951,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     final words = fullText.split(' ');
     int index = 0;
 
-    _typingTimer = Timer.periodic(const Duration(milliseconds: 350), (timer) {
+    _typingTimer = Timer.periodic(const Duration(milliseconds: 280), (timer) {
       if (index >= words.length) {
         timer.cancel();
         return;
@@ -1378,7 +1959,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       if (!mounted) return;
       setState(() {
         _textBuffer.add(words[index]);
-        if (_textBuffer.length > 15) {
+        if (_textBuffer.length > 12) {
           _textBuffer.removeAt(0);
         }
         _visibleAiText = _textBuffer.join(' ');
@@ -1388,8 +1969,123 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   }
 
   // ==========================
+  // HANDLE GUIDER INVITATION / REMOVAL
+  // ==========================
+
+  Future<void> _handleGuiderInvitation(bool accept) async {
+    if (!mounted) return;
+
+    if (accept) {
+      // Stop all current audio activities first
+      _stopAll();
+
+      setState(() {
+        _guiderActive = true;
+        _status = "GUIDED";
+        _intervention = GuiderInterventionModel.none;
+        _showingIntervention = false;
+        _guiderMessage = _getGuiderSupportMessage();
+      });
+
+      if (_currentSessionId != null) {
+        final user = FirebaseAuth.instance.currentUser;
+        if (user != null) {
+          await _sessionRepository.setGuiderJoined(
+            uid: user.uid,
+            sessionId: _currentSessionId!,
+            guiderJoined: true,
+          );
+        }
+      }
+
+      final welcomeMessage = _getGuiderWelcomeMessage();
+      if (welcomeMessage.isNotEmpty) {
+        await _saveMessage('assistant', welcomeMessage, sender: 'guider');
+        _conversationHistory.add({
+          'role': 'assistant',
+          'content': welcomeMessage,
+          'isGuider': true,
+        });
+      }
+
+      // Speak the welcome message
+      await _speakText(welcomeMessage, isGuider: true);
+
+      // CRITICAL FIX: Reset voice loop state and restart recording
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      if (mounted) {
+        // Reset all flags that might block recording
+        setState(() {
+          _isProcessingMessage = false;
+          _isBusy = false;
+          _isSpeaking = false;
+          _guiderSpeaking = false;
+          _isProcessingQueue = false;
+          _stopping = false;
+          _pendingTranscript = "";
+        });
+
+        // Clear any pending speech
+        _speakingQueue.clear();
+
+        // Ensure voice loop is active
+        _voiceLoopActive = true;
+
+        // Start listening
+        _startRecordingWithAutoStop();
+      }
+    } else {
+      setState(() {
+        _status = "LIVE";
+        _intervention = GuiderInterventionModel.none;
+        _showingIntervention = false;
+        _guiderMessage = "";
+      });
+      _startVoiceLoop();
+    }
+  }
+
+  Future<void> _handleGuiderRemoval() async {
+    if (!mounted) return;
+
+    setState(() {
+      _guiderActive = false;
+      _status = "LIVE";
+      _guiderMessage = "";
+    });
+
+    final exitMessage = _getGuiderExitMessage();
+    if (exitMessage.isNotEmpty) {
+      await _saveMessage('assistant', exitMessage, sender: 'guider');
+      _conversationHistory.add({
+        'role': 'assistant',
+        'content': exitMessage,
+        'isGuider': true,
+      });
+    }
+
+    await _speakWithQueue(exitMessage, isGuider: true);
+
+    if (_currentSessionId != null) {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        await _sessionRepository.setGuiderJoined(
+          uid: user.uid,
+          sessionId: _currentSessionId!,
+          guiderJoined: false,
+        );
+      }
+    }
+
+    await Future.delayed(const Duration(milliseconds: 300));
+    _startVoiceLoop();
+  }
+
+  // ==========================
   // CAMERA METHODS
   // ==========================
+
   Future<void> _initializeCamera() async {
     try {
       _cameras = await availableCameras();
@@ -1423,21 +2119,28 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   }
 
   Future<void> _disposeCamera() async {
-    _isCameraDisposed = true;
-    if (_cameraController != null) {
-      try {
-        await _cameraController!.dispose();
-      } catch (e) {
-        print("Error disposing camera: $e");
+    if (!_isCameraDisposed) {
+      _isCameraDisposed = true;
+
+      if (_cameraController != null) {
+        try {
+          await _cameraController?.stopImageStream();
+          await _cameraController?.dispose();
+          print("✅ Camera disposed successfully");
+        } catch (e) {
+          print("Error disposing camera: $e");
+        } finally {
+          _cameraController = null;
+          _isCameraInitialized = false;
+        }
       }
-      _cameraController = null;
     }
-    _isCameraInitialized = false;
   }
 
   // ==========================
   // CHARACTER METHODS
   // ==========================
+
   Future<void> _loadCharacterProfile() async {
     try {
       final profile = await _localDataSource.findCharacterByName(
@@ -1452,33 +2155,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     } catch (e) {
       print("❌ Error loading character profile: $e");
     }
-  }
-
-  String _getModelPathForCharacter(String characterName) {
-    final modelMap = {
-      'Inner Critic': 'assets/models/inner_critic.glb',
-      'People Pleaser': 'assets/models/people_pleaser.glb',
-      'Lonely Part': 'assets/models/lonely_part.glb',
-      'Jealous Part': 'assets/models/jealous_part.glb',
-      'Ashamed Part': 'assets/models/ashamed_part.glb',
-      'Workaholic': 'assets/models/workaholic.glb',
-      'Perfectionist': 'assets/models/perfectionist.glb',
-      'Procrastinator': 'assets/models/procastinator.glb',
-      'Excessive Gamer': 'assets/models/excessive_gamer.glb',
-      'Confused Part': 'assets/models/confused_part.glb',
-      'Dependent Part': 'assets/models/dependent_part.glb',
-      'Fearful Part': 'assets/models/fearful_part.glb',
-      'Neglected Part': 'assets/models/neglected_part.glb',
-      'Overeater': 'assets/models/overeater-binger.glb',
-      'Binger': 'assets/models/overeater-binger.glb',
-      'Overeater/Binger': 'assets/models/overeater-binger.glb',
-      'Overwhelmed Part': 'assets/models/overwhelmed_part.glb',
-      'Stoic Part': 'assets/models/stoic_part.glb',
-      'Wounded Child': 'assets/models/wounded_child.glb',
-      'Controller': 'assets/models/controller_part.glb',
-      'Controller Part': 'assets/models/controller_part.glb',
-    };
-    return modelMap[characterName] ?? 'assets/models/inner_critic.glb';
   }
 
   String _getCharacterQuote(String characterName) {
@@ -1532,6 +2208,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   // ==========================
   // UI ACTION METHODS
   // ==========================
+
   void _toggleMute() {
     setState(() {
       _isMuted = !_isMuted;
@@ -1554,22 +2231,54 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
 
   void _toggleVideo() async {
     if (_isVideoEnabled) {
-      await _disposeCamera();
       setState(() {
         _isVideoEnabled = false;
         _isCameraInitialized = false;
       });
+      await _disposeCamera();
     } else {
       setState(() {
         _isVideoEnabled = true;
       });
+      _isCameraDisposed = false;
       await _initializeCamera();
+      if (mounted) {
+        setState(() {
+          _isCameraInitialized = _cameraController?.value.isInitialized ?? false;
+        });
+      }
     }
   }
 
   Future<void> _endCall() async {
     _durationTimer?.cancel();
-    _endEmotionSession();
+    _voiceLoopActive = false;
+    _isProcessingMessage = false;
+    _stopAll();
+
+    if (mounted) {
+      setState(() {
+        _isVideoEnabled = false;
+        _isCameraInitialized = false;
+      });
+    }
+
+    if (_cameraController != null && _cameraController!.value.isInitialized) {
+      try {
+        await _cameraController?.stopImageStream();
+        await _cameraController?.dispose();
+        print("✅ Camera explicitly closed and disposed");
+      } catch (e) {
+        print("Error closing camera: $e");
+      } finally {
+        _cameraController = null;
+        _isCameraInitialized = false;
+        _isCameraDisposed = true;
+      }
+    }
+
+    await Future.delayed(const Duration(milliseconds: 100));
+    await _endEmotionSession();
 
     final user = FirebaseAuth.instance.currentUser;
     if (user != null && _currentSessionId != null && _currentThreadId != null) {
@@ -1581,11 +2290,21 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       ).catchError((e) => print("Error ending session: $e"));
     }
 
-    _stopAll();
-    _disposeCamera();
+    if (_backgroundVideoController != null) {
+      await _backgroundVideoController!.dispose();
+    }
+    if (_videoController != null) {
+      await _videoController!.dispose();
+    }
+
+    _httpClient?.close();
 
     if (mounted) {
-      Navigator.pop(context);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          Navigator.pop(context);
+        }
+      });
     }
   }
 
@@ -1598,7 +2317,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         };
       }).toList();
 
-      final response = await http.post(
+      final response = await _httpClient!.post(
         Uri.parse("$_videoServerUrl$_sessionSummaryEndpoint"),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
@@ -1610,7 +2329,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
           'messages': messagesForSummary,
           'language': _detectedLanguage,
         }),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(const Duration(seconds: 12));
 
       print("✅ Session summary sent: ${response.statusCode}");
     } catch (e) {
@@ -1618,61 +2337,131 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     }
   }
 
+  void _showGuiderModal() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _GuiderModal(
+        isGuiderInChat: _guiderActive,
+        characterName: widget.character.displayNameEn,
+        onInviteGuider: () {
+          Navigator.pop(context);
+          _handleGuiderInvitation(true);
+        },
+        onRemoveGuider: () {
+          Navigator.pop(context);
+          _handleGuiderRemoval();
+        },
+      ),
+    );
+  }
+
+  void _toggleGuider() {
+    _showGuiderModal();
+  }
+
   // ==========================
-  // UI BUILDERS (FROM OLD CODE)
+  // RESPONSIVE UI BUILDERS
   // ==========================
+
   Widget _buildTopBar() {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isSmallScreen = screenWidth < 400;
+
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: EdgeInsets.symmetric(
+        horizontal: screenWidth * 0.04,
+        vertical: 8,
+      ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Container(
-            width: 44,
-            height: 44,
-            decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
-            child: IconButton(icon: const Icon(Icons.arrow_back), onPressed: _endCall),
+            padding: EdgeInsets.symmetric(
+              horizontal: isSmallScreen ? 12 : 16,
+              vertical: isSmallScreen ? 6 : 8,
+            ),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.access_time,
+                  size: isSmallScreen ? 16 : 20,
+                  color: Colors.purple,
+                ),
+                SizedBox(width: isSmallScreen ? 4 : 6),
+                Text(
+                  _formatDuration(_callDurationSeconds),
+                  style: TextStyle(
+                    fontSize: isSmallScreen ? 14 : 16,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.purple,
+                  ),
+                ),
+              ],
+            ),
           ),
           Row(
             children: [
               GestureDetector(
                 onTap: _toggleGuider,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isSmallScreen ? 8 : 12,
+                    vertical: isSmallScreen ? 6 : 8,
+                  ),
                   decoration: BoxDecoration(
                     color: _guiderActive ? const Color(0xFFB79CFF).withValues(alpha: 0.2) : Colors.white,
                     borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: _guiderActive ? const Color(0xFFB79CFF) : Colors.grey.withValues(alpha: 0.3)),
+                    border: Border.all(
+                      color: _guiderActive ? const Color(0xFFB79CFF) : Colors.grey.withValues(alpha: 0.3),
+                      width: 1,
+                    ),
                   ),
                   child: Row(
                     children: [
                       Container(
-                        width: 24,
-                        height: 24,
+                        width: isSmallScreen ? 20 : 24,
+                        height: isSmallScreen ? 20 : 24,
                         child: ClipOval(
                           child: Image.asset(_guiderGifPath, fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => Icon(Icons.assistant_navigation, size: 18, color: _guiderActive ? const Color(0xFFB79CFF) : Colors.grey)),
+                              errorBuilder: (_, __, ___) => Icon(Icons.assistant_navigation, size: isSmallScreen ? 14 : 18,
+                                  color: _guiderActive ? const Color(0xFFB79CFF) : Colors.grey)),
                         ),
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        _guiderActive ? _getGuiderActiveText() : _getInviteGuiderText(),
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: _guiderActive ? const Color(0xFFB79CFF) : const Color(0xFF4B3A66)),
                       ),
                     ],
                   ),
                 ),
               ),
-              const SizedBox(width: 12),
+              SizedBox(width: isSmallScreen ? 8 : 12),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
+                padding: EdgeInsets.symmetric(
+                  horizontal: isSmallScreen ? 10 : 14,
+                  vertical: isSmallScreen ? 4 : 6,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                ),
                 child: Row(
                   children: [
-                    CircleAvatar(radius: 4,
-                        backgroundColor: _isRecording ? Colors.green : _isBusy ? Colors.orange : _isSpeaking ? Colors.purple : _guiderSpeaking ? const Color(0xFFB79CFF) : Colors.red),
-                    const SizedBox(width: 6),
-                    Text(_getStatusText(), style: const TextStyle(color: Colors.purple, fontWeight: FontWeight.bold, fontSize: 16)),
+                    CircleAvatar(
+                      radius: isSmallScreen ? 3 : 4,
+                      backgroundColor: _isRecording ? Colors.green : _isBusy ? Colors.orange : _isSpeaking ? Colors.purple : _guiderSpeaking ? const Color(0xFFB79CFF) : Colors.red,
+                    ),
+                    SizedBox(width: isSmallScreen ? 4 : 6),
+                    Text(
+                      _getStatusText(),
+                      style: TextStyle(
+                        color: Colors.purple,
+                        fontWeight: FontWeight.bold,
+                        fontSize: isSmallScreen ? 12 : 16,
+                      ),
+                    ),
                   ],
                 ),
               )
@@ -1683,55 +2472,51 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     );
   }
 
+  String _formatDuration(int seconds) {
+    final minutes = seconds ~/ 60;
+    final remainingSeconds = seconds % 60;
+    return '${minutes.toString().padLeft(2, '0')}:${remainingSeconds.toString().padLeft(2, '0')}';
+  }
+
   Widget _buildGuiderIndicator() {
     if (!_guiderActive) return const SizedBox.shrink();
+
     final screenWidth = MediaQuery.of(context).size.width;
+    final isSmallScreen = screenWidth < 400;
+    final gifSize = isSmallScreen ? 150.0 : 85.0;
+
     return Positioned(
-      top: 80,
-      left: 16,
+      top: 100,
+      left: 0,
       child: GestureDetector(
         onTap: _toggleGuider,
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          width: gifSize,
+          height: gifSize,
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.95),
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: const Color(0xFFB79CFF), width: 2),
-            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 8)],
+            shape: BoxShape.circle,
+            boxShadow: _guiderSpeaking
+                ? [
+              BoxShadow(
+                color: const Color(0xFFB79CFF).withValues(alpha: 0.5),
+                blurRadius: 15,
+                spreadRadius: 2,
+              ),
+            ]
+                : null,
           ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 32,
-                height: 32,
-                decoration: BoxDecoration(shape: BoxShape.circle, boxShadow: [BoxShadow(color: const Color(0xFFB79CFF).withValues(alpha: 0.5), blurRadius: 8)]),
-                child: ClipOval(
-                  child: Image.asset(_guiderGifPath, fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => Container(
-                        decoration: const BoxDecoration(gradient: LinearGradient(colors: [Color(0xFFB79CFF), Color(0xFF9B7BFF)]), shape: BoxShape.circle),
-                        child: const Icon(Icons.assistant_navigation, color: Colors.white, size: 18),
-                      )),
+          child: ClipOval(
+            child: Image.asset(
+              _guiderGifPath,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => Container(
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(colors: [Color(0xFFB79CFF), Color(0xFF9B7BFF)]),
+                  shape: BoxShape.circle,
                 ),
+                child: Icon(Icons.assistant_navigation, color: Colors.white, size: gifSize * 0.5),
               ),
-              const SizedBox(width: 8),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(_getGuiderName(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF2A1E3B))),
-                  if (_guiderMessage.isNotEmpty)
-                    Container(
-                      constraints: BoxConstraints(maxWidth: screenWidth * 0.5),
-                      child: Text(_guiderMessage,
-                          style: TextStyle(fontSize: 10, color: _guiderSpeaking ? const Color(0xFFB79CFF) : const Color(0xFF4B3A66), fontStyle: FontStyle.italic),
-                          maxLines: 1, overflow: TextOverflow.ellipsis),
-                    ),
-                ],
-              ),
-              const SizedBox(width: 4),
-              if (_guiderSpeaking) Container(width: 8, height: 8, decoration: const BoxDecoration(shape: BoxShape.circle, color: Color(0xFFB79CFF))),
-            ],
+            ),
           ),
         ),
       ),
@@ -1740,8 +2525,11 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
 
   Widget _buildInterventionOverlay() {
     if (!_showingIntervention) return const SizedBox.shrink();
+
     final screenWidth = MediaQuery.of(context).size.width;
-    final guiderMessage = _intervention.guiderMessage ?? '';
+    final screenHeight = MediaQuery.of(context).size.height;
+    final isSmallScreen = screenWidth < 400;
+
     return Positioned.fill(
       child: Container(
         color: Colors.black.withValues(alpha: 0.85),
@@ -1749,32 +2537,57 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
           child: Container(
             width: screenWidth * 0.85,
             margin: const EdgeInsets.symmetric(horizontal: 20),
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(28), boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 20, offset: const Offset(0, 10))]),
+            padding: EdgeInsets.all(isSmallScreen ? 16 : 24),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(28),
+              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 20, offset: const Offset(0, 10))],
+            ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
-                  width: 80,
-                  height: 80,
-                  decoration: BoxDecoration(shape: BoxShape.circle, boxShadow: [BoxShadow(color: const Color(0xFFB79CFF).withValues(alpha: 0.6), blurRadius: 20)]),
+                  width: isSmallScreen ? 60 : 80,
+                  height: isSmallScreen ? 60 : 80,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    boxShadow: [BoxShadow(color: const Color(0xFFB79CFF).withValues(alpha: 0.6), blurRadius: 20)],
+                  ),
                   child: ClipOval(
                     child: Image.asset(_guiderGifPath, fit: BoxFit.cover,
                         errorBuilder: (_, __, ___) => Container(
                           decoration: const BoxDecoration(gradient: LinearGradient(colors: [Color(0xFFB79CFF), Color(0xFF9B7BFF)]), shape: BoxShape.circle),
-                          child: const Icon(Icons.assistant_navigation, color: Colors.white, size: 40),
+                          child: Icon(Icons.assistant_navigation, color: Colors.white, size: isSmallScreen ? 30 : 40),
                         )),
                   ),
                 ),
-                const SizedBox(height: 20),
-                Text(_getGuiderName(), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF2A1E3B))),
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(color: const Color(0xFFF5F0FF), borderRadius: BorderRadius.circular(20)),
-                  child: Text(guiderMessage, textAlign: TextAlign.center, style: const TextStyle(fontSize: 16, color: Color(0xFF4B3A66), height: 1.5)),
+                SizedBox(height: isSmallScreen ? 16 : 20),
+                Text(
+                  _getGuiderName(),
+                  style: TextStyle(
+                    fontSize: isSmallScreen ? 20 : 24,
+                    fontWeight: FontWeight.bold,
+                    color: const Color(0xFF2A1E3B),
+                  ),
                 ),
-                const SizedBox(height: 24),
+                SizedBox(height: isSmallScreen ? 12 : 16),
+                Container(
+                  padding: EdgeInsets.all(isSmallScreen ? 12 : 16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF5F0FF),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    _intervention.guiderMessage ?? '',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: isSmallScreen ? 14 : 16,
+                      color: const Color(0xFF4B3A66),
+                      height: 1.5,
+                    ),
+                  ),
+                ),
+                SizedBox(height: isSmallScreen ? 20 : 24),
                 Row(
                   children: [
                     Expanded(
@@ -1783,30 +2596,40 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
                         style: OutlinedButton.styleFrom(
                           foregroundColor: const Color(0xFF6A5CFF),
                           side: const BorderSide(color: Color(0xFFB79CFF), width: 1.5),
-                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          padding: EdgeInsets.symmetric(vertical: isSmallScreen ? 12 : 14),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                         ),
-                        child: Text(_getContinueAloneText(), style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                        child: Text(
+                          _getContinueAloneText(),
+                          style: TextStyle(fontSize: isSmallScreen ? 13 : 15, fontWeight: FontWeight.w600),
+                        ),
                       ),
                     ),
-                    const SizedBox(width: 12),
+                    SizedBox(width: isSmallScreen ? 8 : 12),
                     Expanded(
                       child: ElevatedButton(
                         onPressed: () => _handleGuiderInvitation(true),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFFB79CFF),
                           foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          padding: EdgeInsets.symmetric(vertical: isSmallScreen ? 12 : 14),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                           elevation: 4,
                         ),
-                        child: Text(_getInviteGuiderButtonText(), style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                        child: Text(
+                          _getInviteGuiderButtonText(),
+                          style: TextStyle(fontSize: isSmallScreen ? 13 : 15, fontWeight: FontWeight.w600),
+                        ),
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 12),
-                Text(_getGuiderSupportText(), style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
+                SizedBox(height: isSmallScreen ? 8 : 12),
+                Text(
+                  _getGuiderSupportText(),
+                  style: TextStyle(fontSize: isSmallScreen ? 10 : 11, color: Colors.grey.shade500),
+                  textAlign: TextAlign.center,
+                ),
               ],
             ),
           ),
@@ -1816,24 +2639,44 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   }
 
   Widget _circleButton(IconData icon, {bool isActive = true, bool isEndCall = false}) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isSmallScreen = screenWidth < 400;
+    final buttonSize = isSmallScreen ? 55.0 : 70.0;
+    final iconSize = isSmallScreen ? 24.0 : 30.0;
+
     if (isEndCall) {
       return Container(
-        width: 70, height: 70,
-        decoration: BoxDecoration(shape: BoxShape.circle, gradient: const LinearGradient(colors: [Color(0xFF7B61FF), Color(0xFF9C8CFF)]), boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 8)]),
-        child: Icon(icon, color: Colors.white, size: 30),
+        width: buttonSize,
+        height: buttonSize,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: const LinearGradient(colors: [Color(0xFF7B61FF), Color(0xFF9C8CFF)]),
+          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 8)],
+        ),
+        child: Icon(icon, color: Colors.white, size: iconSize),
       );
     }
     if (!isActive) {
       return Container(
-        width: 70, height: 70,
-        decoration: BoxDecoration(shape: BoxShape.circle, color: const Color(0xFF4A2B7A), boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 8)]),
-        child: Icon(icon, color: Colors.white, size: 30),
+        width: buttonSize,
+        height: buttonSize,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: const Color(0xFF4A2B7A),
+          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 8)],
+        ),
+        child: Icon(icon, color: Colors.white, size: iconSize),
       );
     }
     return Container(
-      width: 70, height: 70,
-      decoration: BoxDecoration(shape: BoxShape.circle, gradient: const LinearGradient(colors: [Color(0xFF7B61FF), Color(0xFF9C8CFF)]), boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 8)]),
-      child: Icon(icon, color: Colors.white, size: 30),
+      width: buttonSize,
+      height: buttonSize,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: const LinearGradient(colors: [Color(0xFF7B61FF), Color(0xFF9C8CFF)]),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 8)],
+      ),
+      child: Icon(icon, color: Colors.white, size: iconSize),
     );
   }
 
@@ -1846,9 +2689,29 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     _maxTimer?.cancel();
     _silenceTimer?.cancel();
     _typingTimer?.cancel();
+    _guiderWaitTimer?.cancel();
     _recorderSubscription?.cancel();
     _stopAll();
-    _disposeCamera();
+
+    if (_cameraController != null && _cameraController!.value.isInitialized) {
+      _cameraController?.stopImageStream();
+      _cameraController?.dispose();
+      _cameraController = null;
+      print("✅ Camera closed in dispose");
+    }
+
+    if (_backgroundVideoController != null) {
+      _backgroundVideoController!.dispose();
+      print("✅ Background video player disposed");
+    }
+
+    if (_videoController != null) {
+      _videoController!.dispose();
+      print("✅ Legacy video player disposed");
+    }
+
+    _httpClient?.close();
+
     try {
       _recorder.closeRecorder();
       _tts.stop();
@@ -1863,96 +2726,60 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   Widget build(BuildContext context) {
     final screenHeight = MediaQuery.of(context).size.height;
     final screenWidth = MediaQuery.of(context).size.width;
+    final isSmallScreen = screenWidth < 400;
+    final isLandscape = screenWidth > screenHeight;
+    final isTablet = screenWidth >= 600 && screenWidth < 1200;
+
+    final characterCircleSize = isTablet ? screenWidth * 0.45 : screenWidth * 0.6;
+
+// Option 2: Even smaller (more balanced)
+    final o3dHeight = isLandscape ? screenHeight * 0.15 : screenHeight * 0.3;
+    final o3dWidth = isLandscape ? screenWidth * 0.25 : screenWidth * 0.15;
+    final videoWidth = isSmallScreen ? 110.0 : 130.0;
+    final videoHeight = isSmallScreen ? 150.0 : 170.0;
+    final chatContainerWidth = isLandscape ? screenWidth * 0.7 : screenWidth * 0.9;
+    final double characterNameFontSize = isSmallScreen ? 22.0 : 26.0;
+    final double quoteFontSize = isSmallScreen ? 14.0 : 16.0;
+
+    final bool usesVideo = _usesVideo();
 
     return Scaffold(
       body: Stack(
         children: [
-          Positioned.fill(
-            child: Image.asset(
-              "assets/images/call_background.jpeg",
-              fit: BoxFit.cover,
+          // Full screen background video or image
+          if (usesVideo && _backgroundVideoController != null && _isBackgroundVideoInitialized)
+            Positioned.fill(
+              child: VideoPlayer(_backgroundVideoController!),
+            )
+          else
+            Positioned.fill(
+              child: Image.asset(
+                "assets/images/call_background.jpeg",
+                fit: BoxFit.cover,
+              ),
             ),
-          ),
+
+
           SafeArea(
             child: Column(
               children: [
                 _buildTopBar(),
                 Expanded(
-                  flex: 3,
+                  flex: isLandscape ? 6 : 4,
                   child: Stack(
                     clipBehavior: Clip.none,
                     alignment: Alignment.center,
                     children: [
-                      Container(
-                        width: screenWidth * 0.6,
-                        height: screenWidth * 0.6,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: const Color(0xFFE6DBFF).withValues(alpha: 0.5),
-                        ),
-                      ),
-                      Positioned(
-                        top: screenHeight * 0.14,
-                        child: SizedBox(
-                          height: screenHeight * 0.45,
-                          width: screenWidth * 0.65,
-                          child: O3D(
-                            controller: _o3dController,
-                            src: _characterModelPath,
-                            autoPlay: true,
-                            cameraControls: false,
-                            backgroundColor: Colors.transparent,
-                            autoRotate: false,
-                            loading: Loading.eager,
-                          ),
-                        ),
-                      ),
-                      if (_guiderActive)
-                        Positioned(
-                          top: 10,
-                          left: 10,
-                          child: Container(
-                            width: 50,
-                            height: 50,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: const Color(0xFFB79CFF),
-                                width: 2,
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: const Color(0xFFB79CFF).withValues(alpha: 0.3),
-                                  blurRadius: 8,
-                                ),
-                              ],
-                            ),
-                            child: ClipOval(
-                              child: Image.asset(
-                                _guiderGifPath,
-                                fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) {
-                                  return Container(
-                                    color: const Color(0xFFB79CFF),
-                                    child: const Icon(
-                                      Icons.assistant_navigation,
-                                      color: Colors.white,
-                                      size: 30,
-                                    ),
-                                  );
-                                },
-                              ),
-                            ),
-                          ),
-                        ),
+                      // REMOVED the first Container circle here
+
                       Positioned(
                         top: 5,
-                        right: -75,
+                        right: isSmallScreen ? 10: -35,
                         child: GestureDetector(
                           onTap: _toggleVideo,
                           child: Container(
-                            width: 120,
-                            height: 160,
+                            width: videoWidth,
+                            height: videoHeight,
                             decoration: BoxDecoration(
                               borderRadius: BorderRadius.circular(16),
                               border: Border.all(
@@ -1960,16 +2787,12 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
                                 width: 3,
                               ),
                               boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withValues(alpha: 0.3),
-                                  blurRadius: 15,
-                                  spreadRadius: 2,
-                                ),
+                                BoxShadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 15, spreadRadius: 2),
                               ],
                             ),
                             child: ClipRRect(
                               borderRadius: BorderRadius.circular(13),
-                              child: _isVideoEnabled && _isCameraInitialized && _cameraController != null
+                              child: _isVideoEnabled && _isCameraInitialized && _cameraController != null && _cameraController!.value.isInitialized
                                   ? CameraPreview(_cameraController!)
                                   : Container(
                                 color: _isVideoEnabled
@@ -1980,25 +2803,23 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
                                       Icon(
-                                        _isVideoEnabled
-                                            ? Icons.videocam
-                                            : Icons.videocam_off,
+                                        _isVideoEnabled ? Icons.videocam : Icons.videocam_off,
                                         color: Colors.white,
-                                        size: 40,
+                                        size: isSmallScreen ? 30 : 40,
                                       ),
-                                      const SizedBox(height: 12),
+                                      SizedBox(height: isSmallScreen ? 8 : 12),
                                       Text(
                                         _getYouText(),
-                                        style: const TextStyle(
+                                        style: TextStyle(
                                           color: Colors.white,
-                                          fontSize: 16,
+                                          fontSize: isSmallScreen ? 12 : 16,
                                           fontWeight: FontWeight.w600,
                                         ),
                                       ),
                                       if (!_isVideoEnabled)
                                         Container(
-                                          margin: const EdgeInsets.only(top: 4),
-                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                          margin: const EdgeInsets.only(top: 5),
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                           decoration: BoxDecoration(
                                             color: const Color(0xFF4A2B7A).withValues(alpha: 0.8),
                                             borderRadius: BorderRadius.circular(10),
@@ -2007,7 +2828,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
                                             _getOffText(),
                                             style: const TextStyle(
                                               color: Colors.white,
-                                              fontSize: 12,
+                                              fontSize: 10,
                                               fontWeight: FontWeight.bold,
                                             ),
                                           ),
@@ -2024,22 +2845,21 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
                   ),
                 ),
                 Transform.translate(
-                  offset: const Offset(0, -6),
+                  offset: Offset(0, isSmallScreen ? -4 : -6),
                   child: Column(
                     children: [
                       Container(
-                        width: screenWidth * 0.9,
+                        width: chatContainerWidth,
                         margin: const EdgeInsets.only(bottom: 10),
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+                        padding: EdgeInsets.symmetric(
+                          horizontal: isSmallScreen ? 16 : 24,
+                          vertical: isSmallScreen ? 16 : 20,
+                        ),
                         decoration: BoxDecoration(
-                          color: Colors.white,
+                          color: Colors.white.withValues(alpha: 0.95),
                           borderRadius: BorderRadius.circular(30),
                           boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.1),
-                              blurRadius: 10,
-                              offset: const Offset(0, -2),
-                            ),
+                            BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 10, offset: const Offset(0, -2)),
                           ],
                         ),
                         child: Column(
@@ -2047,9 +2867,10 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
                           children: [
                             Text(
                               widget.character.getDisplayName(_detectedLanguage == 'ar' ? 'ar' : 'en'),
-                              style: const TextStyle(
-                                fontSize: 26,
+                              style: TextStyle(
+                                fontSize: characterNameFontSize,
                                 fontWeight: FontWeight.bold,
+                                color: const Color(0xFF2A1E3B),
                               ),
                               textAlign: TextAlign.center,
                             ),
@@ -2060,11 +2881,13 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
                                 child: Text(
                                   '"$_lastUserText"',
                                   textAlign: TextAlign.center,
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     color: Colors.purple,
-                                    fontSize: 14,
+                                    fontSize: isSmallScreen ? 12 : 14,
                                     fontStyle: FontStyle.italic,
                                   ),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ),
                             Text(
@@ -2072,9 +2895,9 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
                                   ? _visibleAiText
                                   : _getCharacterQuote(widget.character.characterName),
                               textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                color: Colors.black54,
-                                fontSize: 16,
+                              style: TextStyle(
+                                color: Colors.black87,
+                                fontSize: quoteFontSize,
                                 height: 1.4,
                               ),
                             ),
@@ -2104,7 +2927,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
                               isActive: !_isMuted,
                             ),
                           ),
-                          const SizedBox(width: 30),
+                          SizedBox(width: isSmallScreen ? 20 : 30),
                           GestureDetector(
                             onTap: _endCall,
                             child: _circleButton(
@@ -2112,7 +2935,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
                               isEndCall: true,
                             ),
                           ),
-                          const SizedBox(width: 30),
+                          SizedBox(width: isSmallScreen ? 20 : 30),
                           GestureDetector(
                             onTap: _toggleVideo,
                             child: _circleButton(
@@ -2131,6 +2954,154 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
           _buildGuiderIndicator(),
           _buildInterventionOverlay(),
         ],
+      ),
+    );
+  }
+}
+
+class _GuiderModal extends StatelessWidget {
+  final bool isGuiderInChat;
+  final String characterName;
+  final VoidCallback onInviteGuider;
+  final VoidCallback onRemoveGuider;
+
+  const _GuiderModal({
+    required this.isGuiderInChat,
+    required this.characterName,
+    required this.onInviteGuider,
+    required this.onRemoveGuider,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isSmallScreen = screenWidth < 400;
+    final avatarSize = isSmallScreen ? 60.0 : 80.0;
+    final titleFontSize = isSmallScreen ? 18.0 : 20.0;
+    final textFontSize = isSmallScreen ? 13.0 : 15.0;
+
+    return SafeArea(
+      child: Container(
+        margin: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: [
+            BoxShadow(color: const Color(0xFFB79CFF).withValues(alpha: 0.2), blurRadius: 20, offset: const Offset(0, -4)),
+          ],
+        ),
+        child: SingleChildScrollView(
+          padding: EdgeInsets.all(isSmallScreen ? 16 : 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(color: const Color(0xFFE5DEFF), borderRadius: BorderRadius.circular(2)),
+              ),
+              const SizedBox(height: 20),
+              Container(
+                width: avatarSize,
+                height: avatarSize,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  boxShadow: [BoxShadow(color: const Color(0xFFB79CFF).withValues(alpha: 0.6), blurRadius: 20)],
+                ),
+                child: ClipOval(
+                  child: Image.asset(
+                    'assets/animations/guider.gif',
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Container(
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(colors: [Color(0xFFB79CFF), Color(0xFF9B7BFF)]),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(Icons.assistant_navigation, color: Colors.white, size: avatarSize * 0.5),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                tr(context, 'The Guider', 'المُرشد'),
+                style: TextStyle(fontSize: titleFontSize, fontWeight: FontWeight.w800, color: const Color(0xFF2A1E3B)),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                isGuiderInChat
+                    ? tr(
+                  context,
+                  'The Guider is currently in this conversation, helping you and your $characterName understand each other better.',
+                  'المُرشد موجود حاليًا في هذه المحادثة، يساعدك أنت و$characterName على فهم بعضكم البعض بشكل أفضل.',
+                )
+                    : tr(
+                  context,
+                  'Would you like The Guider to join this conversation? They can help you and your $characterName communicate with more clarity and compassion.',
+                  'هل تريد أن ينضم المُرشد إلى هذه المحادثة؟ يمكنه مساعدتك أنت و$characterName على التواصل بوضوح وتعاطف أكبر.',
+                ),
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: textFontSize, color: const Color(0xFF6B5C82), height: 1.5),
+              ),
+              const SizedBox(height: 24),
+              if (isGuiderInChat)
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton(
+                    onPressed: onRemoveGuider,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF8B7EC8),
+                      side: const BorderSide(color: Color(0xFFB79CFF)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      padding: EdgeInsets.symmetric(vertical: isSmallScreen ? 12 : 14),
+                    ),
+                    child: Text(
+                      tr(context, 'Continue without The Guider', 'استمر بدون المُرشد'),
+                      style: TextStyle(fontSize: textFontSize, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                )
+              else
+                Column(
+                  children: [
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: onInviteGuider,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFB79CFF),
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          padding: EdgeInsets.symmetric(vertical: isSmallScreen ? 12 : 14),
+                        ),
+                        child: Text(
+                          tr(context, 'Yes, invite The Guider', 'نعم، ادعُ المُرشد'),
+                          style: TextStyle(fontSize: textFontSize, fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        style: TextButton.styleFrom(
+                          foregroundColor: const Color(0xFF8B7EC8),
+                          padding: EdgeInsets.symmetric(vertical: isSmallScreen ? 12 : 14),
+                        ),
+                        child: Text(
+                          tr(context, 'Not now', 'ليس الآن'),
+                          style: TextStyle(fontSize: textFontSize, fontWeight: FontWeight.w500),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
       ),
     );
   }
