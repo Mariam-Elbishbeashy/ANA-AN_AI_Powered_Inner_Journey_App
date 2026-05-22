@@ -1,26 +1,35 @@
 //Interact with Firestore database to store and retrieve chat data.
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'dart:async';
+import 'dart:convert';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:http/http.dart' as http;
+
+import 'package:ana_ifs_app/app/config/app_config.dart';
 import 'package:ana_ifs_app/features/chat/data/models/chat_message_model.dart';
 import 'package:ana_ifs_app/features/chat/data/models/chat_session_model.dart';
 import 'package:ana_ifs_app/features/chat/data/models/chat_thread_model.dart';
 
 //Data source for chat operations in Firestore (Firebase).
 class ChatRemoteDataSource {
-  ChatRemoteDataSource({FirebaseFirestore? firestore})
-    : _firestore = firestore ?? FirebaseFirestore.instance;
+  ChatRemoteDataSource({
+    FirebaseFirestore? firestore,
+    FirebaseAuth? auth,
+    http.Client? client,
+    String? aiBaseUrl,
+  }) : _firestore = firestore ?? FirebaseFirestore.instance,
+       _auth = auth ?? FirebaseAuth.instance,
+       _client = client ?? http.Client(),
+       _aiBaseUrl = aiBaseUrl ?? AppConfig.aiBaseUrl;
 
   final FirebaseFirestore _firestore;
+  final FirebaseAuth _auth;
+  final http.Client _client;
+  final String _aiBaseUrl;
 
   CollectionReference<Map<String, dynamic>> _threadsRef(String uid) {
     return _firestore.collection('users').doc(uid).collection('chat_threads');
-  }
-
-  CollectionReference<Map<String, dynamic>> _messagesRef(
-    String uid,
-    String threadId,
-  ) {
-    return _threadsRef(uid).doc(threadId).collection('messages');
   }
 
   CollectionReference<Map<String, dynamic>> _sessionsRef(String uid) {
@@ -293,15 +302,20 @@ class ChatRemoteDataSource {
     required String threadId,
     int limit = 50,
   }) {
-    return _messagesRef(uid, threadId)
-        .orderBy('createdAt')
-        .limitToLast(limit)
-        .snapshots()
-        .map(
-          (snapshot) => snapshot.docs
-              .map((doc) => ChatMessageModel.fromMap(doc.data(), doc.id))
-              .toList(),
-        );
+    // Backend-only decrypt policy: poll secure backend endpoint instead of
+    // reading ciphertext directly from Firestore.
+    final safeLimit = limit < 1 ? 1 : limit;
+    return (() async* {
+      yield await getRecentMessages(
+        uid: uid,
+        threadId: threadId,
+        limit: safeLimit,
+      );
+      yield* Stream<void>.periodic(const Duration(seconds: 2)).asyncMap(
+        (_) =>
+            getRecentMessages(uid: uid, threadId: threadId, limit: safeLimit),
+      );
+    })();
   }
 
   /// Arm backend auto-end fallback for a still-active session.
@@ -335,16 +349,35 @@ class ChatRemoteDataSource {
     required String threadId,
     int limit = 20,
   }) async {
-    final snapshot = await _messagesRef(
-      uid,
-      threadId,
-    ).orderBy('createdAt', descending: true).limit(limit).get();
-
-    return snapshot.docs
-        .map((doc) => ChatMessageModel.fromMap(doc.data(), doc.id))
-        .toList()
-        .reversed
+    final user = _auth.currentUser;
+    if (user == null) {
+      throw Exception('User not authenticated');
+    }
+    final idToken = await user.getIdToken();
+    final uri = Uri.parse('$_aiBaseUrl/messages/recent');
+    final response = await _client.post(
+      uri,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $idToken',
+      },
+      body: json.encode({'uid': uid, 'threadId': threadId, 'limit': limit}),
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('Messages API error: ${response.statusCode}');
+    }
+    final decoded = json.decode(response.body) as Map<String, dynamic>;
+    if (decoded['success'] != true) {
+      throw Exception(decoded['error'] ?? 'Failed to fetch messages');
+    }
+    final messages = (decoded['messages'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map(
+          (item) =>
+              ChatMessageModel.fromMap(item, item['id']?.toString() ?? ''),
+        )
         .toList();
+    return messages;
   }
 
   //Send a new chat message to Firestore.
@@ -355,35 +388,32 @@ class ChatRemoteDataSource {
     required String content,
     Map<String, dynamic>? metadata,
   }) async {
-    await _messagesRef(uid, threadId).add({
-      'role': role,
-      'content': content,
-      'createdAt': FieldValue.serverTimestamp(),
-      'metadata': metadata,
-    });
-
-    await _threadsRef(uid).doc(threadId).set({
-      'updatedAt': FieldValue.serverTimestamp(),
-      'lastMessageAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
-
-    // Keep the `sessions` document in sync (so session history ordering works).
-    //
-    // We intentionally read the sessionId from metadata because:
-    // - We already attach `sessionId` to message metadata in the existing code.
-    // - Avoids an extra thread lookup here.
-    final sessionId = metadata?['sessionId']?.toString();
-    if (sessionId != null && sessionId.isNotEmpty) {
-      // These counters are used by the backend to run periodic updates
-      // (every 3 user turns) deterministically.
-      final isUserMessage = role == 'user';
-
-      await _sessionsRef(uid).doc(sessionId).set({
-        'updatedAt': FieldValue.serverTimestamp(),
-        'lastMessageAt': FieldValue.serverTimestamp(),
-        'messageCount': FieldValue.increment(1),
-        if (isUserMessage) 'userTurnCount': FieldValue.increment(1),
-      }, SetOptions(merge: true));
+    final user = _auth.currentUser;
+    if (user == null) {
+      throw Exception('User not authenticated');
+    }
+    final idToken = await user.getIdToken();
+    final uri = Uri.parse('$_aiBaseUrl/messages/append');
+    final response = await _client.post(
+      uri,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $idToken',
+      },
+      body: json.encode({
+        'uid': uid,
+        'threadId': threadId,
+        'role': role,
+        'content': content,
+        'metadata': metadata,
+      }),
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('Messages API error: ${response.statusCode}');
+    }
+    final decoded = json.decode(response.body) as Map<String, dynamic>;
+    if (decoded['success'] != true) {
+      throw Exception(decoded['error'] ?? 'Failed to send message');
     }
   }
 }

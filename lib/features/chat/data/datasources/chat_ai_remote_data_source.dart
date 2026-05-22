@@ -1,6 +1,7 @@
 //Interact with AI server to get chat responses (Flask server).
 import 'dart:convert';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 
 import 'package:ana_ifs_app/app/config/app_config.dart';
@@ -32,8 +33,8 @@ class ChatAiRemoteDataSource {
   static const Duration _requestTimeout = Duration(seconds: 60);
 
   ChatAiRemoteDataSource({http.Client? client, String? baseUrl})
-      : _client = client ?? http.Client(),
-        _baseUrl = baseUrl ?? AppConfig.aiBaseUrl;
+    : _client = client ?? http.Client(),
+      _baseUrl = baseUrl ?? AppConfig.aiBaseUrl;
 
   final http.Client _client;
   final String _baseUrl;
@@ -160,10 +161,16 @@ class ChatAiRemoteDataSource {
     required String characterId,
   }) async {
     final uri = Uri.parse('$_baseUrl/sessions/end_analyze');
+    final user = FirebaseAuth.instance.currentUser;
+    final idToken = await user?.getIdToken();
     final response = await _client
         .post(
           uri,
-          headers: {'Content-Type': 'application/json'},
+          headers: {
+            'Content-Type': 'application/json',
+            if (idToken != null && idToken.isNotEmpty)
+              'Authorization': 'Bearer $idToken',
+          },
           body: json.encode({
             'uid': uid,
             'sessionId': sessionId,
