@@ -225,7 +225,7 @@ class AboutANAScreen extends StatelessWidget {
 
                   // About IFS
                   Container(
-                    padding: const EdgeInsets.all(20),
+                    padding: const EdgeInsets.all(19),
                     decoration: BoxDecoration(
                       color: const Color(0xFFF0ECF7),
                       borderRadius: BorderRadius.circular(20),

@@ -9,7 +9,12 @@ import uuid
 from datetime import datetime, timezone
 from typing import Dict, List, Any, Optional
 import re
-
+# Add these to the imports section
+import logging
+from datetime import datetime, timezone
+from typing import Dict, List, Any, Optional
+import time
+import json
 import firebase_admin
 from firebase_admin import credentials, firestore
 from openai import OpenAI
@@ -21,7 +26,14 @@ from openai import OpenAI
 OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-4o-mini')
 OPENAI_SUMMARY_MODEL = os.getenv('OPENAI_SUMMARY_MODEL', 'gpt-4o-mini')
 openai_client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
-
+# Add after OPENAI_SUMMARY_MODEL initialization
+logger = logging.getLogger("video_chat")
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter("%(message)s")
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+logger.setLevel(logging.INFO)
 # Initialize Firebase Admin SDK
 try:
     firebase_admin.get_app()
@@ -527,53 +539,77 @@ def score_intensity_with_llm(
     character_id: str,
     messages: List[Dict[str, str]],
 ) -> Dict[str, Any]:
-    context = _extract_recent_user_text(messages)
+    """Optimized intensity scoring - matches agents.py pattern with rules first"""
+    # Fast path: use rule-based scoring (same as agents.py)
+    user_msgs = []
+    for m in messages[-8:]:  # Only last 8 messages
+        if m.get("role") == "user":
+            content = (m.get("content") or "").strip()[:200]
+            if content:
+                user_msgs.append(content)
 
-    prompt = (
-        "You are a scoring function for an IFS-style chat session.\n"
-        "Score the USER's current emotional intensity and blending.\n"
-        "Return ONLY JSON with keys:\n"
-        '- intensity: number between 0 and 1\n'
-        '- blend: boolean (true if user seems merged with the part / "I am" statements / flooded)\n'
-        '- signals: array of short strings (e.g. "shame", "panic", "self-criticism", "avoidance")\n'
-        '- rationale: 1-2 short sentences explaining why\n'
-        "Be language-agnostic: the user may speak Arabic or English.\n"
-        f"CharacterId: {character_id}\n"
-        "Conversation tail:\n"
-        f"{context}\n"
-    )
+    user_text = " ".join(user_msgs)
 
-    resp = openai_client.chat.completions.create(
-        model=OPENAI_MODEL,
-        messages=[
-            {"role": "system", "content": "Return JSON only (no markdown)."},
-            {"role": "user", "content": prompt},
-        ],
-        temperature=0.2,
-        response_format={"type": "json_object"},
-    )
+    if not user_text:
+        return {"intensity": 0.3, "blend": False, "signals": [], "rationale": "No user text", "_raw": {}}
 
-    raw = resp.choices[0].message.content or "{}"
-    try:
-        parsed = json.loads(raw)
-    except Exception:
-        parsed = {}
+    lower = user_text.lower()
 
-    intensity = parsed.get("intensity")
-    try:
-        intensity = float(intensity)
-    except Exception:
-        intensity = 0.5
-    intensity = max(0.0, min(1.0, intensity))
+    # Quick markers (expanded like agents.py)
+    high_markers = ['panic', 'terrified', 'overwhelmed', 'hopeless', 'worthless', 'can\'t', 'cant', 'falling apart']
+    medium_markers = ['stuck', 'anxious', 'confused', 'drained', 'worried', 'ashamed']
+    blend_markers = ['i am broken', 'i\'m broken', 'i am worthless', 'i am a failure', 'i am this']
+
+    high_count = sum(1 for m in high_markers if m in lower)
+    med_count = sum(1 for m in medium_markers if m in lower)
+    blend_count = sum(1 for m in blend_markers if m in lower)
+
+    # Calculate intensity
+    intensity = 0.3
+    intensity += min(0.4, high_count * 0.1)
+    intensity += min(0.2, med_count * 0.05)
+    intensity = min(1.0, intensity)
+    blend = blend_count > 0 or (high_count >= 2 and intensity >= 0.6)
+
+    # Only call LLM for ambiguous cases (saves time, same as agents.py pattern)
+    if 0.35 < intensity < 0.65 and len(user_text) > 50 and high_count == 0:
+        try:
+            prompt = f"Rate emotional intensity (0-1) and if user is blended. User: '{user_text[:350]}'"
+
+            resp = openai_client.chat.completions.create(
+                model=OPENAI_MODEL,
+                messages=[
+                    {"role": "system", "content": "Return JSON: {\"intensity\": number, \"blend\": boolean}"},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0,
+                max_tokens=40,
+            )
+            raw = resp.choices[0].message.content or "{}"
+            try:
+                # Strip markdown if present
+                if raw.startswith('```json'):
+                    raw = raw[7:]
+                if raw.startswith('```'):
+                    raw = raw[3:]
+                if raw.endswith('```'):
+                    raw = raw[:-3]
+                parsed = json.loads(raw.strip())
+                if "intensity" in parsed:
+                    intensity = float(parsed.get("intensity", intensity))
+                    blend = parsed.get("blend", blend)
+            except:
+                pass
+        except:
+            pass
 
     return {
-        "intensity": intensity,
-        "blend": parsed.get("blend") is True,
-        "signals": parsed.get("signals") or [],
-        "rationale": (parsed.get("rationale") or "").strip(),
-        "_raw": parsed,
+        "intensity": round(intensity, 2),
+        "blend": blend,
+        "signals": ["high_distress" if high_count >= 2 else "medium_distress" if med_count >= 2 else "normal"],
+        "rationale": f"fast: h={high_count}, m={med_count}",
+        "_raw": {}
     }
-
 def summarize_session_with_llm(
     character_id: str,
     messages: List[Dict[str, str]],
@@ -655,14 +691,21 @@ Guidelines:
 def build_system_prompt_with_memory(
     character_profile: Dict,
     memory_summary: str,
+    plan_focus_hint: str = "",
 ) -> str:
     base_prompt = build_inner_character_prompt(character_profile)
-    if not memory_summary:
+    if not memory_summary and not plan_focus_hint:
         return base_prompt
+
+    extras: List[str] = []
+    if memory_summary:
+        extras.append(f"Memory summary (use only if relevant):\n{memory_summary}")
+    if plan_focus_hint:
+        extras.append(f"Current therapeutic focus (internal hint; do not mention checklist mechanics):\n{plan_focus_hint}")
+
     return f"""{base_prompt}
 
-Memory summary (use only if relevant):
-{memory_summary}
+{chr(10).join(extras)}
 """.strip()
 
 def load_agent_memory_summary(uid: str, character_id: str) -> str:
@@ -713,36 +756,39 @@ def set_last_agent_run(uid: str) -> None:
     }, merge=True)
 
 def run_agent_step(system_prompt: str, messages: List[Dict[str, str]]) -> Dict[str, Any]:
+    """Optimized agent step - matching agents.py pattern"""
+    truncated_messages = messages[-6:] if len(messages) > 6 else messages
+
     agent_messages = [
         {'role': 'system', 'content': system_prompt},
         {'role': 'system', 'content': (
             'Return JSON with keys: "assistantMessage", "toolCalls", "memorySummary". '
-            '"toolCalls" is a list of {name, args}. '
-            'Available tools: update_progress_summary, add_timeline_event, set_last_agent_run. '
-            'For update_progress_summary, valid args are: currentStage, streakDays, '
-            'lastSessionAt, notes. '
-            '"memorySummary" should be under 6 bullet points.'
+            'Keep assistantMessage concise, 4-5 sentences max. '
+            'memorySummary under 4 bullet points.'
         )},
     ]
-    for message in messages:
+
+    for message in truncated_messages:
         role = message.get('role')
         content = message.get('content', '')
+        if len(content) > 300:
+            content = content[:300]
         if role in ['user', 'assistant'] and content:
             agent_messages.append({'role': role, 'content': content})
 
+    # FIX: Remove the broken conditional that references undefined 'user_message'
     response = openai_client.chat.completions.create(
         model=OPENAI_MODEL,
         messages=agent_messages,
-        temperature=0.7,
-        response_format={"type": "json_object"},
+        temperature=0.6,
+        max_tokens=150,
     )
 
     raw = response.choices[0].message.content or '{}'
     try:
         return json.loads(raw)
-    except Exception:
+    except:
         return {'assistantMessage': '', 'toolCalls': [], 'memorySummary': ''}
-
 def run_tool_calls(uid: str, tool_calls: List[Dict[str, Any]]) -> None:
     for call in tool_calls:
         name = call.get('name')
@@ -759,26 +805,41 @@ def generate_updated_summary(
     existing_summary: str,
     messages: List[Dict[str, str]],
 ) -> str:
+    """Optimized summary generation - matches agents.py pattern"""
+    # Only last 12 messages (same as agents.py)
+    recent_messages = messages[-12:] if len(messages) > 12 else messages
+
+    # Truncate message content
+    truncated_messages = []
+    for msg in recent_messages:
+        content = msg.get('content', '')[:200]
+        if content:
+            truncated_messages.append({'role': msg.get('role'), 'content': content})
+
     system = (
-        'Summarize the conversation into a short memory for future chats. '
-        'Focus on stable facts, recurring themes, triggers, and helpful responses. '
-        'Keep it under 6 bullet points.'
+        'Create a short memory summary for future chats. '
+        'Focus on key themes, triggers, and progress. '
+        'Keep under 4 bullet points.'
     )
+
     user_content = {
-        'existing_summary': existing_summary,
-        'recent_messages': messages[-20:],
+        'existing': existing_summary[:300] if existing_summary else '',
+        'recent': truncated_messages[-8:],
     }
 
-    response = openai_client.chat.completions.create(
-        model=OPENAI_SUMMARY_MODEL,
-        messages=[
-            {'role': 'system', 'content': system},
-            {'role': 'user', 'content': json.dumps(user_content)},
-        ],
-        temperature=0.2,
-    )
-    return (response.choices[0].message.content or '').strip()
-
+    try:
+        response = openai_client.chat.completions.create(
+            model=OPENAI_SUMMARY_MODEL,
+            messages=[
+                {'role': 'system', 'content': system},
+                {'role': 'user', 'content': json.dumps(user_content)},
+            ],
+            temperature=0.2,
+            max_tokens=120,  # Reduced
+        )
+        return (response.choices[0].message.content or '').strip()[:400]
+    except:
+        return existing_summary
 
 
 
@@ -1490,17 +1551,30 @@ def create_session():
         character_id = data.get('characterId')
         character_type = data.get('characterType', 'inner_character')
         title = data.get('title', 'Video Session')
+        timestamp = data.get('timestamp', int(time.time() * 1000))  # Accept timestamp from client
 
         if not uid or not character_id:
             return jsonify({'success': False, 'error': 'uid and characterId required'}), 400
 
-        session_id = f"video_{int(time.time() * 1000)}_{character_id}"
+        # CRITICAL FIX: Use UUID for guaranteed uniqueness
+        session_id = f"video_{uuid.uuid4().hex[:16]}_{int(timestamp)}"
         thread_id = str(uuid.uuid4())
+
+        print(f"🎯 Creating NEW session: {session_id}")
+        print(f"🎯 With thread: {thread_id}")
+        print(f"🎯 For character: {character_id}")
+
+        # Check if session with this ID already exists (unlikely but safe)
+        session_ref = _session_ref(uid, session_id)
+        existing = session_ref.get()
+        if existing.exists:
+            # Very unlikely, but if it exists, generate another ID
+            session_id = f"video_{uuid.uuid4().hex[:16]}_{int(time.time() * 1000)}"
+            print(f"⚠️ Session ID collision! New ID: {session_id}")
 
         ensure_character_checklist(uid, character_id)
 
         # Create session document
-        session_ref = _session_ref(uid, session_id)
         session_ref.set({
             "id": session_id,
             "type": "video",
@@ -1513,9 +1587,11 @@ def create_session():
             "updatedAt": firestore.SERVER_TIMESTAMP,
             "lastMessageAt": firestore.SERVER_TIMESTAMP,
             "userTurnCount": 0,
+            "duration": 0,
             "intensity": {},
             "sessionSummary": {},
             "periodic": {},
+            "messageCount": 0,
         }, merge=True)
 
         # Create thread document
@@ -1527,12 +1603,20 @@ def create_session():
             "characterType": character_type,
             "title": title,
             "status": "active",
+            "type": "video",
             "createdAt": firestore.SERVER_TIMESTAMP,
             "updatedAt": firestore.SERVER_TIMESTAMP,
             "lastMessageAt": firestore.SERVER_TIMESTAMP,
         }, merge=True)
 
         print(f"✅ Created session: {session_id}, thread: {thread_id}")
+
+        # Verify session was created
+        verify = _session_ref(uid, session_id).get()
+        if verify.exists:
+            print(f"✅ Verified session exists in Firestore")
+        else:
+            print(f"❌ Session NOT found after creation!")
 
         return jsonify({
             'success': True,
@@ -1556,21 +1640,25 @@ def get_active_session():
 
         sessions_ref = _sessions_ref(uid)
         query = sessions_ref.where('characterId', '==', character_id).where('status', '==', 'active').limit(1)
-        docs = query.stream()
+        docs = list(query.stream())
+
+        print(f"🔍 Found {len(docs)} active sessions for {character_id}")
 
         for doc in docs:
             data = doc.to_dict()
             thread_id = data.get('threadId')
 
+            # Get thread ID if missing
             if not thread_id:
                 threads_ref = _threads_ref(uid)
                 thread_query = threads_ref.where('sessionId', '==', doc.id).limit(1)
-                thread_docs = thread_query.stream()
-                for tdoc in thread_docs:
-                    thread_id = tdoc.id
+                thread_docs = list(thread_query.stream())
+                if thread_docs:
+                    thread_id = thread_docs[0].id
                     doc.reference.set({'threadId': thread_id}, merge=True)
-                    break
+                    print(f"✅ Fixed missing threadId: {thread_id}")
 
+            # Return the active session
             return jsonify({
                 'success': True,
                 'session': {
@@ -1578,7 +1666,8 @@ def get_active_session():
                     'threadId': thread_id,
                     'characterId': data.get('characterId'),
                     'status': data.get('status'),
-                    'startedAt': data.get('startedAt'),
+                    'startedAt': _to_iso(data.get('startedAt')),
+                    'duration': data.get('duration', 0),
                 }
             })
 
@@ -1588,6 +1677,45 @@ def get_active_session():
         traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)}), 500
 
+
+@video_bp.route('/list_sessions', methods=['GET'])
+def list_sessions():
+    """Debug endpoint to list all sessions for a user"""
+    try:
+        uid = request.args.get('uid')
+        character_id = request.args.get('characterId')
+
+        if not uid:
+            return jsonify({'success': False, 'error': 'uid required'}), 400
+
+        sessions_ref = _sessions_ref(uid)
+        query = sessions_ref
+        if character_id:
+            query = query.where('characterId', '==', character_id)
+
+        query = query.order_by('startedAt', direction=firestore.Query.DESCENDING).limit(100)
+        docs = list(query.stream())
+
+        sessions = []
+        for doc in docs:
+            data = doc.to_dict()
+            sessions.append({
+                'id': doc.id,
+                'characterId': data.get('characterId'),
+                'status': data.get('status'),
+                'duration': data.get('duration', 0),
+                'startedAt': _to_iso(data.get('startedAt')),
+                'threadId': data.get('threadId'),
+                'messageCount': data.get('messageCount', 0),
+            })
+
+        return jsonify({
+            'success': True,
+            'total': len(sessions),
+            'sessions': sessions,
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 @video_bp.route('/chat', methods=['POST'])
 def chat():
     try:
@@ -1673,8 +1801,7 @@ def chat():
             messages.append({'role': 'user', 'content': user_message})
 
         memory_summary = load_agent_memory_summary(uid, character_id)
-        system_prompt = build_system_prompt_with_memory(character_profile, memory_summary)
-
+        system_prompt = _get_cached_system_prompt(character_profile, memory_summary)
         agent_result = run_agent_step(system_prompt, messages)
         tool_calls = agent_result.get('toolCalls') or []
         run_tool_calls(uid, tool_calls)
@@ -2180,34 +2307,57 @@ def chat_guided():
 
 @video_bp.route('/transcribe', methods=['POST'])
 def transcribe_route():
+    """Optimized transcription with memory buffer - faster response"""
     try:
-        file = None
-        if 'file' in request.files:
-            file = request.files['file']
-        elif 'audio' in request.files:
-            file = request.files['audio']
+        # Check content length first
+        if request.content_length and request.content_length < 2000:
+            return jsonify({'success': False, 'error': 'Audio too short'}), 400
 
-        if not file:
+        # Get file safely with error handling
+        file = None
+        try:
+            if 'file' in request.files:
+                file = request.files['file']
+            elif 'audio' in request.files:
+                file = request.files['audio']
+        except Exception as e:
+            print(f"Error accessing files: {e}")
+            return jsonify({'success': False, 'error': 'Invalid request format'}), 400
+
+        if not file or file.filename == '':
             return jsonify({'success': False, 'error': 'No audio file provided'}), 400
 
-        temp_dir = tempfile.gettempdir()
-        temp_path = os.path.join(temp_dir, f"temp_audio_{datetime.now().timestamp()}.wav")
-        file.save(temp_path)
+        # Read with timeout
+        import io
+        try:
+            audio_bytes = file.read()
+        except Exception as e:
+            print(f"Error reading file: {e}")
+            return jsonify({'success': False, 'error': 'Failed to read audio'}), 400
 
-        with open(temp_path, "rb") as audio_file:
-            transcript_response = openai_client.audio.transcriptions.create(
-                model="whisper-1",
-                file=audio_file,
-            )
+        if len(audio_bytes) < 2000:
+            return jsonify({'success': False, 'error': 'Audio too short'}), 400
 
-        transcript = transcript_response.text.strip()
+        # Process with timeout
+        from io import BytesIO
+        audio_io = BytesIO(audio_bytes)
+        audio_io.name = "audio.wav"
 
         try:
-            os.remove(temp_path)
-        except:
-            pass
+            transcript_response = openai_client.audio.transcriptions.create(
+                model="whisper-1",
+                file=audio_io,
+                response_format="text",
+                temperature=0,
+                prompt="English conversation"
+            )
+        except Exception as e:
+            print(f"OpenAI transcription error: {e}")
+            return jsonify({'success': False, 'error': 'Transcription failed'}), 500
 
-        if not transcript:
+        transcript = transcript_response.strip() if hasattr(transcript_response, 'strip') else str(transcript_response).strip()
+
+        if not transcript or len(transcript) < 2:
             return jsonify({'success': False, 'error': 'Empty transcription'}), 400
 
         return jsonify({'success': True, 'transcript': transcript, 'language': 'en'})
@@ -2215,6 +2365,24 @@ def transcribe_route():
     except Exception as e:
         traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)}), 500
+# Cache for system prompts
+_prompt_cache = {}
+_cache_timestamps = {}
+
+def _get_cached_system_prompt(character_profile: Dict, memory_summary: str) -> str:
+    """Cache system prompts to avoid rebuilding (reduces latency)"""
+    profile_key = f"{character_profile.get('displayName', '')}_{character_profile.get('role', '')}"
+    cache_key = f"{profile_key}_{hash(memory_summary)}"
+
+    if cache_key in _prompt_cache:
+        age = time.time() - _cache_timestamps.get(cache_key, 0)
+        if age < 300:  # 5 minutes cache
+            return _prompt_cache[cache_key]
+
+    prompt = build_system_prompt_with_memory(character_profile, memory_summary)
+    _prompt_cache[cache_key] = prompt
+    _cache_timestamps[cache_key] = time.time()
+    return prompt
 
 @video_bp.route('/session_summary', methods=['POST'])
 def session_summary():

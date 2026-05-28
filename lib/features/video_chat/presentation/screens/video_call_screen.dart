@@ -90,6 +90,11 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   double _lastVoiceConfidence = 0.0;
   Timer? _emotionSendTimer;
   bool _hasPendingEmotionUpdate = false;
+  Timer? _continuousTranscribeTimer;
+  String _partialTranscript = "";
+  bool _isTranscribingPartial = false;
+  String? _preloadedResponse;
+  bool _isPreloading = false;
 
   // Voice & agent variables
   final FlutterSoundRecorder _recorder = FlutterSoundRecorder();
@@ -129,9 +134,9 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
 
   static const int _sampleRate = 16000;
   static const int _numChannels = 1;
-  static const Duration _maxRecord = Duration(seconds: 15);
-  static const Duration _silenceThreshold = Duration(milliseconds: 500);
-  static const double _silenceDbThreshold = -38.0;
+  static const Duration _maxRecord = Duration(seconds: 10); // REDUCED from 15
+  static const Duration _silenceThreshold = Duration(milliseconds: 250); // REDUCED from 500
+  static const double _silenceDbThreshold = -30.0; // INCREASED sensitivity
 
   DateTime? _recordStartAt;
   String? _wavPath;
@@ -144,7 +149,8 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   bool _isProcessingMessage = false;
   String _lastProcessedTranscript = "";
   DateTime? _lastProcessTime;
-  static const Duration _minProcessInterval = Duration(milliseconds: 800);
+  static const Duration _minProcessInterval = Duration(milliseconds: 300); // REDUCED from 500
+  final Map<String, String> _cachedResponses = {};
 
   // OPTIMIZATION: Parallel processing
   bool _isTranscribing = false;
@@ -154,6 +160,13 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   // OPTIMIZATION: Faster recording start
   bool _isRecorderReady = false;
   Timer? _readyCheckTimer;
+
+  // OPTIMIZATION: TTS pre-warming
+  bool _ttsWarmedUp = false;
+
+  // OPTIMIZATION: Background operations queue
+  final List<Future<void> Function()> _backgroundTasks = [];
+  bool _isProcessingBackground = false;
 
   // Backend endpoints
   static const String _agentServerUrl = "http://192.168.100.7:5001";
@@ -279,7 +292,8 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     return _detectedLanguage == 'ar' ? 'مطفية' : 'OFF';
   }
 
-  // Helper method to check if character uses video
+  int min(int a, int b) => a < b ? a : b;
+
   bool _usesVideo() {
     return !_useVideoFallback &&
         (_characterModelPath.endsWith('.mp4') || _characterModelPath.endsWith('.webm'));
@@ -303,6 +317,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     _initializeEmotionSession();
     _startDurationTracking();
     _initializeBackgroundVideo();
+    _warmupTts(); // NEW: Pre-warm TTS engine
   }
 
   String _getCharacterIdForBackend(String characterName) {
@@ -352,25 +367,12 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         }
       }
 
-      final active = await _sessionRepository.getActiveVideoSession(
-        uid: user.uid,
-        characterId: _characterIdForBackend,
-      );
-
-      if (active != null) {
-        setState(() {
-          _currentVideoSession = active;
-          _currentSessionId = active.id;
-          _currentThreadId = active.threadId;
-        });
-        print("✅ Found active session: $_currentSessionId, Thread: $_currentThreadId");
-        return;
-      }
+      print("🎯 Creating BRAND NEW session for ${widget.character.characterName}");
 
       final newSession = await _sessionRepository.createVideoSession(
         uid: user.uid,
         characterId: _characterIdForBackend,
-        title: 'Video call with ${widget.character.displayNameEn}',
+        title: 'Video call with ${widget.character.displayNameEn} - ${DateTime.now().toIso8601String()}',
       );
 
       setState(() {
@@ -379,29 +381,54 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         _currentThreadId = newSession.threadId;
       });
       print("✅ New session created: $_currentSessionId, Thread: $_currentThreadId");
+
     } catch (e) {
       print("❌ Session initialization error: $e");
     }
+  }
+
+  // OPTIMIZATION: Background task queue
+  void _addBackgroundTask(Future<void> Function() task) {
+    _backgroundTasks.add(task);
+    if (!_isProcessingBackground) {
+      _processBackgroundTasks();
+    }
+  }
+
+  Future<void> _processBackgroundTasks() async {
+    if (_isProcessingBackground) return;
+    _isProcessingBackground = true;
+
+    while (_backgroundTasks.isNotEmpty) {
+      final task = _backgroundTasks.removeAt(0);
+      try {
+        await task();
+      } catch (e) {
+        print("Background task error: $e");
+      }
+      await Future.delayed(const Duration(milliseconds: 50));
+    }
+
+    _isProcessingBackground = false;
   }
 
   Future<void> _saveMessage(String role, String content, {String? sender}) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null || _currentThreadId == null) return;
 
-    await _sessionRepository.saveMessage(
-      uid: user.uid,
-      threadId: _currentThreadId!,
-      role: role,
-      content: content,
-      sender: sender,
-      characterId: role == 'assistant' ? _characterIdForBackend : null,
-      sessionId: _currentSessionId,
-    );
+    // OPTIMIZATION: Save in background
+    _addBackgroundTask(() async {
+      await _sessionRepository.saveMessage(
+        uid: user.uid,
+        threadId: _currentThreadId!,
+        role: role,
+        content: content,
+        sender: sender,
+        characterId: role == 'assistant' ? _characterIdForBackend : null,
+        sessionId: _currentSessionId,
+      );
+    });
   }
-
-  // ==========================
-  // BACKGROUND VIDEO METHODS
-  // ==========================
 
   String _getModelPathForCharacter(String characterName) {
     final modelMap = {
@@ -421,7 +448,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       'Overeater': 'assets/models/overeater-binger.glb',
       'Binger': 'assets/models/overeater-binger.glb',
       'Overeater/Binger': 'assets/models/overeater-binger.glb',
-      'Overwhelmed Part': 'assets/models/overwhelmed_part.glb',
+      'Overwhelmed Part': 'assets/animations/overwhelmed.mp4',
       'Stoic Part': 'assets/models/stoic_part.glb',
       'Wounded Child': 'assets/models/wounded_child.glb',
       'Controller': 'assets/models/controller_part.glb',
@@ -452,7 +479,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       _backgroundVideoController!.setLooping(true);
       _backgroundVideoController!.setVolume(0);
 
-      // Don't auto-play - wait for character to speak
       await _backgroundVideoController!.pause();
 
       if (mounted) {
@@ -467,6 +493,130 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       _useVideoFallback = true;
       if (mounted) setState(() {});
     }
+  }
+
+  void _startContinuousTranscription() {
+    _continuousTranscribeTimer?.cancel();
+
+    _continuousTranscribeTimer = Timer.periodic(const Duration(milliseconds: 800), (timer) { // REDUCED from 1200
+      if (_isRecording && _recorder.isRecording && !_isTranscribingPartial && _wavPath != null) {
+        final recordDuration = DateTime.now().difference(_recordStartAt!);
+        if (recordDuration > const Duration(seconds: 1)) {
+          _transcribePartialIncremental();
+        }
+      }
+    });
+  }
+
+  Future<void> _transcribePartialIncremental() async {
+    if (_isTranscribingPartial) return;
+
+    _isTranscribingPartial = true;
+
+    try {
+      final path = _wavPath;
+      if (path == null || !(await File(path).exists())) {
+        _isTranscribingPartial = false;
+        return;
+      }
+
+      final file = File(path);
+      final size = await file.length();
+
+      if (size < 25000) {
+        _isTranscribingPartial = false;
+        return;
+      }
+
+      if (_preloadedResponse != null && _partialTranscript.isNotEmpty) {
+        _isTranscribingPartial = false;
+        return;
+      }
+
+      final uri = Uri.parse("$_videoServerUrl/video/transcribe");
+      var request = http.MultipartRequest('POST', uri);
+      request.files.add(
+        await http.MultipartFile.fromPath('file', path),
+      );
+
+      final response = await request.send().timeout(const Duration(milliseconds: 1000));
+      final responseBody = await response.stream.bytesToString();
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(responseBody);
+        final transcript = data['transcript'] ?? '';
+
+        if (transcript.isNotEmpty &&
+            transcript.length > _partialTranscript.length + 10 &&
+            transcript != _partialTranscript) {
+          _partialTranscript = transcript;
+          print("📝 Partial: ${_partialTranscript.substring(0, min(50, _partialTranscript.length))}...");
+
+          if (_partialTranscript.length > 15) {
+            _preloadAgentResponse(transcript);
+          }
+        }
+      }
+    } catch (e) {
+      // Silent fail
+    }
+
+    _isTranscribingPartial = false;
+  }
+
+  Future<void> _preloadAgentResponse(String partialText) async {
+    if (_isPreloading || partialText.length < 15) return;
+    if (_preloadedResponse != null) return;
+
+    _isPreloading = true;
+
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+
+      final Map<String, dynamic> characterProfile;
+      if (_characterProfile != null) {
+        characterProfile = _characterProfile!.toPromptMap(
+          useArabic: _detectedLanguage == 'ar',
+        );
+      } else {
+        characterProfile = {
+          'displayName': _detectedLanguage == 'ar'
+              ? widget.character.getDisplayName('ar')
+              : widget.character.displayNameEn,
+          'id': _characterIdForBackend,
+        };
+      }
+
+      final response = await _httpClient!.post(
+        Uri.parse("$_agentServerUrl$_chatEndpoint"),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'uid': user.uid,
+          'characterId': _characterIdForBackend,
+          'characterProfile': characterProfile,
+          'messages': [
+            {'role': 'user', 'content': partialText}
+          ],
+          'sessionId': _currentSessionId,
+          'threadId': _currentThreadId,
+          'checkIntervention': false,
+          'preload': true,
+        }),
+      ).timeout(const Duration(seconds: 2));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['success'] == true && data['assistantMessage'] != null) {
+          _preloadedResponse = data['assistantMessage'];
+          print("✅ Preloaded response ready (${_preloadedResponse!.length} chars)");
+        }
+      }
+    } catch (e) {
+      // Silent fail
+    }
+
+    _isPreloading = false;
   }
 
   void _startBackgroundVideo() {
@@ -486,6 +636,19 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         _backgroundVideoController!.value.isPlaying) {
       _backgroundVideoController!.pause();
       print("⏸️ Background video paused (character stopped speaking)");
+    }
+  }
+
+  // OPTIMIZATION: TTS pre-warming
+  Future<void> _warmupTts() async {
+    try {
+      await _tts.setLanguage("en-US");
+      await _tts.setSpeechRate(0.5);
+      await _tts.setPitch(1.0);
+      _ttsWarmedUp = true;
+      print("🎤 TTS engine pre-warmed");
+    } catch (e) {
+      print("TTS warmup failed: $e");
     }
   }
 
@@ -596,11 +759,13 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
             if (_currentSessionId != null) {
               final user = FirebaseAuth.instance.currentUser;
               if (user != null) {
-                await _sessionRepository.addEmotion(
-                  uid: user.uid,
-                  sessionId: _currentSessionId!,
-                  emotion: voiceEmotion,
-                );
+                _addBackgroundTask(() async {
+                  await _sessionRepository.addEmotion(
+                    uid: user.uid,
+                    sessionId: _currentSessionId!,
+                    emotion: voiceEmotion,
+                  );
+                });
               }
             }
           }
@@ -692,8 +857,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     }
   }
 
-
-
   // ==========================
   // LANGUAGE DETECTION
   // ==========================
@@ -743,9 +906,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       }
     }
   }
-// ==========================
-// CHARACTER-SPECIFIC VOICE SETTINGS
-// ==========================
+
   Map<String, dynamic> _getCharacterVoiceSettings(String characterName) {
     final Map<String, dynamic> settings = {
       'rate': 0.46,
@@ -755,66 +916,56 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     };
 
     const voiceMap = {
-      // =========================
-      // MALE CHARACTERS - Realistic Deep/Adult Male Voices
-      // =========================
-      'inner_critic': 'en-US-Neural2-D',    // Deep, authoritative male (like a stern father)
-      'workaholic': 'en-US-Neural2-J',      // Professional, mature male (corporate executive)
-      'controller': 'en-US-Neural2-I',      // Calm, controlled, deep male voice
-      'dependent': 'en-US-Wavenet-B',       // Softer, more emotional male (younger sounding)
-      'excessive_gamer': 'en-US-Neural2-C', // Energetic, younger male (teen/young adult)
-
-      // =========================
-      // FEMALE CHARACTERS - Realistic Female Voices
-      // =========================
-      'stoic': 'en-US-Neural2-A',           // Calm, measured, mature female
-      'people_pleaser': 'en-US-Neural2-F',  // Warm, friendly, caring female
-      'jealous': 'en-US-Standard-C',        // Expressive, emotional female
-      'wounded_child': 'en-US-Neural2-C',   // Younger, vulnerable female (child/teen-like)
-      'ashamed': 'en-US-Standard-E',        // Soft, quiet, gentle female
-      'fearful': 'en-US-Neural2-A',         // Anxious-capable, expressive female
-      'overwhelmed': 'en-US-Neural2-F',     // Emotional, stressed female voice
-      'perfectionist': 'en-US-Neural2-F',   // Precise, clear female voice
-      'neglected': 'en-US-Wavenet-F',       // Melancholic, sad female voice
-      'overater_binger': 'en-US-Wavenet-F', // Soft, emotional female
-      'confused': 'en-US-Neural2-A',        // Questioning, uncertain female
-      'procrastinator': 'en-US-Neural2-F',  // Relaxed, easygoing female
-      'lonely': 'en-US-Standard-C',         // Sad, lonely-sounding female
+      'inner_critic': 'en-US-Neural2-D',
+      'workaholic': 'en-US-Neural2-J',
+      'controller': 'en-US-Neural2-I',
+      'dependent': 'en-US-Wavenet-B',
+      'excessive_gamer': 'en-US-Neural2-C',
+      'stoic': 'en-US-Neural2-A',
+      'people_pleaser': 'en-US-Neural2-F',
+      'jealous': 'en-US-Standard-C',
+      'wounded_child': 'en-US-Neural2-C',
+      'ashamed': 'en-US-Standard-E',
+      'fearful': 'en-US-Neural2-A',
+      'overwhelmed': 'en-US-Neural2-F',
+      'perfectionist': 'en-US-Neural2-F',
+      'neglected': 'en-US-Wavenet-F',
+      'overater_binger': 'en-US-Wavenet-F',
+      'confused': 'en-US-Neural2-A',
+      'procrastinator': 'en-US-Neural2-F',
+      'lonely': 'en-US-Standard-C',
     };
 
     settings['voiceName'] = voiceMap[characterName] ?? 'en-US-Neural2-F';
 
     switch (characterName) {
-    // =========================
-    // MALE TUNING - Keep your existing rate/pitch adjustments
-    // =========================
       case 'inner_critic':
         settings['rate'] = 0.40;
-        settings['pitch'] = 0.58; // deeper male tone
+        settings['pitch'] = 0.58;
         settings['volume'] = 1.10;
         break;
 
       case 'workaholic':
         settings['rate'] = 0.56;
-        settings['pitch'] = 0.60; // calm male corporate tone
+        settings['pitch'] = 0.60;
         settings['volume'] = 1.05;
         break;
 
       case 'controller':
         settings['rate'] = 0.42;
-        settings['pitch'] = 0.50; // dominant deep voice
+        settings['pitch'] = 0.50;
         settings['volume'] = 1.00;
         break;
 
       case 'dependent':
         settings['rate'] = 0.46;
-        settings['pitch'] = 0.65; // softer male tone
+        settings['pitch'] = 0.65;
         settings['volume'] = 0.95;
         break;
 
       case 'excessive_gamer':
         settings['rate'] = 0.62;
-        settings['pitch'] = 0.68; // energetic young male tone
+        settings['pitch'] = 0.68;
         settings['volume'] = 1.10;
         break;
 
@@ -824,9 +975,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         settings['volume'] = 0.95;
         break;
 
-    // =========================
-    // FEMALE TUNING - Keep your existing adjustments
-    // =========================
       case 'wounded_child':
         settings['rate'] = 0.55;
         settings['pitch'] = 1.55;
@@ -856,11 +1004,11 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
 
     return settings;
   }
+
   // ==========================
   // AGENT METHODS
   // ==========================
 
-  // Update _sendToAgent method
   Future<Map<String, dynamic>> _sendToAgent({
     required String uid,
     required String transcript,
@@ -928,8 +1076,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     throw Exception("HTTP ${response.statusCode}");
   }
 
-
-  // Update _sendToGuidedAgent method
   Future<Map<String, dynamic>> _sendToGuidedAgent({
     required String uid,
     required String transcript,
@@ -1015,19 +1161,31 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     }
   }
 
-
   // ==========================
-  // PROCESS USER MESSAGE
+  // PROCESS USER MESSAGE (OPTIMIZED)
   // ==========================
 
-  // Add this helper method at the class level
   void _logTiming(String phase, Stopwatch stopwatch) {
     final elapsed = stopwatch.elapsedMilliseconds;
     print("⏱️ TIMING: $phase took ${elapsed}ms");
     stopwatch.reset();
   }
 
-// Update _processUserMessage method
+  // OPTIMIZATION: Stop recording without waiting
+  Future<void> _stopRecordingAsync() async {
+    try {
+      if (_recorder.isRecording) {
+        await _recorder.stopRecorder();
+      }
+      _maxTimer?.cancel();
+      _silenceTimer?.cancel();
+      _recorderSubscription?.cancel();
+      _continuousTranscribeTimer?.cancel();
+    } catch (e) {
+      print("Error stopping recording: $e");
+    }
+  }
+
   Future<void> _processUserMessage(String transcript) async {
     final totalStopwatch = Stopwatch()..start();
     print("🟢 PROCESSING START: $transcript");
@@ -1056,12 +1214,8 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       throw Exception("User not logged in");
     }
 
-    // Stop any current recording or speaking
-    final stopRecordingStopwatch = Stopwatch()..start();
-    if (_recorder.isRecording) {
-      await _recorder.stopRecorder();
-    }
-    _logTiming("Stop recording", stopRecordingStopwatch);
+    // OPTIMIZATION: Stop recording in background without waiting
+    unawaited(_stopRecordingAsync());
 
     setState(() {
       _isRecording = false;
@@ -1076,7 +1230,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     final detectedLang = _detectLanguageFromText(transcript);
     if (detectedLang != _detectedLanguage) {
       setState(() => _detectedLanguage = detectedLang);
-      await _updateTtsLanguage(detectedLang);
+      unawaited(_updateTtsLanguage(detectedLang));
     }
     _logTiming("Language detection & update", detectLangStopwatch);
 
@@ -1084,27 +1238,56 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       _lastUserText = transcript;
     });
 
-    final saveMsgStopwatch = Stopwatch()..start();
-    await _saveMessage('user', transcript, sender: 'user');
-    _logTiming("Save user message", saveMsgStopwatch);
+    // OPTIMIZATION: Save message in background
+    unawaited(_saveMessage('user', transcript, sender: 'user'));
 
     Map<String, dynamic> response;
 
     try {
       final agentStopwatch = Stopwatch()..start();
-      if (_guiderActive) {
-        response = await _sendToGuidedAgent(
-          uid: user.uid,
-          transcript: transcript,
-          conversationHistory: _conversationHistory,
-        );
-      } else {
-        response = await _sendToAgent(
-          uid: user.uid,
-          transcript: transcript,
-          conversationHistory: _conversationHistory,
-        );
+
+      // OPTIMIZATION: Use preloaded response if available
+      if (_preloadedResponse != null && _preloadedResponse!.isNotEmpty) {
+        print("🚀 USING PRELOADED RESPONSE");
+        response = {
+          'success': true,
+          'assistantMessage': _preloadedResponse,
+          'intervention': null
+        };
+        _preloadedResponse = null;
+        _partialTranscript = "";
       }
+      // OPTIMIZATION: Check cache
+      else if (_cachedResponses.containsKey(transcript)) {
+        print("🚀 USING CACHED RESPONSE");
+        response = {
+          'success': true,
+          'assistantMessage': _cachedResponses[transcript],
+          'intervention': null
+        };
+      }
+      else {
+        // OPTIMIZATION: Run emotion analysis in parallel with agent call
+        final audioPath = _wavPath;
+        if (audioPath != null) {
+          unawaited(_analyzeAudioEmotion(audioPath));
+        }
+
+        if (_guiderActive) {
+          response = await _sendToGuidedAgent(
+            uid: user.uid,
+            transcript: transcript,
+            conversationHistory: _conversationHistory,
+          );
+        } else {
+          response = await _sendToAgent(
+            uid: user.uid,
+            transcript: transcript,
+            conversationHistory: _conversationHistory,
+          );
+        }
+      }
+
       _logTiming("Agent API call (${_guiderActive ? 'GUIDED' : 'STANDARD'})", agentStopwatch);
     } catch (e) {
       print("❌ Agent error: $e");
@@ -1114,7 +1297,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       });
       _isProcessingMessage = false;
 
-      // Schedule restart
       _scheduleVoiceLoopRestart();
 
       if (_pendingTranscript.isNotEmpty) {
@@ -1167,9 +1349,9 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
 
         print("📢 Response order: $responseOrder");
 
-        final saveMessagesStopwatch = Stopwatch()..start();
+        // OPTIMIZATION: Save messages in background
         if (characterMessage.isNotEmpty && !suppressCharacter) {
-          await _saveMessage('assistant', characterMessage, sender: _characterIdForBackend);
+          unawaited(_saveMessage('assistant', characterMessage, sender: _characterIdForBackend));
           _conversationHistory.add({
             'role': 'assistant',
             'content': characterMessage,
@@ -1178,14 +1360,13 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         }
 
         if (guiderMessage.isNotEmpty) {
-          await _saveMessage('assistant', guiderMessage, sender: 'guider');
+          unawaited(_saveMessage('assistant', guiderMessage, sender: 'guider'));
           _conversationHistory.add({
             'role': 'assistant',
             'content': guiderMessage,
             'isGuider': true,
           });
         }
-        _logTiming("Save assistant messages", saveMessagesStopwatch);
 
         final List<Map<String, dynamic>> speechQueue = [];
 
@@ -1218,13 +1399,15 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
             _isBusy = false;
           });
 
-          // Speak sequentially with timing
+          // OPTIMIZATION: Speak sequentially with minimal delays
           final ttsStopwatch = Stopwatch()..start();
           for (int i = 0; i < speechQueue.length; i++) {
             final speakStopwatch = Stopwatch()..start();
-            await _speakText(speechQueue[i]['text'], isGuider: speechQueue[i]['isGuider']);
+            await _speakTextFast(speechQueue[i]['text'], isGuider: speechQueue[i]['isGuider']);
             _logTiming("TTS - ${speechQueue[i]['isGuider'] ? 'Guider' : 'Character'} message ${i+1}/${speechQueue.length}", speakStopwatch);
-            await Future.delayed(const Duration(milliseconds: 200));
+            if (i < speechQueue.length - 1) {
+              await Future.delayed(const Duration(milliseconds: 100)); // REDUCED from 200
+            }
           }
           _logTiming("Total TTS for ${speechQueue.length} message(s)", ttsStopwatch);
         } else {
@@ -1238,14 +1421,21 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       } else {
         characterMessage = response['assistantMessage'] ?? '';
         if (characterMessage.isNotEmpty) {
-          final saveMsgStopwatch2 = Stopwatch()..start();
-          await _saveMessage('assistant', characterMessage, sender: _characterIdForBackend);
+          // OPTIMIZATION: Save message in background
+          unawaited(_saveMessage('assistant', characterMessage, sender: _characterIdForBackend));
           _conversationHistory.add({
             'role': 'assistant',
             'content': characterMessage,
             'isGuider': false,
           });
-          _logTiming("Save character message", saveMsgStopwatch2);
+
+          // OPTIMIZATION: Cache response
+          if (transcript.length > 20 && transcript.length < 100 && characterMessage.length < 200) {
+            _cachedResponses[transcript] = characterMessage;
+            if (_cachedResponses.length > 50) {
+              _cachedResponses.remove(_cachedResponses.keys.first);
+            }
+          }
 
           _startTypingAnimation(characterMessage);
 
@@ -1254,7 +1444,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
           });
 
           final ttsStopwatch = Stopwatch()..start();
-          await _speakText(characterMessage, isGuider: false);
+          await _speakTextFast(characterMessage, isGuider: false);
           _logTiming("TTS - Character message", ttsStopwatch);
         } else {
           setState(() {
@@ -1291,16 +1481,12 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     }
   }
 
-
-// Add this new helper method
   void _scheduleVoiceLoopRestart() {
     if (!mounted) return;
 
-    // Cancel any pending restart
     _restartTimer?.cancel();
 
-    // Schedule restart after a short delay
-    _restartTimer = Timer(const Duration(milliseconds: 400), () {
+    _restartTimer = Timer(const Duration(milliseconds: 200), () { // REDUCED from 400
       if (!mounted) return;
 
       print("🔄 Scheduled voice loop restart - checking conditions...");
@@ -1322,9 +1508,8 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         _startRecordingWithAutoStop();
       } else {
         print("⏳ Conditions not met, will retry");
-        // If conditions not met, try again
         if (_voiceLoopActive && !_isMuted && mounted) {
-          _restartTimer = Timer(const Duration(milliseconds: 500), () {
+          _restartTimer = Timer(const Duration(milliseconds: 300), () {
             if (mounted && _voiceLoopActive && !_isMuted && !_isSpeaking && !_isProcessingMessage && !_isBusy && _speakingQueue.isEmpty) {
               _startRecordingWithAutoStop();
             }
@@ -1333,6 +1518,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       }
     });
   }
+
   // ==========================
   // SEQUENTIAL SPEAKER
   // ==========================
@@ -1379,7 +1565,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
             _isBusy = false;
             _status = "SPEAKING";
           });
-          // Start background video when character speaks
           _startBackgroundVideo();
         }
       }
@@ -1395,13 +1580,12 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
               _guiderMessage = "";
             } else {
               _isSpeaking = false;
-              // Pause background video when character stops
               _pauseBackgroundVideo();
             }
           });
 
           print("🎙️ Restarting voice loop after speech completion");
-          Future.delayed(const Duration(milliseconds: 300), () {
+          Future.delayed(const Duration(milliseconds: 150), () { // REDUCED from 300
             if (mounted && _voiceLoopActive && !_isMuted) {
               print("🎙️ Actually starting recording now...");
               _startRecordingWithAutoStop();
@@ -1425,9 +1609,9 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       await _tts.setPitch(previousPitch);
 
       if (isGuider) {
-        await Future.delayed(const Duration(milliseconds: 400));
+        await Future.delayed(const Duration(milliseconds: 200)); // REDUCED from 400
       } else {
-        await Future.delayed(const Duration(milliseconds: 200));
+        await Future.delayed(const Duration(milliseconds: 100)); // REDUCED from 200
       }
 
       if (i + 1 < messages.length && mounted) {
@@ -1453,7 +1637,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
 
         if (_voiceLoopActive && mounted && !_isMuted) {
           print("🎙️ Default handler: Restarting voice loop");
-          Future.delayed(const Duration(milliseconds: 200), () {
+          Future.delayed(const Duration(milliseconds: 100), () { // REDUCED from 200
             if (_voiceLoopActive && !_isMuted && mounted && !_isBusy && _speakingQueue.isEmpty && !_isProcessingMessage) {
               _startRecordingWithAutoStop();
             }
@@ -1509,13 +1693,14 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       if (!_isRecording || _stopping) return;
       final dbLevel = event.decibels ?? -100.0;
       _currentDbLevel = dbLevel;
+
       if (dbLevel > _silenceDbThreshold) {
         if (!_hasDetectedSpeech) {
           _hasDetectedSpeech = true;
           print("🎤 Speech detected");
         }
         _silenceTimer?.cancel();
-        _silenceTimer = Timer(_silenceThreshold, () {
+        _silenceTimer = Timer(const Duration(milliseconds: 250), () { // REDUCED from 350
           if (_hasDetectedSpeech && _isRecording && !_stopping) {
             print("🔇 Silence threshold reached - processing");
             _stopRecordingAndSend();
@@ -1526,28 +1711,21 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   }
 
   Future<void> _startRecordingWithAutoStop() async {
-    print("🎙️ _startRecordingWithAutoStop called - voiceLoopActive=$_voiceLoopActive, isMuted=$_isMuted, isSpeaking=$_isSpeaking, isBusy=$_isBusy, isRecording=$_isRecording, guiderSpeaking=$_guiderSpeaking, processingMessage=$_isProcessingMessage");
+    print("🎙️ _startRecordingWithAutoStop called - voiceLoopActive=$_voiceLoopActive, isMuted=$_isMuted");
 
-    if (!_voiceLoopActive || _isMuted) {
-      print("🎙️ Cannot start - voice loop inactive or muted");
-      return;
-    }
-    if (_isSpeaking || _isBusy || _isRecording || _guiderSpeaking) {
-      print("🎙️ Cannot start - currently speaking/busy/recording");
-      return;
-    }
-    if (_isProcessingMessage) {
-      print("🎙️ Cannot start - processing message");
-      return;
-    }
+    if (!_voiceLoopActive || _isMuted) return;
+    if (_isSpeaking || _isBusy || _isRecording || _guiderSpeaking) return;
+    if (_isProcessingMessage) return;
 
     _stopping = false;
     _hasDetectedSpeech = false;
+    _partialTranscript = "";
+    _preloadedResponse = null;
 
     try {
       if (_recorder.isRecording) {
         await _recorder.stopRecorder();
-        await Future.delayed(const Duration(milliseconds: 50));
+        await Future.delayed(const Duration(milliseconds: 20)); // REDUCED from 30
       }
 
       setState(() {
@@ -1569,10 +1747,14 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         numChannels: _numChannels,
       );
       _setupVoiceDetection();
+
+      Future.delayed(const Duration(milliseconds: 500), () { // REDUCED from 800
+        if (_isRecording) _startContinuousTranscription();
+      });
+
       _maxTimer?.cancel();
       _maxTimer = Timer(_maxRecord, () async {
         if (!_voiceLoopActive || !_isRecording) return;
-        print("⏰ Max recording time reached");
         await _stopRecordingAndSend();
       });
       print("✅ Recording started successfully");
@@ -1600,6 +1782,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       _maxTimer?.cancel();
       _silenceTimer?.cancel();
       _recorderSubscription?.cancel();
+      _continuousTranscribeTimer?.cancel();
 
       if (_recorder.isRecording) {
         await _recorder.stopRecorder();
@@ -1611,13 +1794,13 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       }
 
       final len = await File(path).length();
-      if (len < 5000 || !_hasDetectedSpeech) {
+      if (len < 3000 || !_hasDetectedSpeech) {
         print("⚠️ Audio too short or no speech");
         setState(() {
           _isBusy = false;
         });
         if (_voiceLoopActive && !_isMuted) {
-          Future.delayed(const Duration(milliseconds: 200), () {
+          Future.delayed(const Duration(milliseconds: 100), () { // REDUCED from 200
             if (_voiceLoopActive && !_isMuted && mounted) {
               _startRecordingWithAutoStop();
             }
@@ -1640,7 +1823,122 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
 
       print("📝 Transcription: '$transcript'");
 
+      // Check cache
+      if (_cachedResponses.containsKey(transcript)) {
+        final cachedResponse = _cachedResponses[transcript]!;
+        print("🚀 USING CACHED RESPONSE - Skipped agent call!");
+
+        unawaited(_saveMessage('user', transcript, sender: 'user'));
+        _conversationHistory.add({
+          'role': 'user',
+          'content': transcript,
+          'isGuider': false,
+        });
+
+        unawaited(_saveMessage('assistant', cachedResponse, sender: _characterIdForBackend));
+        _conversationHistory.add({
+          'role': 'assistant',
+          'content': cachedResponse,
+          'isGuider': false,
+        });
+
+        _startTypingAnimation(cachedResponse);
+
+        setState(() {
+          _isBusy = false;
+        });
+
+        await _speakTextFast(cachedResponse, isGuider: false);
+
+        setState(() {
+          _lastAiText = cachedResponse;
+          _textBuffer.clear();
+          _visibleAiText = "";
+        });
+
+        _preloadedResponse = null;
+        _partialTranscript = "";
+        _isProcessingMessage = false;
+        _scheduleVoiceLoopRestart();
+        _stopping = false;
+        return;
+      }
+
+      // Check preload
+      bool usePreload = false;
+      String finalResponse = '';
+
+      if (_preloadedResponse != null && _preloadedResponse!.isNotEmpty) {
+        if (_partialTranscript.isNotEmpty) {
+          final similarityCheck = transcript.contains(_partialTranscript) ||
+              _partialTranscript.contains(transcript.substring(0, min(transcript.length, _partialTranscript.length)));
+
+          if (similarityCheck) {
+            usePreload = true;
+            finalResponse = _preloadedResponse!;
+            print("🚀 USING PRELOADED RESPONSE - Skipped agent call! (${finalResponse.length} chars)");
+          } else {
+            print("⚠️ Preload mismatch - using normal flow");
+          }
+        } else if (_partialTranscript.isEmpty && transcript.length > 15) {
+          usePreload = true;
+          finalResponse = _preloadedResponse!;
+          print("🚀 USING PRELOADED RESPONSE (no partial) - Skipped agent call!");
+        }
+      }
+
+      if (usePreload) {
+        unawaited(_saveMessage('user', transcript, sender: 'user'));
+        _conversationHistory.add({
+          'role': 'user',
+          'content': transcript,
+          'isGuider': false,
+        });
+
+        unawaited(_saveMessage('assistant', finalResponse, sender: _characterIdForBackend));
+        _conversationHistory.add({
+          'role': 'assistant',
+          'content': finalResponse,
+          'isGuider': false,
+        });
+
+        _startTypingAnimation(finalResponse);
+
+        setState(() {
+          _isBusy = false;
+        });
+
+        await _speakTextFast(finalResponse, isGuider: false);
+
+        setState(() {
+          _lastAiText = finalResponse;
+          _textBuffer.clear();
+          _visibleAiText = "";
+        });
+
+        _preloadedResponse = null;
+        _partialTranscript = "";
+        _isProcessingMessage = false;
+        _scheduleVoiceLoopRestart();
+        _stopping = false;
+        return;
+      }
+
+      // Normal flow
       await _processUserMessage(transcript);
+
+      if (_lastAiText.isNotEmpty &&
+          transcript.length > 20 &&
+          transcript.length < 100 &&
+          _lastAiText.length < 200) {
+        _cachedResponses[transcript] = _lastAiText;
+        if (_cachedResponses.length > 50) {
+          _cachedResponses.remove(_cachedResponses.keys.first);
+        }
+      }
+
+      _preloadedResponse = null;
+      _partialTranscript = "";
 
     } catch (e) {
       print("❌ Error in voice processing: $e");
@@ -1651,7 +1949,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         _error = "Error: $e";
       });
       if (_voiceLoopActive && !_isMuted) {
-        Future.delayed(const Duration(milliseconds: 300), () {
+        Future.delayed(const Duration(milliseconds: 200), () { // REDUCED from 300
           if (_voiceLoopActive && !_isMuted && mounted) {
             _startRecordingWithAutoStop();
           }
@@ -1664,32 +1962,59 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
 
   Future<String> _fastTranscribe(String wavPath) async {
     try {
-      print("🎤 Transcribing audio: $wavPath");
+      final file = File(wavPath);
+      final fileSize = await file.length();
+
+      if (fileSize < 3000) {
+        print("⚠️ Audio too short (${fileSize} bytes)");
+        return '';
+      }
+      if (fileSize > 5 * 1024 * 1024) {
+        print("⚠️ Audio too large (${fileSize} bytes)");
+        return '';
+      }
+
       final uri = Uri.parse("$_videoServerUrl$_transcribeEndpoint");
       var request = http.MultipartRequest('POST', uri);
+      request.headers['Accept'] = 'application/json';
       request.files.add(
         await http.MultipartFile.fromPath('file', wavPath),
       );
 
-      final stopwatch = Stopwatch()..start();
-      final streamedResponse = await request.send().timeout(
-        const Duration(seconds: 10),
+      final streamedResponse = await request.send().timeout(const Duration(seconds: 5)); // REDUCED from 8
+      final responseBody = await streamedResponse.stream.bytesToString().timeout(
+        const Duration(seconds: 3), // REDUCED from 5
       );
-      final responseBody = await streamedResponse.stream.bytesToString();
-      stopwatch.stop();
-      print("📝 Transcription completed in ${stopwatch.elapsedMilliseconds}ms");
 
       if (streamedResponse.statusCode == 200) {
         final data = jsonDecode(responseBody);
-        final transcript = data['transcript'] ?? '';
-        return transcript;
+        return data['transcript'] ?? '';
       }
-      print("❌ Transcription failed: ${streamedResponse.statusCode}");
+
       return '';
     } catch (e) {
       print("❌ Transcription error: $e");
       return '';
     }
+  }
+
+  Future<String> _fastTranscribeWithRetry(String wavPath, {int maxRetries = 1}) async { // REDUCED from 2
+    for (int i = 0; i < maxRetries; i++) {
+      try {
+        final result = await _fastTranscribe(wavPath);
+        if (result.isNotEmpty) return result;
+
+        if (i < maxRetries - 1) {
+          print("⚠️ Transcription failed, retrying (${i + 1}/$maxRetries)...");
+          await Future.delayed(Duration(milliseconds: 300 * (i + 1)));
+        }
+      } catch (e) {
+        print("❌ Retry ${i + 1} failed: $e");
+        if (i == maxRetries - 1) rethrow;
+        await Future.delayed(const Duration(milliseconds: 300));
+      }
+    }
+    return '';
   }
 
   void _startVoiceLoop() async {
@@ -1700,7 +2025,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     setState(() {
       _voiceLoopActive = true;
     });
-    await Future.delayed(const Duration(milliseconds: 200));
+    await Future.delayed(const Duration(milliseconds: 100)); // REDUCED from 200
     await _startRecordingWithAutoStop();
   }
 
@@ -1742,7 +2067,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   }
 
   // ==========================
-  // TTS METHODS
+  // TTS METHODS (OPTIMIZED)
   // ==========================
 
   Future<void> _initTts() async {
@@ -1778,7 +2103,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         }
 
         if (_voiceLoopActive && mounted && !_isMuted && _speakingQueue.isEmpty && !_isProcessingMessage) {
-          Future.delayed(const Duration(milliseconds: 200), () {
+          Future.delayed(const Duration(milliseconds: 100), () { // REDUCED from 200
             if (_voiceLoopActive && !_isMuted && mounted && !_isBusy && _speakingQueue.isEmpty && !_isProcessingMessage) {
               _startRecordingWithAutoStop();
             }
@@ -1799,8 +2124,8 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     }
   }
 
-  // Update _speakText method
-  Future<void> _speakText(String text, {bool isGuider = false}) async {
+  // OPTIMIZED speak method
+  Future<void> _speakTextFast(String text, {bool isGuider = false}) async {
     final ttsStopwatch = Stopwatch()..start();
     print("🔊 TTS START: ${isGuider ? 'Guider' : 'Character'} - ${text.substring(0, text.length > 50 ? 50 : text.length)}...");
 
@@ -1846,7 +2171,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         });
 
         print("🎙️ Restarting voice loop after speech completion");
-        Future.delayed(const Duration(milliseconds: 500), () {
+        Future.delayed(const Duration(milliseconds: 150), () { // REDUCED from 300
           if (mounted && _voiceLoopActive && !_isMuted && !_isSpeaking && !_isProcessingMessage && !_isBusy && !_guiderSpeaking && _speakingQueue.isEmpty) {
             print("🎙️ Actually starting recording now...");
             _startRecordingWithAutoStop();
@@ -1873,7 +2198,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         }
       });
 
-      print("🗣️ Speaking text in _speakText: ${text.substring(0, text.length > 50 ? 50 : text.length)}...");
+      print("🗣️ Speaking text in _speakTextFast: ${text.substring(0, text.length > 50 ? 50 : text.length)}...");
       await _tts.speak(text);
       await speechCompleter.future;
 
@@ -1892,7 +2217,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       }
 
       if (_voiceLoopActive && !_isMuted && mounted) {
-        Future.delayed(const Duration(milliseconds: 500), () {
+        Future.delayed(const Duration(milliseconds: 300), () {
           if (mounted && _voiceLoopActive && !_isMuted && !_isSpeaking && !_isProcessingMessage) {
             _startRecordingWithAutoStop();
           }
@@ -1906,7 +2231,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     }
   }
 
-// Update _processQueue method to track queue processing time
   Future<void> _processQueue() async {
     if (_speakingQueue.isEmpty) {
       _isProcessingQueue = false;
@@ -1921,7 +2245,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     if (isGuider && _isSpeaking) {
       print("🛡️ Guider in queue waiting for character to finish...");
       _speakingQueue.insert(0, item);
-      await Future.delayed(const Duration(milliseconds: 150));
+      await Future.delayed(const Duration(milliseconds: 100)); // REDUCED from 150
       _processQueue();
       return;
     }
@@ -1929,18 +2253,19 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     final queueStopwatch = Stopwatch()..start();
     print("📋 QUEUE PROCESSING: ${isGuider ? 'Guider' : 'Character'} message");
 
-    await _speakText(text, isGuider: isGuider);
+    await _speakTextFast(text, isGuider: isGuider);
 
     _logTiming("Queue item (${isGuider ? 'Guider' : 'Character'})", queueStopwatch);
 
     if (isGuider) {
-      await Future.delayed(const Duration(milliseconds: 300));
+      await Future.delayed(const Duration(milliseconds: 200)); // REDUCED from 300
     } else {
-      await Future.delayed(const Duration(milliseconds: 150));
+      await Future.delayed(const Duration(milliseconds: 100)); // REDUCED from 150
     }
 
     _processQueue();
   }
+
   void _startTypingAnimation(String fullText) {
     _typingTimer?.cancel();
     setState(() {
@@ -1951,7 +2276,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     final words = fullText.split(' ');
     int index = 0;
 
-    _typingTimer = Timer.periodic(const Duration(milliseconds: 280), (timer) {
+    _typingTimer = Timer.periodic(const Duration(milliseconds: 150), (timer) { // REDUCED from 280
       if (index >= words.length) {
         timer.cancel();
         return;
@@ -1976,7 +2301,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     if (!mounted) return;
 
     if (accept) {
-      // Stop all current audio activities first
       _stopAll();
 
       setState(() {
@@ -1990,17 +2314,19 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       if (_currentSessionId != null) {
         final user = FirebaseAuth.instance.currentUser;
         if (user != null) {
-          await _sessionRepository.setGuiderJoined(
-            uid: user.uid,
-            sessionId: _currentSessionId!,
-            guiderJoined: true,
-          );
+          _addBackgroundTask(() async {
+            await _sessionRepository.setGuiderJoined(
+              uid: user.uid,
+              sessionId: _currentSessionId!,
+              guiderJoined: true,
+            );
+          });
         }
       }
 
       final welcomeMessage = _getGuiderWelcomeMessage();
       if (welcomeMessage.isNotEmpty) {
-        await _saveMessage('assistant', welcomeMessage, sender: 'guider');
+        unawaited(_saveMessage('assistant', welcomeMessage, sender: 'guider'));
         _conversationHistory.add({
           'role': 'assistant',
           'content': welcomeMessage,
@@ -2008,14 +2334,11 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
         });
       }
 
-      // Speak the welcome message
-      await _speakText(welcomeMessage, isGuider: true);
+      await _speakTextFast(welcomeMessage, isGuider: true);
 
-      // CRITICAL FIX: Reset voice loop state and restart recording
-      await Future.delayed(const Duration(milliseconds: 500));
+      await Future.delayed(const Duration(milliseconds: 300)); // REDUCED from 500
 
       if (mounted) {
-        // Reset all flags that might block recording
         setState(() {
           _isProcessingMessage = false;
           _isBusy = false;
@@ -2026,13 +2349,8 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
           _pendingTranscript = "";
         });
 
-        // Clear any pending speech
         _speakingQueue.clear();
-
-        // Ensure voice loop is active
         _voiceLoopActive = true;
-
-        // Start listening
         _startRecordingWithAutoStop();
       }
     } else {
@@ -2057,7 +2375,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
 
     final exitMessage = _getGuiderExitMessage();
     if (exitMessage.isNotEmpty) {
-      await _saveMessage('assistant', exitMessage, sender: 'guider');
+      unawaited(_saveMessage('assistant', exitMessage, sender: 'guider'));
       _conversationHistory.add({
         'role': 'assistant',
         'content': exitMessage,
@@ -2070,15 +2388,17 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     if (_currentSessionId != null) {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
-        await _sessionRepository.setGuiderJoined(
-          uid: user.uid,
-          sessionId: _currentSessionId!,
-          guiderJoined: false,
-        );
+        _addBackgroundTask(() async {
+          await _sessionRepository.setGuiderJoined(
+            uid: user.uid,
+            sessionId: _currentSessionId!,
+            guiderJoined: false,
+          );
+        });
       }
     }
 
-    await Future.delayed(const Duration(milliseconds: 300));
+    await Future.delayed(const Duration(milliseconds: 200)); // REDUCED from 300
     _startVoiceLoop();
   }
 
@@ -2282,12 +2602,12 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
 
     final user = FirebaseAuth.instance.currentUser;
     if (user != null && _currentSessionId != null && _currentThreadId != null) {
-      _sendSessionSummary(user).catchError((e) => print("Error sending session summary: $e"));
-      _sessionRepository.endVideoSession(
+      _addBackgroundTask(() => _sendSessionSummary(user));
+      _addBackgroundTask(() => _sessionRepository.endVideoSession(
         uid: user.uid,
         sessionId: _currentSessionId!,
         duration: _callDurationSeconds,
-      ).catchError((e) => print("Error ending session: $e"));
+      ));
     }
 
     if (_backgroundVideoController != null) {
@@ -2692,6 +3012,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     _guiderWaitTimer?.cancel();
     _recorderSubscription?.cancel();
     _stopAll();
+    _continuousTranscribeTimer?.cancel();
 
     if (_cameraController != null && _cameraController!.value.isInitialized) {
       _cameraController?.stopImageStream();
@@ -2731,8 +3052,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     final isTablet = screenWidth >= 600 && screenWidth < 1200;
 
     final characterCircleSize = isTablet ? screenWidth * 0.45 : screenWidth * 0.6;
-
-// Option 2: Even smaller (more balanced)
     final o3dHeight = isLandscape ? screenHeight * 0.15 : screenHeight * 0.3;
     final o3dWidth = isLandscape ? screenWidth * 0.25 : screenWidth * 0.15;
     final videoWidth = isSmallScreen ? 110.0 : 130.0;
@@ -2759,7 +3078,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
               ),
             ),
 
-
           SafeArea(
             child: Column(
               children: [
@@ -2770,8 +3088,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
                     clipBehavior: Clip.none,
                     alignment: Alignment.center,
                     children: [
-                      // REMOVED the first Container circle here
-
                       Positioned(
                         top: 5,
                         right: isSmallScreen ? 10: -35,
@@ -3024,22 +3340,14 @@ class _GuiderModal extends StatelessWidget {
               ),
               const SizedBox(height: 16),
               Text(
-                tr(context, 'The Guider', 'المُرشد'),
+                'The Guider',
                 style: TextStyle(fontSize: titleFontSize, fontWeight: FontWeight.w800, color: const Color(0xFF2A1E3B)),
               ),
               const SizedBox(height: 12),
               Text(
                 isGuiderInChat
-                    ? tr(
-                  context,
-                  'The Guider is currently in this conversation, helping you and your $characterName understand each other better.',
-                  'المُرشد موجود حاليًا في هذه المحادثة، يساعدك أنت و$characterName على فهم بعضكم البعض بشكل أفضل.',
-                )
-                    : tr(
-                  context,
-                  'Would you like The Guider to join this conversation? They can help you and your $characterName communicate with more clarity and compassion.',
-                  'هل تريد أن ينضم المُرشد إلى هذه المحادثة؟ يمكنه مساعدتك أنت و$characterName على التواصل بوضوح وتعاطف أكبر.',
-                ),
+                    ? 'The Guider is currently in this conversation, helping you and your $characterName understand each other better.'
+                    : 'Would you like The Guider to join this conversation? They can help you and your $characterName communicate with more clarity and compassion.',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: textFontSize, color: const Color(0xFF6B5C82), height: 1.5),
               ),
@@ -3056,7 +3364,7 @@ class _GuiderModal extends StatelessWidget {
                       padding: EdgeInsets.symmetric(vertical: isSmallScreen ? 12 : 14),
                     ),
                     child: Text(
-                      tr(context, 'Continue without The Guider', 'استمر بدون المُرشد'),
+                      'Continue without The Guider',
                       style: TextStyle(fontSize: textFontSize, fontWeight: FontWeight.w600),
                     ),
                   ),
@@ -3076,7 +3384,7 @@ class _GuiderModal extends StatelessWidget {
                           padding: EdgeInsets.symmetric(vertical: isSmallScreen ? 12 : 14),
                         ),
                         child: Text(
-                          tr(context, 'Yes, invite The Guider', 'نعم، ادعُ المُرشد'),
+                          'Yes, invite The Guider',
                           style: TextStyle(fontSize: textFontSize, fontWeight: FontWeight.w600),
                         ),
                       ),
@@ -3091,7 +3399,7 @@ class _GuiderModal extends StatelessWidget {
                           padding: EdgeInsets.symmetric(vertical: isSmallScreen ? 12 : 14),
                         ),
                         child: Text(
-                          tr(context, 'Not now', 'ليس الآن'),
+                          'Not now',
                           style: TextStyle(fontSize: textFontSize, fontWeight: FontWeight.w500),
                         ),
                       ),

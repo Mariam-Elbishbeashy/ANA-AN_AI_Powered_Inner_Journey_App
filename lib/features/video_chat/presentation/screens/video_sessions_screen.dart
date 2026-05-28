@@ -27,6 +27,7 @@ class _VideoSessionsScreenState extends State<VideoSessionsScreen> {
 
   late final String _characterIdForBackend;
   late final String _assistantAvatarPath;
+  static const String _guiderAvatarPath = 'assets/images/guider.png';
 
   final _refreshIndicatorKey = GlobalKey<RefreshIndicatorState>();
 
@@ -130,14 +131,14 @@ class _VideoSessionsScreenState extends State<VideoSessionsScreen> {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
+    // Check for active session
     final active = await _sessionRepository.getActiveVideoSession(
       uid: user.uid,
       characterId: _characterIdForBackend,
     );
 
-    if (!mounted) return;
-
     if (active != null) {
+      // Show dialog - this is an ACTIVE session that hasn't been ended
       final shouldEnd = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
@@ -145,8 +146,8 @@ class _VideoSessionsScreenState extends State<VideoSessionsScreen> {
           content: Text(
             tr(
               context,
-              'You already have an active video session with this character. To start a new one, the current session must be ended first.',
-              'لديك بالفعل جلسة فيديو نشطة مع هذه الشخصية. لبدء جلسة جديدة، يجب إنهاء الجلسة الحالية أولاً.',
+              'You have an ongoing video session. Ending it will save the conversation and allow you to start a new one.',
+              'لديك جلسة فيديو قيد التقدم. إنهاء الجلسة سيحفظ المحادثة ويسمح لك ببدء جلسة جديدة.',
             ),
           ),
           actions: [
@@ -164,16 +165,23 @@ class _VideoSessionsScreenState extends State<VideoSessionsScreen> {
 
       if (shouldEnd != true) return;
 
+      // End the active session first
       await _sessionRepository.endVideoSession(
         uid: user.uid,
         sessionId: active.id,
+        duration: active.duration, // Keep existing duration
       );
+
+      // Wait for backend to process
+      await Future.delayed(const Duration(milliseconds: 500));
     }
 
+    // Now start a brand new session (existingSessionId = null forces new session)
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => VideoCallScreen(
           character: widget.character,
+          existingSessionId: null, // CRITICAL: Force new session
         ),
       ),
     );
@@ -586,6 +594,7 @@ class _SessionTile extends StatelessWidget {
                       ),
                       if (guiderJoined) ...[
                         const SizedBox(width: 8),
+                        // Use Guider image as icon when guider intervenes
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
@@ -595,18 +604,26 @@ class _SessionTile extends StatelessWidget {
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(
-                                Icons.assistant_navigation,
-                                size: 10,
-                                color: const Color(0xFFB79CFF),
+                              ClipOval(
+                                child: Image.asset(
+                                  'assets/images/guider.png',
+                                  width: 12,
+                                  height: 12,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) => const Icon(
+                                    Icons.assistant_navigation,
+                                    size: 10,
+                                    color: Color(0xFFB79CFF),
+                                  ),
+                                ),
                               ),
                               const SizedBox(width: 2),
                               Text(
                                 'Guider',
-                                style: TextStyle(
+                                style: const TextStyle(
                                   fontSize: 9,
                                   fontWeight: FontWeight.w600,
-                                  color: const Color(0xFFB79CFF),
+                                  color: Color(0xFFB79CFF),
                                 ),
                               ),
                             ],
