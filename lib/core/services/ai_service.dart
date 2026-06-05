@@ -4,7 +4,7 @@ import 'package:http/http.dart' as http;
 
 class AIService {
   // For Android Emulator:
-  static const String _baseUrl = 'http://10.0.2.2:5000';
+  static const String _baseUrl = 'http://10.0.2.2:5008';
 
   // For physical device testing (use your computer's IP):
   // static const String _baseUrl = 'http://192.168.1.103:5000';

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:ana_ifs_app/features/profile/presentation/screens/AboutANAScreen.dart';
 import 'package:ana_ifs_app/features/profile/presentation/screens/HelpSupportScreen.dart';
 import 'package:ana_ifs_app/features/profile/presentation/screens/NotificationsScreen.dart';
@@ -11,6 +13,8 @@ import 'package:ana_ifs_app/core/localization/app_language_provider.dart';
 import 'package:ana_ifs_app/features/character/domain/entities/user_character.dart';
 import 'package:ana_ifs_app/features/questionnaire/presentation/screens/initial_motivation_screen.dart';
 import 'package:ana_ifs_app/core/services/firestore_service.dart';
+
+import '../../../questionnaire/presentation/state/questionnaire_provider.dart';
 
 class ProfileScreen extends StatefulWidget {
   final User? user;
@@ -31,61 +35,242 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   late List<UserCharacter> _userCharacters;
   bool _isLoading = false;
+  bool _isRetaking = false;
+  bool _hasQuestionnaireResults = false;
+  int _questionCount = 0;
+
   final FirestoreService _firestoreService = FirestoreService();
+  StreamSubscription<List<UserCharacter>>? _charactersSubscription;
+  StreamSubscription<int>? _questionCountSubscription;
 
   @override
   void initState() {
     super.initState();
-    // Filter initial characters to only show active ones
-    _userCharacters = widget.initialUserCharacters.where((c) => c.currentState == 'active').toList();
 
-    // Check inactivity and refresh characters
+    // Use already available data first, so opening Profile is instant.
+    final cachedCharacters = _firestoreService.getCachedUserCharacters();
+    final initialCharacters = cachedCharacters ?? widget.initialUserCharacters;
+    final cachedQuestionCount =
+    _firestoreService.getCachedUserQuestionnaireQuestionCount();
+
+    _setCharactersFromList(initialCharacters, notify: false);
+    if (cachedQuestionCount != null) {
+      _questionCount = cachedQuestionCount;
+    }
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _checkInactivityAndRefresh();
+      _startRealtimeCacheUpdates();
+      _updateLastActivitySilently();
     });
   }
 
-  Future<void> _checkInactivityAndRefresh() async {
-    print('👤 ProfileScreen: Checking inactivity and refreshing');
+  void _setCharactersFromList(
+      List<UserCharacter> allCharacters, {
+        bool notify = true,
+      }) {
+    final activeCharacters = allCharacters
+        .where((c) => c.currentState.toLowerCase() == 'active')
+        .toList();
 
-    // First check if user has been inactive
-    await _firestoreService.checkAndUpdateInactiveCharacters();
+    if (!notify) {
+      _hasQuestionnaireResults = allCharacters.isNotEmpty;
+      _userCharacters = activeCharacters;
+      return;
+    }
 
-    // Then update last activity timestamp
-    await _firestoreService.updateUserLastActivity();
-
-    // Refresh characters
-    await _refreshCharacters();
-  }
-
-  Future<void> _refreshCharacters() async {
+    if (!mounted) return;
     setState(() {
-      _isLoading = true;
+      _hasQuestionnaireResults = allCharacters.isNotEmpty;
+      _userCharacters = activeCharacters;
     });
+  }
+
+  Future<void> _startRealtimeCacheUpdates() async {
+    await _charactersSubscription?.cancel();
+    _charactersSubscription = _firestoreService.watchUserCharacters().listen(
+          (characters) {
+        _setCharactersFromList(characters);
+      },
+      onError: (error) {
+        print('👤 ProfileScreen: character watch error: $error');
+      },
+    );
 
     try {
-      // Get all characters and filter for ACTIVE only
-      final allCharacters = await _firestoreService.getUserCharacters();
-      print('👤 ProfileScreen: Total characters: ${allCharacters.length}');
+      final selectedLanguage = await _firestoreService.getUserLanguage();
 
-      // Log states for debugging
-      for (var c in allCharacters) {
-        print('   - ${c.displayNameEn}: state=${c.currentState}');
+      final cachedQuestionCount =
+      _firestoreService.getCachedUserQuestionnaireQuestionCount();
+
+      if (cachedQuestionCount != null && mounted) {
+        setState(() {
+          _questionCount = cachedQuestionCount;
+        });
+      } else {
+        final count = await _firestoreService.getUserQuestionnaireQuestionCount(
+          language: selectedLanguage,
+          forceRefresh: false,
+        );
+
+        if (mounted) {
+          setState(() {
+            _questionCount = count;
+          });
+        }
       }
 
-      final activeCharacters = allCharacters.where((c) => c.currentState == 'active').toList();
-      print('👤 ProfileScreen: Active characters: ${activeCharacters.length}');
-
-      setState(() {
-        _userCharacters = activeCharacters;
-        _isLoading = false;
-      });
+      await _questionCountSubscription?.cancel();
+      _questionCountSubscription = _firestoreService
+          .watchUserQuestionnaireQuestionCount(language: selectedLanguage)
+          .listen(
+            (count) {
+          if (!mounted) return;
+          setState(() {
+            _questionCount = count;
+          });
+        },
+        onError: (error) {
+          print('👤 ProfileScreen: saved question count watch error: $error');
+        },
+      );
     } catch (e) {
-      print('👤 ProfileScreen: Error refreshing characters: $e');
-      setState(() {
-        _isLoading = false;
-      });
+      print('👤 ProfileScreen: Error starting cached updates: $e');
     }
+  }
+
+  Future<void> _updateLastActivitySilently() async {
+    try {
+      await _firestoreService.updateUserLastActivity();
+    } catch (e) {
+      print('👤 ProfileScreen: last activity update skipped: $e');
+    }
+  }
+
+  Future<void> _loadQuestionCount({String? language}) async {
+    try {
+      final selectedLanguage =
+          language ?? await _firestoreService.getUserLanguage();
+
+      final cachedQuestionCount =
+      _firestoreService.getCachedUserQuestionnaireQuestionCount();
+
+      if (cachedQuestionCount != null && mounted) {
+        setState(() {
+          _questionCount = cachedQuestionCount;
+        });
+      } else {
+        final count = await _firestoreService.getUserQuestionnaireQuestionCount(
+          language: selectedLanguage,
+          forceRefresh: false,
+        );
+
+        if (!mounted) return;
+        setState(() {
+          _questionCount = count;
+        });
+      }
+
+      await _questionCountSubscription?.cancel();
+      _questionCountSubscription = _firestoreService
+          .watchUserQuestionnaireQuestionCount(language: selectedLanguage)
+          .listen(
+            (count) {
+          if (!mounted) return;
+          setState(() {
+            _questionCount = count;
+          });
+        },
+      );
+    } catch (e) {
+      print('👤 ProfileScreen: Error loading saved question count: $e');
+    }
+  }
+
+  @override
+  void dispose() {
+    _charactersSubscription?.cancel();
+    _questionCountSubscription?.cancel();
+    super.dispose();
+  }
+
+  String _currentAppLanguage() {
+    try {
+      final appLanguage = context.read<AppLanguageProvider>().language;
+      return appLanguage.trim().toLowerCase().startsWith('ar') ? 'ar' : 'en';
+    } catch (e) {
+      return isArabic(context) ? 'ar' : 'en';
+    }
+  }
+
+  String _toArabicDigits(Object value) {
+    var text = value.toString();
+    const englishDigits = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+    const arabicDigits = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+
+    for (int i = 0; i < englishDigits.length; i++) {
+      text = text.replaceAll(englishDigits[i], arabicDigits[i]);
+    }
+
+    return text;
+  }
+
+  String _localizedNumber(Object value) {
+    return isArabic(context) ? _toArabicDigits(value) : value.toString();
+  }
+
+  Future<void> _handleRetakeQuestionnaire(bool isArabicValue) async {
+    if (_isRetaking) return;
+
+    setState(() {
+      _isRetaking = true;
+      _hasQuestionnaireResults = false;
+      _userCharacters = [];
+    });
+
+    final appLanguage = _currentAppLanguage();
+
+    QuestionnaireProvider? questionnaireProvider;
+    try {
+      questionnaireProvider = context.read<QuestionnaireProvider>();
+    } catch (e) {
+      print('QuestionnaireProvider not found before retake: $e');
+    }
+
+    try {
+      // The app UI language is the source of truth. If Firestore still has
+      // preferredLanguage='ar' while the app is currently English, this line
+      // prevents the retaken questionnaire from being saved as Arabic.
+      await _firestoreService.setUserLanguage(appLanguage);
+      await questionnaireProvider?.syncLanguageFromApp(
+        appLanguage,
+        forceReload: false,
+      );
+
+      // Delete only the current answers/characters before opening the questionnaire.
+      // This prevents old answers from appearing, but avoids waiting for slower
+      // progress/history cleanup.
+      await _firestoreService.clearQuestionnaireStartData(
+        language: appLanguage,
+      );
+      questionnaireProvider?.clearAnswers();
+    } catch (e) {
+      print('Fast retake cleanup failed: $e');
+    }
+
+    if (!mounted) return;
+
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const InitialMotivationScreen()),
+    );
+
+    unawaited(() async {
+      try {
+        await questionnaireProvider?.resetForRetake(appLanguage: appLanguage);
+        await _firestoreService.clearQuestionnaireProgressData();
+      } catch (e) {
+        print('Background retake cleanup failed: $e');
+      }
+    }());
   }
 
   String _getFormattedName() {
@@ -135,6 +320,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
               });
 
               await languageProvider.setLanguage(language);
+              await _firestoreService.setUserLanguage(language);
+              try {
+                await context.read<QuestionnaireProvider>().syncLanguageFromApp(
+                  language,
+                  forceReload: true,
+                );
+              } catch (e) {
+                print('QuestionnaireProvider language sync skipped: $e');
+              }
+              await _loadQuestionCount(language: language);
 
               if (!mounted) return;
               Navigator.pop(sheetContext);
@@ -336,17 +531,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         mainAxisAlignment: MainAxisAlignment.spaceAround,
                         children: [
                           _StatItem(
-                            value: _userCharacters.length.toString(),
+                            value: _localizedNumber(_userCharacters.length),
                             label: isArabicValue ? 'شخصيات نشطة' : 'Active Characters',
                             icon: Icons.psychology_rounded,
                           ),
                           _StatItem(
-                            value: '13',
+                            value: _localizedNumber(_questionCount),
                             label: isArabicValue ? 'أسئلة' : 'Questions',
                             icon: Icons.help_outline_rounded,
                           ),
                           _StatItem(
-                            value: _getDaysActive(),
+                            value: _localizedNumber(_getDaysActive()),
                             label: isArabicValue ? 'أيام نشاط' : 'Days Active',
                             icon: Icons.calendar_today_rounded,
                           ),
@@ -357,39 +552,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     const SizedBox(height: 30),
 
                     // My Characters Section
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          isArabicValue ? 'شخصياتي النشطة' : 'My Active Characters',
-                          style: const TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF2A1E3B),
-                          ),
-                        ),
-                        if (_isLoading)
-                          const SizedBox(
-                            width: 24,
-                            height: 24,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                Color(0xFF8E7CFF),
-                              ),
-                            ),
-                          )
-                        else
-                          IconButton(
-                            icon: const Icon(
-                              Icons.refresh_rounded,
-                              size: 20,
-                              color: Color(0xFF8E7CFF),
-                            ),
-                            onPressed: _refreshCharacters,
-                            tooltip: isArabicValue ? 'تحديث' : 'Refresh',
-                          ),
-                      ],
+                    Text(
+                      isArabicValue ? 'شخصياتي النشطة' : 'My Active Characters',
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF2A1E3B),
+                      ),
                     ),
                     const SizedBox(height: 16),
 
@@ -555,7 +724,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     const SizedBox(height: 30),
 
                     // Retake Questionnaire Button
-                    if (_userCharacters.isNotEmpty)
+                    if (_hasQuestionnaireResults)
                       Container(
                         margin: const EdgeInsets.only(bottom: 20),
                         width: double.infinity,
@@ -572,8 +741,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 ),
                                 content: Text(
                                   isArabicValue
-                                      ? 'هل تريد إعادة الاستبيان؟ سيتم حذف النتائج الحالية.'
-                                      : 'Do you want to retake the questionnaire? Your current results will be deleted.',
+                                      ? 'إعادة الاستبيان ستقوم بحذف الشخصيات الحالية وإزالة تقدمك الحالي. هل تريد المتابعة؟'
+                                      : 'Retaking the questionnaire will remove your current characters and clear your current progress. Do you want to continue?',
                                 ),
                                 actions: [
                                   TextButton(
@@ -582,35 +751,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                     Text(isArabicValue ? 'إلغاء' : 'Cancel'),
                                   ),
                                   TextButton(
-                                    onPressed: () async {
+                                    onPressed: _isRetaking
+                                        ? null
+                                        : () async {
                                       Navigator.pop(context);
-                                      // Clear existing data and navigate to questionnaire
-                                      try {
-                                        await _firestoreService
-                                            .clearQuestionnaireData();
-                                        Navigator.of(context).pushReplacement(
-                                          MaterialPageRoute(
-                                            builder: (_) =>
-                                            const InitialMotivationScreen(),
-                                          ),
-                                        );
-                                      } catch (e) {
-                                        ScaffoldMessenger.of(
-                                          context,
-                                        ).showSnackBar(
-                                          SnackBar(
-                                            content: Text(
-                                              isArabicValue
-                                                  ? 'خطأ في إعادة الاستبيان'
-                                                  : 'Error retaking questionnaire',
-                                            ),
-                                            backgroundColor: Colors.red,
-                                          ),
-                                        );
-                                      }
+                                      await _handleRetakeQuestionnaire(
+                                        isArabicValue,
+                                      );
                                     },
                                     child: Text(
-                                      isArabicValue ? 'إعادة' : 'Retake',
+                                      _isRetaking
+                                          ? (isArabicValue
+                                          ? 'جاري الإعادة...'
+                                          : 'Resetting...')
+                                          : (isArabicValue ? 'إعادة' : 'Retake'),
                                     ),
                                   ),
                                 ],
@@ -777,6 +931,22 @@ class _CharacterCard extends StatelessWidget {
   final UserCharacter character;
 
   const _CharacterCard({required this.character});
+
+  String _toArabicDigits(Object value) {
+    var text = value.toString();
+    const englishDigits = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+    const arabicDigits = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+
+    for (int i = 0; i < englishDigits.length; i++) {
+      text = text.replaceAll(englishDigits[i], arabicDigits[i]);
+    }
+
+    return text;
+  }
+
+  String _localizedNumber(BuildContext context, Object value) {
+    return isArabic(context) ? _toArabicDigits(value) : value.toString();
+  }
 
   String _getImagePathForCharacter(String characterName) {
     final imageMap = {

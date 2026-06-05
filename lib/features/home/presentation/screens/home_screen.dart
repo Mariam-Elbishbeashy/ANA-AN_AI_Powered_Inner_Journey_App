@@ -332,7 +332,7 @@ class _HomeScreenState extends State<HomeScreen>
       'Jealous Part': 'jealous.png',
       'Ashamed Part': 'ashamed.png',
       'Workaholic': 'workaholic.png',
-      'Perfectionist': 'perfectionist.png',
+      'Perfectionist': 'perfictionist.png',
       'Procrastinator': 'procrastinator.png',
       'Excessive Gamer': 'excessive_gamer.png',
       'Confused Part': 'confused.png',

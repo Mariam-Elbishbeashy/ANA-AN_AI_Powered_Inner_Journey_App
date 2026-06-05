@@ -17,6 +17,83 @@ class FirestoreService {
   static final Map<String, String> _lastKnownCharacterStableAt = <String, String>{};
   static final Map<String, String> _pendingStableHistoryStableAt = <String, String>{};
 
+  // Simple in-memory cache while the app is open.
+  // It prevents repeated Firestore reads / visible reloads when opening pages.
+  static final Map<String, List<Question>> _questionsCache = <String, List<Question>>{};
+  static final Map<String, int> _questionCountCache = <String, int>{};
+  static final Map<String, List<UserCharacter>> _userCharactersCache =
+  <String, List<UserCharacter>>{};
+  static final Map<String, int> _userQuestionnaireCountCache =
+  <String, int>{};
+
+  String _questionCacheKey(String language) => language.trim().toLowerCase();
+
+  List<Question>? getCachedQuestions(String language) {
+    final cached = _questionsCache[_questionCacheKey(language)];
+    if (cached == null) return null;
+    return List<Question>.from(cached);
+  }
+
+  int? getCachedQuestionCount(String language) {
+    return _questionCountCache[_questionCacheKey(language)];
+  }
+
+  List<UserCharacter>? getCachedUserCharacters() {
+    final userId = currentUserId;
+    if (userId == null) return null;
+
+    final cached = _userCharactersCache[userId];
+    if (cached == null) return null;
+    return List<UserCharacter>.from(cached);
+  }
+
+  int? getCachedUserQuestionnaireQuestionCount() {
+    final userId = currentUserId;
+    if (userId == null) return null;
+    return _userQuestionnaireCountCache[userId];
+  }
+
+  void _cacheUserQuestionnaireQuestionCount(
+      String userId,
+      int count,
+      ) {
+    if (count > 0) {
+      _userQuestionnaireCountCache[userId] = count;
+    }
+  }
+
+  void invalidateUserQuestionnaireQuestionCountCache([String? userId]) {
+    final id = userId ?? currentUserId;
+    if (id == null) {
+      _userQuestionnaireCountCache.clear();
+      return;
+    }
+
+    _userQuestionnaireCountCache.remove(id);
+  }
+
+  void invalidateQuestionsCache([String? language]) {
+    if (language == null) {
+      _questionsCache.clear();
+      _questionCountCache.clear();
+      return;
+    }
+
+    final cacheKey = _questionCacheKey(language);
+    _questionsCache.remove(cacheKey);
+    _questionCountCache.remove(cacheKey);
+  }
+
+  void invalidateUserCharactersCache([String? userId]) {
+    final id = userId ?? currentUserId;
+    if (id == null) {
+      _userCharactersCache.clear();
+      return;
+    }
+
+    _userCharactersCache.remove(id);
+  }
+
   // Questions Collection
   CollectionReference get questionsCollection =>
       _firestore.collection('questions');
@@ -41,8 +118,19 @@ class FirestoreService {
 
   // ============= QUESTION METHODS =============
 
-  // Fetch all questions for a specific language
-  Future<List<Question>> getQuestions(String language) async {
+  // Fetch all questions for a specific language.
+  // Uses an in-memory cache so pages do not refetch the same questions
+  // every time they open. Use forceRefresh when you add questions or retake.
+  Future<List<Question>> getQuestions(
+      String language, {
+        bool forceRefresh = false,
+      }) async {
+    final cacheKey = _questionCacheKey(language);
+
+    if (!forceRefresh && _questionsCache.containsKey(cacheKey)) {
+      return List<Question>.from(_questionsCache[cacheKey]!);
+    }
+
     try {
       print('📥 Fetching questions for language: $language');
 
@@ -50,38 +138,6 @@ class FirestoreService {
           .where('language', isEqualTo: language)
           .orderBy('questionNumber')
           .get();
-
-      print(
-        '📊 Found ${querySnapshot.docs.length} documents for language: $language',
-      );
-
-      // DEBUG: Print all document data
-      for (var doc in querySnapshot.docs) {
-        print('📄 Document ID: ${doc.id}');
-        print('   Data: ${doc.data()}');
-        print('   ---');
-      }
-
-      if (querySnapshot.docs.isEmpty) {
-        print('⚠️ No questions found for language: $language');
-        print('   Checking if questions collection exists...');
-
-        // Check if collection exists at all
-        final allQuestions = await questionsCollection.limit(1).get();
-        print('   Total questions in collection: ${allQuestions.docs.length}');
-
-        // Check what languages exist
-        final allDocs = await questionsCollection.get();
-        final languages = <String>{};
-        for (var doc in allDocs.docs) {
-          final data = doc.data() as Map<String, dynamic>;
-          final lang = data['language']?.toString() ?? 'unknown';
-          languages.add(lang);
-        }
-        print('   Available languages in database: ${languages.toList()}');
-
-        return [];
-      }
 
       final questions = querySnapshot.docs
           .map((doc) {
@@ -91,34 +147,50 @@ class FirestoreService {
             doc.id,
           );
         } catch (e) {
-          print('❌ Error parsing document ${doc.id}: $e');
-          print('📄 Document data: ${doc.data()}');
+          print('❌ Error parsing question ${doc.id}: $e');
           return null;
         }
       })
           .where((question) => question != null)
           .cast<Question>()
-          .toList();
+          .toList()
+        ..sort((a, b) => a.questionNumber.compareTo(b.questionNumber));
 
-      print(
-        '✅ Successfully parsed ${questions.length} questions for language: $language',
-      );
+      _questionsCache[cacheKey] = List<Question>.from(questions);
+      _questionCountCache[cacheKey] = questions.length;
 
-      // Debug: Print first question details
-      if (questions.isNotEmpty) {
-        print('🔍 First question details:');
-        print('  - Number: ${questions[0].questionNumber}');
-        print('  - Text: ${questions[0].text}');
-        print('  - Language: ${questions[0].language}');
-        print('  - Text length: ${questions[0].text.length}');
-      }
-
-      return questions;
+      print('✅ Loaded ${questions.length} questions for $language');
+      return List<Question>.from(questions);
     } catch (e, stackTrace) {
       print('❌ ERROR fetching questions for language $language: $e');
       print('📝 Stack trace: $stackTrace');
+
+      final cached = _questionsCache[cacheKey];
+      if (cached != null) {
+        return List<Question>.from(cached);
+      }
+
       return [];
     }
+  }
+
+  // Watch question count. This updates the cache only when Firestore changes,
+  // so Profile can show 26 automatically without doing a visible reload.
+  Stream<int> watchQuestionCount(String language) {
+    final cacheKey = _questionCacheKey(language);
+
+    return questionsCollection
+        .where('language', isEqualTo: language)
+        .snapshots()
+        .map((snapshot) {
+      _questionCountCache[cacheKey] = snapshot.docs.length;
+
+      // The number changed, so the stored question list may be stale.
+      // The next questionnaire load will fetch the new 26 questions.
+      _questionsCache.remove(cacheKey);
+
+      return snapshot.docs.length;
+    });
   }
 
   // Get a specific question
@@ -228,16 +300,259 @@ class FirestoreService {
     }
   }
 
+  Future<int> getCompletedAnswerCount() async {
+    final userId = currentUserId;
+    if (userId == null) return 0;
+
+    try {
+      final snapshot = await userAnswersCollection
+          .where('userId', isEqualTo: userId)
+          .get();
+      return snapshot.docs.length;
+    } catch (e) {
+      print('Error getting completed answer count: $e');
+      return 0;
+    }
+  }
+
+  Future<void> saveUserQuestionnaireQuestionCount(
+      int count, {
+        String? language,
+        bool completed = false,
+      }) async {
+    final userId = currentUserId;
+    if (userId == null || count <= 0) return;
+
+    int finalCount = count;
+    try {
+      final existingDoc = await usersCollection.doc(userId).get();
+      final existingData = existingDoc.data() as Map<String, dynamic>?;
+      final existingRaw = existingData?['questionnaireQuestionCount'];
+      final existingCount = existingRaw is int
+          ? existingRaw
+          : existingRaw is num
+          ? existingRaw.toInt()
+          : 0;
+
+      // Never let an older 13 overwrite a newer 26 while the app is open.
+      if (existingCount > finalCount) {
+        finalCount = existingCount;
+      }
+    } catch (e) {
+      print('Could not check existing questionnaireQuestionCount: $e');
+    }
+
+    await usersCollection.doc(userId).set({
+      'questionnaireQuestionCount': finalCount,
+      'questionnaireLanguage': language ?? await getUserLanguage(),
+      'questionnaireQuestionCountUpdatedAt': DateTime.now().toIso8601String(),
+      'updatedAt': DateTime.now().toIso8601String(),
+      if (completed) 'questionnaireAnsweredCount': finalCount,
+    }, SetOptions(merge: true));
+
+    _cacheUserQuestionnaireQuestionCount(userId, finalCount);
+  }
+
+  Future<int> recordCompletedQuestionnaireAttempt({
+    required int currentAttemptQuestionCount,
+    String? language,
+  }) async {
+    final userId = currentUserId;
+    if (userId == null || currentAttemptQuestionCount <= 0) return 0;
+
+    final selectedLanguage = language ?? await getUserLanguage();
+    final nowIso = DateTime.now().toIso8601String();
+    final userRef = usersCollection.doc(userId);
+
+    int toInt(dynamic value) {
+      if (value is int) return value;
+      if (value is num) return value.toInt();
+      return int.tryParse(value?.toString() ?? '') ?? 0;
+    }
+
+    final newTotal = await _firestore.runTransaction<int>((transaction) async {
+      final snapshot = await transaction.get(userRef);
+      final data = snapshot.data() as Map<String, dynamic>? ?? <String, dynamic>{};
+
+      // This field is cumulative: first completion = 13,
+      // first retake completion = 26, second retake completion = 39, etc.
+      final previousTotal = toInt(
+        data['questionnaireQuestionCount'] ??
+            data['questionnaireTotalAnsweredCount'] ??
+            data['questionnaireAnsweredCount'],
+      );
+
+      final savedAttemptCount = toInt(data['questionnaireAttemptCount']);
+      final startedRetakeCount = toInt(data['questionnaireRetakeStartedCount']);
+      final inferredAttemptCount = previousTotal > 0
+          ? (previousTotal / currentAttemptQuestionCount).floor()
+          : 0;
+      final previousAttemptCount = savedAttemptCount > 0
+          ? savedAttemptCount
+          : inferredAttemptCount;
+
+      var updatedAttemptCount = previousAttemptCount + 1;
+
+      // If this completion came after pressing Retake, make sure the attempt
+      // count reflects that retake even if an older buggy version had saved
+      // questionnaireQuestionCount as only 13.
+      final minimumAttemptCountFromRetakes = startedRetakeCount + 1;
+      if (minimumAttemptCountFromRetakes > updatedAttemptCount) {
+        updatedAttemptCount = minimumAttemptCountFromRetakes;
+      }
+
+      final updatedRetakeCount = updatedAttemptCount > 0
+          ? updatedAttemptCount - 1
+          : 0;
+
+      var updatedTotal = previousTotal + currentAttemptQuestionCount;
+      final minimumTotalFromAttempts =
+          updatedAttemptCount * currentAttemptQuestionCount;
+      if (minimumTotalFromAttempts > updatedTotal) {
+        updatedTotal = minimumTotalFromAttempts;
+      }
+
+      transaction.set(userRef, {
+        'hasCompletedQuestionnaire': true,
+        'questionnaireCompletedAt': nowIso,
+        'questionnaireLanguage': selectedLanguage,
+
+        // Main number shown in Profile.
+        'questionnaireQuestionCount': updatedTotal,
+
+        // Extra explicit fields for clarity/debugging.
+        'questionnaireTotalAnsweredCount': updatedTotal,
+        'questionnaireAnsweredCount': updatedTotal,
+        'questionnaireLastAttemptQuestionCount': currentAttemptQuestionCount,
+        'questionnaireAttemptCount': updatedAttemptCount,
+        'questionnaireRetakeCount': updatedRetakeCount,
+        'questionnaireQuestionCountUpdatedAt': nowIso,
+        'updatedAt': nowIso,
+      }, SetOptions(merge: true));
+
+      return updatedTotal;
+    });
+
+    _cacheUserQuestionnaireQuestionCount(userId, newTotal);
+
+    print(
+      '✅ Cumulative questionnaireQuestionCount saved for $userId: $newTotal',
+    );
+    return newTotal;
+  }
+
+  Future<int> getUserQuestionnaireQuestionCount({
+    String? language,
+    bool forceRefresh = false,
+  }) async {
+    final userId = currentUserId;
+    if (userId == null) return 0;
+
+    if (!forceRefresh && _userQuestionnaireCountCache.containsKey(userId)) {
+      return _userQuestionnaireCountCache[userId]!;
+    }
+
+    try {
+      final doc = forceRefresh
+          ? await usersCollection.doc(userId).get(
+        const GetOptions(source: Source.server),
+      )
+          : await usersCollection.doc(userId).get();
+
+      final data = doc.data() as Map<String, dynamic>?;
+      final savedCount = data?['questionnaireQuestionCount'];
+
+      if (savedCount is int && savedCount > 0) {
+        _cacheUserQuestionnaireQuestionCount(userId, savedCount);
+        return savedCount;
+      }
+
+      if (savedCount is num && savedCount > 0) {
+        final count = savedCount.toInt();
+        _cacheUserQuestionnaireQuestionCount(userId, count);
+        return count;
+      }
+    } catch (e) {
+      print('Error getting user questionnaireQuestionCount: $e');
+    }
+
+    final answeredCount = await getCompletedAnswerCount();
+    if (answeredCount > 0) {
+      _cacheUserQuestionnaireQuestionCount(userId, answeredCount);
+      return answeredCount;
+    }
+
+    return 0;
+  }
+
+  Stream<int> watchUserQuestionnaireQuestionCount({
+    String? language,
+  }) {
+    final userId = currentUserId;
+    if (userId == null) return const Stream<int>.empty();
+
+    return usersCollection.doc(userId).snapshots().asyncMap((doc) async {
+      final data = doc.data() as Map<String, dynamic>?;
+      final savedCount = data?['questionnaireQuestionCount'];
+
+      if (savedCount is int && savedCount > 0) {
+        _cacheUserQuestionnaireQuestionCount(userId, savedCount);
+        return savedCount;
+      }
+
+      if (savedCount is num && savedCount > 0) {
+        final count = savedCount.toInt();
+        _cacheUserQuestionnaireQuestionCount(userId, count);
+        return count;
+      }
+
+      return getUserQuestionnaireQuestionCount(
+        language: language,
+        forceRefresh: false,
+      );
+    });
+  }
+
+  // Get the current number of questionnaire questions for a language.
+  // Uses the cached question list/count when available.
+  Future<int> getQuestionCount([
+    String? language,
+    bool forceRefresh = false,
+  ]) async {
+    try {
+      final selectedLanguage = language ?? await getUserLanguage();
+      final cacheKey = _questionCacheKey(selectedLanguage);
+
+      if (!forceRefresh && _questionCountCache.containsKey(cacheKey)) {
+        return _questionCountCache[cacheKey]!;
+      }
+
+      final questions = await getQuestions(
+        selectedLanguage,
+        forceRefresh: forceRefresh,
+      );
+
+      _questionCountCache[cacheKey] = questions.length;
+      return questions.length;
+    } catch (e) {
+      print('Error getting question count: $e');
+      return 0;
+    }
+  }
+
   // Check if user has completed questionnaire
   Future<bool> hasCompletedQuestionnaire() async {
     try {
-      // Check if user has characters data
+      // If predicted characters already exist, the questionnaire is complete.
       final hasCharacters = await hasUserCharacters();
       if (hasCharacters) return true;
 
-      // Check if user has answered all 13 questions
+      final language = await getUserLanguage();
+      final requiredQuestionCount = await getQuestionCount(language, true);
+      if (requiredQuestionCount == 0) return false;
+
       final answers = await getAllUserAnswers();
-      return answers.length >= 13;
+      return answers.length >= requiredQuestionCount;
     } catch (e) {
       print('Error checking questionnaire completion: $e');
       return false;
@@ -247,7 +562,10 @@ class FirestoreService {
   // ============= USER CHARACTERS METHODS =============
 
   // Save user's predicted characters - UPDATED with healing status
-  Future<void> saveUserCharacters(List<UserCharacter> characters) async {
+  Future<void> saveUserCharacters(
+      List<UserCharacter> characters, {
+        int? questionCount,
+      }) async {
     try {
       // Delete existing characters for this user
       await deleteUserCharacters();
@@ -255,6 +573,8 @@ class FirestoreService {
       // Save new characters with consistent IDs
       final userId = currentUserId;
       if (userId != null) {
+        _userCharactersCache[userId] = List<UserCharacter>.from(characters);
+
         for (final character in characters) {
           final docId = '${userId}_char_${character.rank}';
           // Save with bilingual fields
@@ -277,13 +597,21 @@ class FirestoreService {
           });
         }
 
-        // Update user document to mark questionnaire as completed
-        await usersCollection.doc(userId).set({
-          'hasCompletedQuestionnaire': true,
-          'questionnaireCompletedAt': DateTime.now().toIso8601String(),
-          'questionnaireLanguage': characters.first.language,
-          'updatedAt': DateTime.now().toIso8601String(),
-        }, SetOptions(merge: true));
+        var currentAttemptQuestionCount = questionCount ?? 0;
+        if (currentAttemptQuestionCount <= 0) {
+          currentAttemptQuestionCount = await getCompletedAnswerCount();
+        }
+        if (currentAttemptQuestionCount <= 0) {
+          currentAttemptQuestionCount = await getQuestionCount(
+            characters.first.language,
+            true,
+          );
+        }
+
+        await recordCompletedQuestionnaireAttempt(
+          currentAttemptQuestionCount: currentAttemptQuestionCount,
+          language: characters.first.language,
+        );
       }
     } catch (e) {
       print('Error saving user characters: $e');
@@ -291,10 +619,17 @@ class FirestoreService {
     }
   }
 
-  // Get ALL user's characters (both healed and unhealed)
-  Future<List<UserCharacter>> getUserCharacters() async {
+  // Get ALL user's characters (both healed and unhealed).
+  // Returns cached characters first unless forceRefresh is true.
+  Future<List<UserCharacter>> getUserCharacters({
+    bool forceRefresh = false,
+  }) async {
     final userId = currentUserId;
     if (userId == null) return [];
+
+    if (!forceRefresh && _userCharactersCache.containsKey(userId)) {
+      return List<UserCharacter>.from(_userCharactersCache[userId]!);
+    }
 
     try {
       final querySnapshot = await userCharactersCollection
@@ -302,7 +637,7 @@ class FirestoreService {
           .orderBy('rank')
           .get();
 
-      return querySnapshot.docs
+      final characters = querySnapshot.docs
           .map(
             (doc) => UserCharacter.fromMap(
           doc.data() as Map<String, dynamic>,
@@ -310,10 +645,44 @@ class FirestoreService {
         ),
       )
           .toList();
+
+      _userCharactersCache[userId] = List<UserCharacter>.from(characters);
+      return List<UserCharacter>.from(characters);
     } catch (e) {
       print('Error getting user characters: $e');
+
+      final cached = _userCharactersCache[userId];
+      if (cached != null) {
+        return List<UserCharacter>.from(cached);
+      }
+
       return [];
     }
+  }
+
+  // Listen for actual updates to user characters and update the cache.
+  // Profile can subscribe to this without showing a loading state.
+  Stream<List<UserCharacter>> watchUserCharacters() {
+    final userId = currentUserId;
+    if (userId == null) return const Stream<List<UserCharacter>>.empty();
+
+    return userCharactersCollection
+        .where('userId', isEqualTo: userId)
+        .orderBy('rank')
+        .snapshots()
+        .map((snapshot) {
+      final characters = snapshot.docs
+          .map(
+            (doc) => UserCharacter.fromMap(
+          doc.data() as Map<String, dynamic>,
+          doc.id,
+        ),
+      )
+          .toList();
+
+      _userCharactersCache[userId] = List<UserCharacter>.from(characters);
+      return List<UserCharacter>.from(characters);
+    });
   }
 
   // Get only UNHEALED user characters (for home and profile)
@@ -1079,6 +1448,8 @@ class FirestoreService {
         batch.delete(doc.reference);
       }
       await batch.commit();
+
+      _userCharactersCache[userId] = <UserCharacter>[];
     } catch (e) {
       print('Error deleting user characters: $e');
       throw e;
@@ -1225,7 +1596,8 @@ class FirestoreService {
       final doc = await usersCollection.doc(userId).get();
       if (doc.exists) {
         final data = doc.data() as Map<String, dynamic>?;
-        return data?['preferredLanguage'] ?? 'en';
+        final language = data?['preferredLanguage']?.toString() ?? 'en';
+        return language.trim().toLowerCase().startsWith('ar') ? 'ar' : 'en';
       }
       return 'en';
     } catch (e) {
@@ -1236,6 +1608,7 @@ class FirestoreService {
 
   // Set user's preferred language
   Future<void> setUserLanguage(String language) async {
+    language = language.trim().toLowerCase().startsWith('ar') ? 'ar' : 'en';
     final userId = currentUserId;
     if (userId == null) return;
 
@@ -1299,38 +1672,102 @@ class FirestoreService {
     }
   }
 
-  // Clear user's questionnaire data (for retaking)
-  Future<void> clearQuestionnaireData() async {
-    try {
-      await deleteUserCharacters();
+  Future<void> _deleteCurrentUserDocumentsFromCollection(
+      CollectionReference collection,
+      String userId,
+      ) async {
+    final querySnapshot = await collection.where('userId', isEqualTo: userId).get();
+    if (querySnapshot.docs.isEmpty) return;
 
-      // Delete all user answers
-      final userId = currentUserId;
-      if (userId != null) {
-        // Get all answers for this user
-        final answersQuery = await userAnswersCollection
-            .where('userId', isEqualTo: userId)
-            .get();
+    var batch = _firestore.batch();
+    var operationCount = 0;
 
-        final batch = _firestore.batch();
-        for (final doc in answersQuery.docs) {
-          batch.delete(doc.reference);
-        }
+    for (final doc in querySnapshot.docs) {
+      batch.delete(doc.reference);
+      operationCount++;
+
+      // Firestore batch limit is 500 operations. Use 450 to stay safe.
+      if (operationCount == 450) {
         await batch.commit();
-
-        // Update user document
-        await usersCollection.doc(userId).set({
-          'hasCompletedQuestionnaire': false,
-          'questionnaireCompletedAt': null,
-          'questionnaireLanguage': null,
-          'updatedAt': DateTime.now().toIso8601String(),
-        }, SetOptions(merge: true));
+        batch = _firestore.batch();
+        operationCount = 0;
       }
+    }
+
+    if (operationCount > 0) {
+      await batch.commit();
+    }
+  }
+
+  // Fast cleanup needed before opening the questionnaire again.
+  // It removes only old current-attempt answers and current characters.
+  // IMPORTANT: Do NOT delete questionnaireQuestionCount here.
+  // That number is cumulative across completed attempts:
+  // first completion = 13, first retake completion = 26, etc.
+  Future<void> clearQuestionnaireStartData({String? language}) async {
+    try {
+      final userId = currentUserId;
+      if (userId == null) return;
+
+      await deleteUserCharacters();
+      await _deleteCurrentUserDocumentsFromCollection(
+        userAnswersCollection,
+        userId,
+      );
+
+      _userCharactersCache[userId] = <UserCharacter>[];
+
+      final normalizedLanguage = language == null
+          ? null
+          : (language.trim().toLowerCase().startsWith('ar') ? 'ar' : 'en');
+
+      await usersCollection.doc(userId).set({
+        'hasCompletedQuestionnaire': false,
+        'questionnaireCompletedAt': null,
+        if (normalizedLanguage != null)
+          'preferredLanguage': normalizedLanguage,
+        if (normalizedLanguage != null)
+          'questionnaireLanguage': normalizedLanguage,
+        // Keep questionnaireQuestionCount/questionnaireAnsweredCount.
+        // They represent the cumulative completed count and will be incremented
+        // only after the user finishes the retake.
+        'retakeStartedAt': DateTime.now().toIso8601String(),
+        'questionnaireRetakeStartedCount': FieldValue.increment(1),
+        'updatedAt': DateTime.now().toIso8601String(),
+      }, SetOptions(merge: true));
     } catch (e) {
-      print('Error clearing questionnaire data: $e');
+      print('Error clearing questionnaire start data: $e');
       throw e;
     }
   }
+
+  // Slower cleanup that can run after navigation so the Retake button opens
+  // the initial page quickly instead of waiting for all progress docs.
+  Future<void> clearQuestionnaireProgressData() async {
+    try {
+      final userId = currentUserId;
+      if (userId == null) return;
+
+      await _deleteCurrentUserDocumentsFromCollection(
+        stableCharacterHistoryCollection,
+        userId,
+      );
+
+      await _deleteCurrentUserDocumentsFromCollection(
+        _firestore.collection('reframe_sessions'),
+        userId,
+      );
+    } catch (e) {
+      print('Error clearing questionnaire progress data: $e');
+    }
+  }
+
+  // Backward-compatible full cleanup.
+  Future<void> clearQuestionnaireData() async {
+    await clearQuestionnaireStartData();
+    await clearQuestionnaireProgressData();
+  }
+
   // Add a reframe session to database
   Future<void> addReframeSession({
     required String userId,

@@ -1,8 +1,12 @@
 // results_screen.dart - Updated with full Arabic support
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:model_viewer_plus/model_viewer_plus.dart';
+import 'package:provider/provider.dart';
 
 import 'package:ana_ifs_app/core/services/firestore_service.dart';
+import 'package:ana_ifs_app/core/localization/app_language_provider.dart';
 import 'package:ana_ifs_app/features/character/domain/entities/user_character.dart';
 import 'package:ana_ifs_app/app/shell/ana_shell.dart';
 
@@ -19,84 +23,167 @@ class QuestionnaireResultsScreen extends StatefulWidget {
 class _QuestionnaireResultsScreenState
     extends State<QuestionnaireResultsScreen> {
   final FirestoreService _firestoreService = FirestoreService();
+
+  // Keeps already-preloaded model assets in memory while the app is open,
+  // so reopening this screen does not reload the same GLB files from zero.
+  static final Set<String> _loadedModelAssets = <String>{};
+
   List<UserCharacter> _characters = [];
   bool _isLoading = true;
-  List<bool> _modelsLoaded = []; // Track each model's loading state
-  String _currentLanguage = 'en'; // Default language
+  List<bool> _modelsLoaded = [];
+  String _currentLanguage = 'en';
+  int _questionCount = 0;
+
+  StreamSubscription<List<UserCharacter>>? _charactersSubscription;
+  StreamSubscription<int>? _questionCountSubscription;
+
+  String _currentAppLanguage() {
+    try {
+      final appLanguage = context.read<AppLanguageProvider>().language;
+      return appLanguage.trim().toLowerCase().startsWith('ar') ? 'ar' : 'en';
+    } catch (e) {
+      return _currentLanguage.trim().toLowerCase().startsWith('ar')
+          ? 'ar'
+          : 'en';
+    }
+  }
 
   @override
   void initState() {
     super.initState();
+
+    // Show cached characters instantly if the app already loaded them.
+    final cachedCharacters = _firestoreService.getCachedUserCharacters();
+    if (cachedCharacters != null) {
+      _applyCharacters(cachedCharacters, notify: false);
+      _isLoading = false;
+    }
+
     _loadResults();
-    _loadUserLanguage();
   }
 
-  Future<void> _loadUserLanguage() async {
-    try {
-      _currentLanguage = await _firestoreService.getUserLanguage();
-      setState(() {});
-    } catch (e) {
-      print('Error loading user language: $e');
+  void _applyCharacters(
+      List<UserCharacter> characters, {
+        bool notify = true,
+      }) {
+    final loadedFlags = characters
+        .map(
+          (character) => _loadedModelAssets.contains(
+        _getGlbFileNameForCharacter(character.characterName),
+      ),
+    )
+        .toList();
+
+    if (!notify) {
+      _characters = characters;
+      _modelsLoaded = loadedFlags;
+      return;
     }
+
+    if (!mounted) return;
+    setState(() {
+      _characters = characters;
+      _modelsLoaded = loadedFlags;
+      _isLoading = false;
+    });
+
+    _loadModelsInBackground(characters);
   }
 
   Future<void> _loadResults() async {
     try {
-      final characters = await _firestoreService.getUserCharacters();
+      final language = _currentAppLanguage();
+      await _firestoreService.setUserLanguage(language);
 
-      // Load user language preference
-      _currentLanguage = await _firestoreService.getUserLanguage();
-
-      if (characters.isNotEmpty) {
-        // Initialize loading states
-        _modelsLoaded = List.filled(characters.length, false);
-
+      if (mounted) {
         setState(() {
-          _characters = characters;
-        });
-
-        // Load all models before showing anything
-        await _loadAllModels(characters);
-
-        setState(() {
-          _isLoading = false;
-        });
-      } else {
-        // If no characters found, show loading error
-        setState(() {
-          _isLoading = false;
-          _characters = [];
+          _currentLanguage = language;
         });
       }
+
+      final cachedCharacters = _firestoreService.getCachedUserCharacters();
+      final characters = cachedCharacters ??
+          await _firestoreService.getUserCharacters();
+
+      // Read the saved users/{uid}.questionnaireQuestionCount attribute.
+      // This prevents the result screen from showing/storing stale 13.
+      final questionCount = await _firestoreService.getUserQuestionnaireQuestionCount(
+        language: language,
+        forceRefresh: true,
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        _currentLanguage = language;
+        _questionCount = questionCount;
+        _isLoading = false;
+      });
+
+      _applyCharacters(characters);
+      _startRealtimeCacheUpdates(language);
     } catch (e) {
       print('Error loading results: $e');
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
         _characters = [];
+        _questionCount = 0;
       });
     }
   }
 
-  Future<void> _loadAllModels(List<UserCharacter> characters) async {
-    // Load models sequentially to avoid overwhelming the system
+  Future<void> _startRealtimeCacheUpdates(String language) async {
+    await _charactersSubscription?.cancel();
+    _charactersSubscription = _firestoreService.watchUserCharacters().listen(
+          (characters) {
+        _applyCharacters(characters);
+      },
+      onError: (error) {
+        print('Results character watch error: $error');
+      },
+    );
+
+    await _questionCountSubscription?.cancel();
+    _questionCountSubscription = _firestoreService
+        .watchUserQuestionnaireQuestionCount(language: language)
+        .listen(
+          (count) {
+        if (!mounted) return;
+        setState(() {
+          _questionCount = count;
+        });
+      },
+      onError: (error) {
+        print('Results saved question count watch error: $error');
+      },
+    );
+  }
+
+  Future<void> _loadModelsInBackground(List<UserCharacter> characters) async {
     for (int i = 0; i < characters.length; i++) {
+      final glbFileName = _getGlbFileNameForCharacter(characters[i].characterName);
+
+      if (_loadedModelAssets.contains(glbFileName)) {
+        if (mounted && i < _modelsLoaded.length && !_modelsLoaded[i]) {
+          setState(() {
+            _modelsLoaded[i] = true;
+          });
+        }
+        continue;
+      }
+
       try {
-        // Get the correct GLB file name
-        final glbFileName = _getGlbFileNameForCharacter(
-          characters[i].characterName,
-        );
-
-        // Preload the asset
         await DefaultAssetBundle.of(context).load('assets/models/$glbFileName');
+        _loadedModelAssets.add(glbFileName);
 
+        if (!mounted || i >= _modelsLoaded.length) return;
         setState(() {
           _modelsLoaded[i] = true;
         });
-
-        // Small delay between loading each model
-        await Future.delayed(const Duration(milliseconds: 100));
       } catch (e) {
-        print('Failed to load model for ${characters[i].characterName}: $e');
+        print('Failed to preload model for ${characters[i].characterName}: $e');
+        if (!mounted || i >= _modelsLoaded.length) return;
         setState(() {
           _modelsLoaded[i] = false;
         });
@@ -104,10 +191,52 @@ class _QuestionnaireResultsScreenState
     }
   }
 
-  void _goToHome() {
+  @override
+  void dispose() {
+    _charactersSubscription?.cancel();
+    _questionCountSubscription?.cancel();
+    super.dispose();
+  }
+
+  String _toArabicDigits(String value) {
+    const english = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+    const arabic = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+
+    var result = value;
+    for (int i = 0; i < english.length; i++) {
+      result = result.replaceAll(english[i], arabic[i]);
+    }
+    return result;
+  }
+
+  String _answersAnalyzedText(bool isArabic) {
+    final count = _questionCount;
+    if (isArabic) {
+      return 'عدد الأسئلة المحللة: ${_toArabicDigits(count.toString())} سؤالاً';
+    }
+    return 'Total answers analyzed: $count questions';
+  }
+
+
+  Future<void> _syncGlobalLanguageBeforeNavigation() async {
+    final selectedLanguage = _currentLanguage.trim().toLowerCase().startsWith('ar')
+        ? 'ar'
+        : 'en';
+    try {
+      await context.read<AppLanguageProvider>().setLanguage(selectedLanguage);
+    } catch (e) {
+      print('Results app language sync skipped: $e');
+    }
+    await _firestoreService.setUserLanguage(selectedLanguage);
+  }
+
+  Future<void> _goToHome() async {
+    await _syncGlobalLanguageBeforeNavigation();
+
+    if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const AnaShell()),
-      (route) => false,
+          (route) => false,
     );
   }
 
@@ -118,24 +247,24 @@ class _QuestionnaireResultsScreenState
       body: SafeArea(
         child: _isLoading
             ? Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const CircularProgressIndicator(color: Color(0xFF8E7CFF)),
-                    const SizedBox(height: 20),
-                    Text(
-                      _currentLanguage == 'ar'
-                          ? 'جاري تحليل إجاباتك...'
-                          : 'Analyzing your responses...',
-                      style: const TextStyle(
-                        color: Color(0xFF4B3A66),
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const CircularProgressIndicator(color: Color(0xFF8E7CFF)),
+              const SizedBox(height: 20),
+              Text(
+                _currentLanguage == 'ar'
+                    ? 'جاري تحليل إجاباتك...'
+                    : 'Analyzing your responses...',
+                style: const TextStyle(
+                  color: Color(0xFF4B3A66),
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
                 ),
-              )
+              ),
+            ],
+          ),
+        )
             : _characters.isEmpty
             ? _buildNoResultsScreen()
             : _buildContent(),
@@ -314,9 +443,7 @@ class _QuestionnaireResultsScreenState
                       ),
                       const SizedBox(height: 10),
                       Text(
-                        isArabic
-                            ? 'عدد الأسئلة المحللة: ${_characters.isNotEmpty ? '١٣ سؤالاً' : '٠'}'
-                            : 'Total answers analyzed: ${_characters.isNotEmpty ? '13 questions' : '0'}',
+                        _answersAnalyzedText(isArabic),
                         style: const TextStyle(
                           fontSize: 14,
                           color: Color(0xFF6A5CFF),
@@ -401,7 +528,7 @@ class _QuestionnaireResultsScreenState
                   width: double.infinity,
                   height: 58,
                   child: ElevatedButton(
-                    onPressed: _goToHome,
+                    onPressed: () => _goToHome(),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF8E7CFF),
                       foregroundColor: Colors.white,
@@ -787,7 +914,7 @@ class _QuestionnaireResultsScreenState
           'target': '0m 0m 0m',
         };
 
-      // Models that need wider field of view
+    // Models that need wider field of view
       case 'Some Wide Model':
         return {
           'orbit': '0deg 75deg 3m',
@@ -921,49 +1048,49 @@ class _QuestionnaireResultsScreenState
   }
 
   String _getLocalizedDescription(
-    String characterName,
-    String currentDescription,
-  ) {
+      String characterName,
+      String currentDescription,
+      ) {
     if (_currentLanguage != 'ar') return currentDescription;
 
     // Arabic descriptions for characters
     final arabicDescriptions = {
       'Inner Critic':
-          'هذا الصوت الداخلي يُقيّم أفعالك باستمرار، مشيراً إلى العيوب والأخطاء لمنع الفشل. بينما يهدف إلى حمايتك من خلال الحفاظ على معايير عالية، إلا أنه غالباً ما يظهر كحكم ذاتي قاسٍ يمكن أن يقوّض ثقتك بنفسك.',
+      'هذا الصوت الداخلي يُقيّم أفعالك باستمرار، مشيراً إلى العيوب والأخطاء لمنع الفشل. بينما يهدف إلى حمايتك من خلال الحفاظ على معايير عالية، إلا أنه غالباً ما يظهر كحكم ذاتي قاسٍ يمكن أن يقوّض ثقتك بنفسك.',
       'People Pleaser':
-          'هذا الجزء يُعطي أولوية لاحتياجات الآخرين فوق احتياجاتك الخاصة، يسعى للحصول على الموافقة وتجنب الصراع بأي ثمن. يعمل على الحفاظ على الانسجام في العلاقات ولكنه قد يؤدي إلى كبت مشاعرك الحقيقية وإهمال الحدود الشخصية.',
+      'هذا الجزء يُعطي أولوية لاحتياجات الآخرين فوق احتياجاتك الخاصة، يسعى للحصول على الموافقة وتجنب الصراع بأي ثمن. يعمل على الحفاظ على الانسجام في العلاقات ولكنه قد يؤدي إلى كبت مشاعرك الحقيقية وإهمال الحدود الشخصية.',
       'Lonely Part':
-          'هذا الجزء يحمل مشاعر عميقة بالعزلة والشوق للتواصل العميق. يحتفظ بذكريات المسافة العاطفية ويتوق لرفقة مفهمة، وغالباً ما يظهر عندما تشعر بالانفصال عن الآخرين.',
+      'هذا الجزء يحمل مشاعر عميقة بالعزلة والشوق للتواصل العميق. يحتفظ بذكريات المسافة العاطفية ويتوق لرفقة مفهمة، وغالباً ما يظهر عندما تشعر بالانفصال عن الآخرين.',
       'Jealous Part':
-          'هذا الجزء الواقي يظهر عندما ترى الآخرين كتهديد لعلاقاتك أو نجاحك. يشير إلى احتياجات غير مُلباة للأمان والتقدير، ويهدف لحماية ما تقدّره ولكنّه أحياناً يخلق مسافة.',
+      'هذا الجزء الواقي يظهر عندما ترى الآخرين كتهديد لعلاقاتك أو نجاحك. يشير إلى احتياجات غير مُلباة للأمان والتقدير، ويهدف لحماية ما تقدّره ولكنّه أحياناً يخلق مسافة.',
       'Ashamed Part':
-          'هذا الجزء الجريح يحمل مشاعر عميقة بعدم الاستحقاق والوعي الذاتي من تجارب سابقة. يخفي جوانب من نفسك يراها غير مقبولة، ويعمل على حمايتك من الحكم مع تقييد التعبير الحقيقي.',
+      'هذا الجزء الجريح يحمل مشاعر عميقة بعدم الاستحقاق والوعي الذاتي من تجارب سابقة. يخفي جوانب من نفسك يراها غير مقبولة، ويعمل على حمايتك من الحكم مع تقييد التعبير الحقيقي.',
       'Workaholic':
-          'هذا الجزء يُبقيك مشغولاً ومنتجاً باستمرار كوسيلة لتجنب مواجهة المشاعر الصعبة أو الفراغ الداخلي. يستخدم الإنجاز كدرع ضد الضعف، مما يؤدي غالباً إلى الإنهاك وإهمال الاحتياجات الشخصية.',
+      'هذا الجزء يُبقيك مشغولاً ومنتجاً باستمرار كوسيلة لتجنب مواجهة المشاعر الصعبة أو الفراغ الداخلي. يستخدم الإنجاز كدرع ضد الضعف، مما يؤدي غالباً إلى الإنهاك وإهمال الاحتياجات الشخصية.',
       'Perfectionist':
-          'هذا الجزء يطالب بالكمال في كل ما تفعله، معتقداً أن الأداء المثالي سيمنع الانتقاد ويضمن القبول. بينما يهدف إلى التميز، إلا أنه غالباً ما يخلق معايير غير واقعية تسبب القلق والتسويف.',
+      'هذا الجزء يطالب بالكمال في كل ما تفعله، معتقداً أن الأداء المثالي سيمنع الانتقاد ويضمن القبول. بينما يهدف إلى التميز، إلا أنه غالباً ما يخلق معايير غير واقعية تسبب القلق والتسويف.',
       'Procrastinator':
-          'هذا الجزء الواقي يُؤجل المهام المهمة لتجنب الفشل المحتمل أو الإرهاق أو مواجهة المشاعر الصعبة. يوفر راحة مؤقتة ولكنه يزيد الضغط في النهاية ويقوّض إحساسك بالقدرة.',
+      'هذا الجزء الواقي يُؤجل المهام المهمة لتجنب الفشل المحتمل أو الإرهاق أو مواجهة المشاعر الصعبة. يوفر راحة مؤقتة ولكنه يزيد الضغط في النهاية ويقوّض إحساسك بالقدرة.',
       'Excessive Gamer':
-          'هذا الجزء يستخدم الألعاب كهروب من تحديات العالم الحقيقي، أو المشاعر غير المريحة، أو مشاعر النقص. يوفر إشباعاً فورياً وسيطرة في عالم افتراضي مع إهمال المسؤوليات الحياتية.',
+      'هذا الجزء يستخدم الألعاب كهروب من تحديات العالم الحقيقي، أو المشاعر غير المريحة، أو مشاعر النقص. يوفر إشباعاً فورياً وسيطرة في عالم افتراضي مع إهمال المسؤوليات الحياتية.',
       'Confused Part':
-          'هذا الجزء يظهر عندما تشعر بالإرهاق من الخيارات، أو عدم اليقين بشأن القرارات، أو الانفصال عن حدسك. يمثل قلق عدم معرفة المسار "الصحيح" ويسعى للوضوح وسط عدم اليقين.',
+      'هذا الجزء يظهر عندما تشعر بالإرهاق من الخيارات، أو عدم اليقين بشأن القرارات، أو الانفصال عن حدسك. يمثل قلق عدم معرفة المسار "الصحيح" ويسعى للوضوح وسط عدم اليقين.',
       'Dependent Part':
-          'هذا الجزء يخاف من الاستقلالية ويسعى باستمرار للتحقق الخارجي والدعم. يقلق بشأن اتخاذ القرارات بشكل مستقل ويعتمد بشدة على موافقة الآخرين، مما يحد من تطوير الثقة بالنفس.',
+      'هذا الجزء يخاف من الاستقلالية ويسعى باستمرار للتحقق الخارجي والدعم. يقلق بشأن اتخاذ القرارات بشكل مستقل ويعتمد بشدة على موافقة الآخرين، مما يحد من تطوير الثقة بالنفس.',
       'Fearful Part':
-          'هذا الواقي اليقظ يمسح باستمرار للبحث عن التهديدات والمخاطر المحتملة. يهدف إلى إبقائك آمناً من خلال توقع المشاكل ولكن يمكن أن يصبح مفرط اليقظة، مما يخلق قلقاً بشأن مواقف قد لا تحدث أبداً.',
+      'هذا الواقي اليقظ يمسح باستمرار للبحث عن التهديدات والمخاطر المحتملة. يهدف إلى إبقائك آمناً من خلال توقع المشاكل ولكن يمكن أن يصبح مفرط اليقظة، مما يخلق قلقاً بشأن مواقف قد لا تحدث أبداً.',
       'Neglected Part':
-          'هذا الجزء الجريح يحتفظ بذكريات الإهمال، أو عدم الاستماع، أو الهجر العاطفي. يحمل ألم الاحتياجات غير الملباة في الطفولة ويسعى للاعتراف والرعاية التي لم يتلقاها.',
+      'هذا الجزء الجريح يحتفظ بذكريات الإهمال، أو عدم الاستماع، أو الهجر العاطفي. يحمل ألم الاحتياجات غير الملباة في الطفولة ويسعى للاعتراف والرعاية التي لم يتلقاها.',
       'Overeater/Binger':
-          'هذا الجزء يستخدم الطعام لتهدئة الألم العاطفي، أو ملء الفراغ الداخلي، أو تخدير المشاعر الصعبة. يوفر راحة مؤقتة ولكن غالباً ما يؤدي إلى دورات من الذنب والمزيد من الأكل العاطفي.',
+      'هذا الجزء يستخدم الطعام لتهدئة الألم العاطفي، أو ملء الفراغ الداخلي، أو تخدير المشاعر الصعبة. يوفر راحة مؤقتة ولكن غالباً ما يؤدي إلى دورات من الذنب والمزيد من الأكل العاطفي.',
       'Overwhelmed Part':
-          'هذا الجزء يشعر بعدم القدرة على التعامل مع مطالب ومسؤوليات الحياة. يمثل إرهاق محاولة إدارة كل شيء ويحتاج إلى دعم في وضع الحدود وتحديد أولويات الرعاية الذاتية.',
+      'هذا الجزء يشعر بعدم القدرة على التعامل مع مطالب ومسؤوليات الحياة. يمثل إرهاق محاولة إدارة كل شيء ويحتاج إلى دعم في وضع الحدود وتحديد أولويات الرعاية الذاتية.',
       'Stoic Part':
-          'هذا الواقي يكبت المشاعر ويحافظ على المسافة العاطفية كاستراتيجية بقاء. يعتقد أن إظهار الضعف خطير ويخلق مظهراً خارجياً متحكماً بينما تظل المشاعر الداخلية غير معالجة.',
+      'هذا الواقي يكبت المشاعر ويحافظ على المسافة العاطفية كاستراتيجية بقاء. يعتقد أن إظهار الضعف خطير ويخلق مظهراً خارجياً متحكماً بينما تظل المشاعر الداخلية غير معالجة.',
       'Wounded Child':
-          'هذا الجزء الضعيف يحمل ألم الطفولة، والصدمة، والاحتياجات العاطفية غير الملباة. يحتفظ بالبراءة التي أُذيَت ويحتاج إلى اهتمام عطوف للشفاء والشعور بالأمان مرة أخرى.',
+      'هذا الجزء الضعيف يحمل ألم الطفولة، والصدمة، والاحتياجات العاطفية غير الملباة. يحتفظ بالبراءة التي أُذيَت ويحتاج إلى اهتمام عطوف للشفاء والشعور بالأمان مرة أخرى.',
       'Controller Part':
-          'هذا الجزء يحاول إدارة كل شيء وكل شخص لخلق إحساس بالأمان والقابلية للتنبؤ. يخاف من الفوضى وفقدان السيطرة، ويعمل بلا كلل للحفاظ على النظام ولكنه غالباً ما يخلق جموداً.',
+      'هذا الجزء يحاول إدارة كل شيء وكل شخص لخلق إحساس بالأمان والقابلية للتنبؤ. يخاف من الفوضى وفقدان السيطرة، ويعمل بلا كلل للحفاظ على النظام ولكنه غالباً ما يخلق جموداً.',
     };
 
     return arabicDescriptions[characterName] ??

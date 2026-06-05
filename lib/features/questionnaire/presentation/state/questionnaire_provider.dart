@@ -20,12 +20,11 @@ class QuestionnaireProvider extends ChangeNotifier {
   bool _isLanguageSwitching = false;
   String _language = 'en';
   int? _lastQuestionNumberBeforeSwitch;
+  bool _isRetakeMode = false;
 
   Timer? _debounceTimer;
 
-  QuestionnaireProvider(this._firestoreService) {
-    _initialize();
-  }
+  QuestionnaireProvider(this._firestoreService);
 
   List<Question> get questions => _questions;
   List<QuestionAnswer> get answers => _answers;
@@ -36,10 +35,17 @@ class QuestionnaireProvider extends ChangeNotifier {
   int get totalQuestions => _questions.length;
   String get language => _language;
 
+  String _normalizeLanguage(String value) {
+    final normalized = value.trim().toLowerCase();
+    return normalized.startsWith('ar') ? 'ar' : 'en';
+  }
+
   Future<void> _initialize() async {
     try {
       // Load user's saved language FIRST
-      final savedLanguage = await _firestoreService.getUserLanguage();
+      final savedLanguage = _normalizeLanguage(
+        await _firestoreService.getUserLanguage(),
+      );
       print('📱 User language loaded from Firestore: $savedLanguage');
 
       // Update language BEFORE loading questions
@@ -67,11 +73,17 @@ class QuestionnaireProvider extends ChangeNotifier {
     });
   }
 
-  Future<void> _loadQuestionsForLanguage(String language) async {
+  Future<void> _loadQuestionsForLanguage(
+      String language, {
+        bool forceRefresh = false,
+      }) async {
     try {
       print('🌐 Loading questions for language: $language');
 
-      final loadedQuestions = await _firestoreService.getQuestions(language);
+      final loadedQuestions = await _firestoreService.getQuestions(
+        language,
+        forceRefresh: forceRefresh,
+      );
 
       if (loadedQuestions.isEmpty) {
         print('⚠️ No questions loaded for language $language');
@@ -86,8 +98,17 @@ class QuestionnaireProvider extends ChangeNotifier {
       _questions = loadedQuestions;
       print('📥 Loaded ${_questions.length} questions for $language');
 
-      // Load existing answers for this language
-      await _loadExistingAnswers();
+      // Do not save the Profile counter here. Loading 13 questions is not
+      // the same as completing another questionnaire attempt. The cumulative
+      // counter is updated only after submit succeeds.
+
+      // During retake, do not reload old Firestore answers while background
+      // cleanup may still be deleting them.
+      if (_isRetakeMode) {
+        _answers = [];
+      } else {
+        await _loadExistingAnswers();
+      }
 
       // Mark as successfully loaded
       _hasLoaded = true;
@@ -106,14 +127,24 @@ class QuestionnaireProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> loadQuestions() async {
-    if (_hasLoaded) return;
+  Future<void> loadQuestions({bool forceReload = false}) async {
+    if (_hasLoaded && !forceReload) return;
 
     _isLoading = true;
     _safeNotifyListeners();
 
     try {
-      await _loadQuestionsForLanguage(_language);
+      if (forceReload) {
+        _hasLoaded = false;
+        _questions = [];
+        _answers = [];
+        _currentQuestionIndex = 0;
+      }
+
+      await _loadQuestionsForLanguage(
+        _language,
+        forceRefresh: forceReload,
+      );
     } catch (e) {
       print('Load questions failed: $e');
     } finally {
@@ -123,6 +154,7 @@ class QuestionnaireProvider extends ChangeNotifier {
   }
 
   Future<void> switchLanguage(String newLanguage) async {
+    newLanguage = _normalizeLanguage(newLanguage);
     if (_language == newLanguage) return;
 
     print('🔄 Switching language from $_language to $newLanguage');
@@ -151,7 +183,10 @@ class QuestionnaireProvider extends ChangeNotifier {
       _hasLoaded = false;
 
       // 4. Load new questions for the new language
-      await _loadQuestionsForLanguage(newLanguage);
+      await _loadQuestionsForLanguage(
+        newLanguage,
+        forceRefresh: true,
+      );
 
       // 5. RESTORE POSITION: Find the same question number in new language
       if (questionNumberToRestore != null && _questions.isNotEmpty) {
@@ -440,7 +475,13 @@ class QuestionnaireProvider extends ChangeNotifier {
       print('  - ${character.characterName}: ${character.currentState}');
     }
 
-    await _firestoreService.saveUserCharacters(userCharacters);
+    // The cumulative Profile counter is incremented inside saveUserCharacters()
+    // after this attempt successfully produces new predictions.
+
+    await _firestoreService.saveUserCharacters(
+      userCharacters,
+      questionCount: _questions.length,
+    );
   }
 
 // Add these helper methods for Arabic translations
@@ -517,6 +558,58 @@ class QuestionnaireProvider extends ChangeNotifier {
 
   void clearAnswers() {
     _answers.clear();
+    _currentQuestionIndex = 0;
+    _safeNotifyListeners();
+  }
+
+  Future<void> syncLanguageFromApp(
+      String appLanguage, {
+        bool forceReload = false,
+      }) async {
+    final normalizedLanguage = _normalizeLanguage(appLanguage);
+
+    if (_language == normalizedLanguage && _hasLoaded && !forceReload) {
+      await _firestoreService.setUserLanguage(normalizedLanguage);
+      return;
+    }
+
+    _language = normalizedLanguage;
+    await _firestoreService.setUserLanguage(normalizedLanguage);
+
+    if (forceReload) {
+      _answers = [];
+      _questions = [];
+      _currentQuestionIndex = 0;
+      _hasLoaded = false;
+      _safeNotifyListeners();
+      await loadQuestions(forceReload: true);
+      return;
+    }
+
+    if (!_hasLoaded) {
+      await loadQuestions();
+    }
+  }
+
+  Future<void> resetForRetake({String? appLanguage}) async {
+    _isRetakeMode = true;
+    if (appLanguage != null) {
+      _language = _normalizeLanguage(appLanguage);
+      await _firestoreService.setUserLanguage(_language);
+    }
+    _answers = [];
+    _questions = [];
+    _currentQuestionIndex = 0;
+    _hasLoaded = false;
+    _isLoading = true;
+    _safeNotifyListeners();
+
+    await loadQuestions(forceReload: true);
+
+    // Do not update the cumulative question counter during retake start.
+    // It should increase only after the user submits this new attempt.
+
+    _isRetakeMode = false;
     _safeNotifyListeners();
   }
 

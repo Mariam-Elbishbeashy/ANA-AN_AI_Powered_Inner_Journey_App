@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'package:ana_ifs_app/core/services/firestore_service.dart';
+import 'package:ana_ifs_app/core/localization/app_language_provider.dart';
 import 'package:ana_ifs_app/features/onboarding/presentation/screens/welcome_screen.dart';
 import 'package:ana_ifs_app/features/questionnaire/domain/entities/question.dart';
 import 'package:ana_ifs_app/features/questionnaire/presentation/screens/results_screen.dart';
@@ -33,9 +34,93 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
     });
   }
 
+
+  String _normalizeLanguage(String value) {
+    final normalized = value.trim().toLowerCase();
+    return normalized.startsWith('ar') ? 'ar' : 'en';
+  }
+
+  String _toArabicDigits(Object value) {
+    var text = value.toString();
+    const englishDigits = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+    const arabicDigits = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+
+    for (int i = 0; i < englishDigits.length; i++) {
+      text = text.replaceAll(englishDigits[i], arabicDigits[i]);
+    }
+    return text;
+  }
+
+  String _localizedNumber(Object value) {
+    return _provider.language == 'ar'
+        ? _toArabicDigits(value)
+        : value.toString();
+  }
+
+  String _questionProgressText(QuestionnaireProvider provider) {
+    final current = provider.currentQuestionIndex + 1;
+    final total = provider.totalQuestions;
+
+    if (provider.language == 'ar') {
+      return 'سؤال ${_toArabicDigits(current)} من ${_toArabicDigits(total)}';
+    }
+
+    return 'Question $current/$total';
+  }
+
+  String _questionNumberText(int questionNumber) {
+    return _provider.language == 'ar'
+        ? _toArabicDigits(questionNumber)
+        : questionNumber.toString();
+  }
+
+  String _multiSelectHintText(String language) {
+    return language == 'ar'
+        ? 'تقدر تختار أكتر من اختيار'
+        : 'You can select multiple options';
+  }
+
+  String _singleSelectHintText(String language) {
+    return language == 'ar'
+        ? 'اختار الإجابة الأنسب ليك'
+        : 'Choose the answer that fits you best';
+  }
+
+  String _sliderHintText(String language) {
+    return language == 'ar'
+        ? 'حرّك المؤشر للقيمة اللي تعبّر عنك'
+        : 'Move the slider to the value that represents you';
+  }
+
+  String _currentAppLanguage() {
+    try {
+      return _normalizeLanguage(context.read<AppLanguageProvider>().language);
+    } catch (_) {
+      return _normalizeLanguage(_provider.language);
+    }
+  }
+
+  Future<void> _syncAppLanguageWithQuestionnaire() async {
+    final selectedLanguage = _normalizeLanguage(_provider.language);
+    try {
+      await context.read<AppLanguageProvider>().setLanguage(selectedLanguage);
+    } catch (e) {
+      print('App language provider sync skipped: $e');
+    }
+    await _firestoreService.setUserLanguage(selectedLanguage);
+  }
+
   Future<void> _initializeProvider() async {
     try {
-      await _provider.loadQuestions();
+      final appLanguage = _currentAppLanguage();
+
+      // The visible app language is the source of truth.
+      // This prevents Firestore's old preferredLanguage from forcing
+      // the questionnaire to open/save in the wrong language.
+      await _provider.syncLanguageFromApp(
+        appLanguage,
+        forceReload: true,
+      );
 
       if (_provider.hasLoaded && _provider.questions.isNotEmpty) {
         setState(() {
@@ -77,20 +162,27 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
   }
 
   Future<void> _switchLanguage(String newLanguage) async {
-    if (_provider.language == newLanguage) return;
+    final normalizedLanguage = _normalizeLanguage(newLanguage);
+    if (_provider.language == normalizedLanguage) return;
 
     try {
-      await _provider.switchLanguage(newLanguage);
+      // Change the questionnaire language.
+      await _provider.switchLanguage(normalizedLanguage);
+
+      // Also change the whole app language immediately.
+      // So if the user switches to Arabic inside the questionnaire,
+      // Results and Home will stay Arabic too.
+      await context.read<AppLanguageProvider>().setLanguage(normalizedLanguage);
+      await _firestoreService.setUserLanguage(normalizedLanguage);
 
       setState(() {
         _shouldSyncPageController = true;
       });
 
-      // Show success message
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            newLanguage == 'ar'
+            normalizedLanguage == 'ar'
                 ? 'تم التبديل إلى العربية'
                 : 'Switched to English',
           ),
@@ -137,7 +229,7 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
     if (answer == null) {
       _showValidationError(
         _provider.language == 'ar'
-            ? 'يرجى الإجابة على هذا السؤال أولاً'
+            ? 'جاوب على السؤال ده الأول'
             : 'Please answer this question first',
       );
       return false;
@@ -146,7 +238,7 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
     if (question.isSlider && answer.sliderValue == null) {
       _showValidationError(
         _provider.language == 'ar'
-            ? 'يرجى تحديد قيمة للسؤال'
+            ? 'اختار قيمة للسؤال ده'
             : 'Please select a value for this question',
       );
       return false;
@@ -157,7 +249,7 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
         (answer.answerText == null || answer.answerText!.isEmpty)) {
       _showValidationError(
         _provider.language == 'ar'
-            ? 'يرجى اختيار خيار على الأقل'
+            ? 'اختار إجابة واحدة على الأقل'
             : 'Please select at least one option',
       );
       return false;
@@ -176,15 +268,55 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
     );
   }
 
+  String _questionLanguageFromContext(BuildContext context) {
+    try {
+      final appLanguage = context.select<AppLanguageProvider, String>(
+            (provider) => provider.language,
+      );
+      return _normalizeLanguage(appLanguage);
+    } catch (_) {
+      return _normalizeLanguage(_provider.language);
+    }
+  }
+
+  String _multiSelectHintTextFromContext(BuildContext context) {
+    final language = _questionLanguageFromContext(context);
+    return language == 'ar'
+        ? 'تقدر تختار أكتر من اختيار'
+        : 'You can select multiple options';
+  }
+
+  String _sliderHintTextFromContext(BuildContext context) {
+    final language = _questionLanguageFromContext(context);
+    return language == 'ar'
+        ? 'حرّك المؤشر للقيمة اللي تعبّر عنك'
+        : 'Move the slider to the value that represents you';
+  }
+
   Widget _buildQuestionPage(int index, Question question) {
+    final language = _questionLanguageFromContext(context);
+    final isArabicQuestion = language == 'ar';
+    final hintText = question.isSlider
+        ? _sliderHintTextFromContext(context)
+        : _multiSelectHintTextFromContext(context);
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
-      child: QuestionWidget(
-        question: question,
-        onAnswer: (answer) {
-          _provider.saveAnswer(index, answer);
-        },
-        initialAnswer: _provider.getAnswerForQuestion(index),
+      child: Directionality(
+        textDirection: isArabicQuestion ? TextDirection.rtl : TextDirection.ltr,
+        child: Column(
+          crossAxisAlignment:
+          isArabicQuestion ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          children: [
+            QuestionWidget(
+              question: question,
+              onAnswer: (answer) {
+                _provider.saveAnswer(index, answer);
+              },
+              initialAnswer: _provider.getAnswerForQuestion(index),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -324,7 +456,7 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
-                      '${provider.language == 'ar' ? 'السؤال' : 'Question'} ${provider.currentQuestionIndex + 1}/${provider.totalQuestions}',
+                      _questionProgressText(provider),
                       style: const TextStyle(
                         color: Color(0xFF2A1E3B),
                         fontWeight: FontWeight.w700,
@@ -379,7 +511,7 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
                     const SizedBox(height: 20),
                     Text(
                       provider.language == 'ar'
-                          ? 'جاري تحميل الأسئلة...'
+                          ? 'بنحمّل الأسئلة...'
                           : 'Loading questions...',
                       style: const TextStyle(
                         color: Color(0xFF4B3A66),
@@ -404,7 +536,7 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
                     const SizedBox(height: 20),
                     Text(
                       provider.language == 'ar'
-                          ? 'تعذر تحميل الأسئلة'
+                          ? 'معرفناش نحمّل الأسئلة'
                           : 'Unable to load questions',
                       style: const TextStyle(
                         fontSize: 18,
@@ -421,7 +553,7 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
                         foregroundColor: Colors.white,
                       ),
                       child: Text(
-                        provider.language == 'ar' ? 'إعادة المحاولة' : 'Retry',
+                        provider.language == 'ar' ? 'حاول تاني' : 'Retry',
                       ),
                     ),
                   ],
@@ -582,7 +714,7 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
           SnackBar(
             content: Text(
               _provider.language == 'ar'
-                  ? 'السؤال ${i + 1} لم يتم الإجابة عليه'
+                  ? 'السؤال ${_questionNumberText(i + 1)} لسه متجاوبش'
                   : 'Question ${i + 1} is not answered',
             ),
             backgroundColor: Colors.red,
@@ -600,7 +732,7 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
           SnackBar(
             content: Text(
               _provider.language == 'ar'
-                  ? 'السؤال ${i + 1} يحتاج إلى تحديد قيمة'
+                  ? 'السؤال ${_questionNumberText(i + 1)} محتاج تختار قيمة'
                   : 'Question ${i + 1} needs a slider value',
             ),
             backgroundColor: Colors.red,
@@ -620,7 +752,7 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
           SnackBar(
             content: Text(
               _provider.language == 'ar'
-                  ? 'السؤال ${i + 1} يحتاج إلى اختيار خيار'
+                  ? 'السؤال ${_questionNumberText(i + 1)} محتاج تختار إجابة واحدة على الأقل'
                   : 'Question ${i + 1} needs an option selection',
             ),
             backgroundColor: Colors.red,
@@ -657,6 +789,7 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
     );
 
     try {
+      await _syncAppLanguageWithQuestionnaire();
       final success = await _provider.submitAnswers();
 
       if (mounted) {
@@ -673,7 +806,7 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
             SnackBar(
               content: Text(
                 _provider.language == 'ar'
-                    ? 'يرجى الإجابة على جميع الأسئلة قبل الإرسال'
+                    ? 'جاوب على كل الأسئلة قبل الإرسال'
                     : 'Please answer all questions before submitting.',
               ),
               backgroundColor: Colors.red,
@@ -689,7 +822,7 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
           SnackBar(
             content: Text(
               _provider.language == 'ar'
-                  ? 'خطأ في إرسال الاستبيان'
+                  ? 'حصل خطأ وإحنا بنبعت الاستبيان'
                   : 'Error submitting questionnaire',
             ),
             backgroundColor: Colors.red,

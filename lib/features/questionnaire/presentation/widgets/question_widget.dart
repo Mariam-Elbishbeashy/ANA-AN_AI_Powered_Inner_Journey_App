@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:ana_ifs_app/features/questionnaire/domain/entities/question.dart';
 import 'package:ana_ifs_app/features/questionnaire/domain/entities/user_answer.dart';
+import 'package:ana_ifs_app/core/localization/app_language_provider.dart';
 
 class QuestionAnswer {
   final int questionNumber;
@@ -37,6 +39,28 @@ class _QuestionWidgetState extends State<QuestionWidget> {
   double? _sliderValue;
   final TextEditingController _textController = TextEditingController();
   bool _initialized = false;
+
+  String _normalizeLanguage(String value) {
+    final normalized = value.trim().toLowerCase();
+    return normalized.startsWith('ar') ? 'ar' : 'en';
+  }
+
+  String _currentLanguageFromContext(BuildContext context) {
+    try {
+      return _normalizeLanguage(context.watch<AppLanguageProvider>().language);
+    } catch (_) {
+      final localeLanguage =
+          Localizations.maybeLocaleOf(context)?.languageCode ?? 'en';
+      return _normalizeLanguage(localeLanguage);
+    }
+  }
+
+  String _multipleSelectHint(BuildContext context) {
+    return _currentLanguageFromContext(context) == 'ar'
+        ? 'تقدر تختار أكتر من اختيار'
+        : 'You can select multiple options';
+  }
+
 
   @override
   void initState() {
@@ -111,12 +135,12 @@ class _QuestionWidgetState extends State<QuestionWidget> {
   String _getSliderLabel() {
     if (widget.question.sliderLabels != null && _sliderValue != null) {
       final index =
-          ((_sliderValue! - (widget.question.minValue ?? 0)) /
-                  ((widget.question.maxValue ?? 100) -
-                      (widget.question.minValue ?? 0)) *
-                  (widget.question.sliderLabels!.length - 1))
-              .round()
-              .clamp(0, widget.question.sliderLabels!.length - 1);
+      ((_sliderValue! - (widget.question.minValue ?? 0)) /
+          ((widget.question.maxValue ?? 100) -
+              (widget.question.minValue ?? 0)) *
+          (widget.question.sliderLabels!.length - 1))
+          .round()
+          .clamp(0, widget.question.sliderLabels!.length - 1);
       return widget.question.sliderLabels![index];
     }
     return _sliderValue?.toStringAsFixed(0) ?? '0';
@@ -152,39 +176,30 @@ class _QuestionWidgetState extends State<QuestionWidget> {
           Column(
             children: [
               // Slider labels
-              if (widget.question.sliderLabels != null)
+              if (widget.question.sliderLabels != null &&
+                  widget.question.sliderLabels!.isNotEmpty)
                 Padding(
-                  padding: const EdgeInsets.only(bottom: 16),
+                  padding: const EdgeInsets.only(bottom: 12),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: widget.question.sliderLabels!.asMap().entries.map(
-                      (entry) {
-                        final isFirst = entry.key == 0;
-                        final isLast =
-                            entry.key ==
-                            widget.question.sliderLabels!.length - 1;
-
-                        return Expanded(
-                          child: Align(
-                            alignment: isFirst
-                                ? Alignment.centerLeft
-                                : isLast
-                                ? Alignment.centerRight
-                                : Alignment.center,
-                            child: Text(
-                              entry.value,
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: const Color(0xFF7A6A5A),
-                                fontWeight: isFirst || isLast
-                                    ? FontWeight.w700
-                                    : FontWeight.w500,
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    ).toList(),
+                    children: [
+                      Text(
+                        widget.question.sliderLabels!.first,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          color: Color(0xFF7A6A5A),
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      Text(
+                        widget.question.sliderLabels!.last,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          color: Color(0xFF7A6A5A),
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
 
@@ -247,19 +262,19 @@ class _QuestionWidgetState extends State<QuestionWidget> {
                     ),
                     boxShadow: isSelected
                         ? [
-                            BoxShadow(
-                              color: const Color(0xFF8E7CFF).withValues(alpha: 0.2),
-                              blurRadius: 10,
-                              offset: const Offset(0, 4),
-                            ),
-                          ]
+                      BoxShadow(
+                        color: const Color(0xFF8E7CFF).withValues(alpha: 0.2),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                    ]
                         : [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.05),
-                              blurRadius: 6,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.05),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
                   ),
                   child: Row(
                     children: [
@@ -281,10 +296,10 @@ class _QuestionWidgetState extends State<QuestionWidget> {
                         ),
                         child: isSelected
                             ? const Icon(
-                                Icons.check_rounded,
-                                size: 16,
-                                color: Colors.white,
-                              )
+                          Icons.check_rounded,
+                          size: 16,
+                          color: Colors.white,
+                        )
                             : null,
                       ),
 
@@ -315,7 +330,7 @@ class _QuestionWidgetState extends State<QuestionWidget> {
             Padding(
               padding: const EdgeInsets.only(top: 16),
               child: Text(
-                'You can select multiple options',
+                _multipleSelectHint(context),
                 style: TextStyle(
                   fontSize: 14,
                   color: const Color(0xFF9C90B3),
