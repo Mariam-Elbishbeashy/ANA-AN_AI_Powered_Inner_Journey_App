@@ -33,6 +33,9 @@ class VideoSessionRemoteDataSource {
     String? title,
   }) async {
     try {
+      // Generate unique timestamp
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+
       final response = await http.post(
         Uri.parse("$_backendUrl/video/create_session"),
         headers: {'Content-Type': 'application/json'},
@@ -40,20 +43,23 @@ class VideoSessionRemoteDataSource {
           'uid': uid,
           'characterId': characterId,
           'characterType': 'inner_character',
-          'title': title ?? 'Video Session',
+          'title': '${title ?? 'Video Session'} - ${timestamp.toString()}',
+          'timestamp': timestamp, // Send timestamp to backend
         }),
       ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         if (data['success'] == true) {
-          // Wait a moment for Firestore to sync
+          // Wait for Firestore to sync
           await Future.delayed(const Duration(milliseconds: 500));
 
-          // Fetch the created session from Firestore to return
+          // Fetch the created session from Firestore
           final sessionDoc = await _sessionsRef(uid).doc(data['sessionId']).get();
           if (sessionDoc.exists) {
             return VideoSessionModel.fromMap(sessionDoc.data() ?? {}, sessionDoc.id);
+          } else {
+            throw Exception('Session document not found after creation');
           }
         }
       }

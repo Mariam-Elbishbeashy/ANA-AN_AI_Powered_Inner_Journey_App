@@ -104,6 +104,7 @@ flutter:
      - assets/animations/guider_chat.gif
      - assets/animations/voice_sphere.gif
      - assets/animations/inner_critic.mp4
+     - assets/animations/overwhelmed.mp4
      - assets/animations/inner_criti.mp4  # Note: typo? Should be inner_critic.mp4?
      - assets/animations/innner.mp4
      - assets/animations/lonly.mp4

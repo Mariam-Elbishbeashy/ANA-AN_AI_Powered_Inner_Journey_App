@@ -434,6 +434,14 @@ class _ChatBubble extends StatelessWidget {
     return '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
   }
 
+  /// Returns the avatar path for guider messages (uses guider.png)
+  String _getAvatarPath() {
+    if (isGuider) {
+      return 'assets/images/guider.png';
+    }
+    return characterAvatarPath;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -448,7 +456,7 @@ class _ChatBubble extends StatelessWidget {
               height: 36,
               margin: const EdgeInsets.only(right: 10),
               child: Image.asset(
-                characterAvatarPath,
+                _getAvatarPath(),
                 width: 36,
                 height: 36,
                 fit: BoxFit.contain,
@@ -456,9 +464,12 @@ class _ChatBubble extends StatelessWidget {
                   return Container(
                     width: 36,
                     height: 36,
-                    color: isGuider
-                        ? const Color(0xFFB79CFF).withValues(alpha: 0.15)
-                        : const Color(0xFFEDE7FF),
+                    decoration: BoxDecoration(
+                      color: isGuider
+                          ? const Color(0xFFB79CFF).withValues(alpha: 0.15)
+                          : const Color(0xFFEDE7FF),
+                      shape: BoxShape.circle,
+                    ),
                     child: Icon(
                       isGuider ? Icons.assistant_navigation : Icons.psychology_alt,
                       size: 20,
