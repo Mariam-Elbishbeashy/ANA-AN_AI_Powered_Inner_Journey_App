@@ -71,6 +71,7 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
 
   Map<String, String> _savedMoodsByDate = {};
   Set<String> _autoRetrievedMoodDates = <String>{};
+  Set<String> _videoSessionDates = <String>{};
 
   @override
   void initState() {
@@ -133,6 +134,7 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
 
       final latestSessionByDate = <String, _DailyMoodSession>{};
       final autoRetrievedDates = <String>{};
+      final videoSessionDates = <String>{};
 
       for (final doc in sessionSnapshot.docs) {
         final data = doc.data();
@@ -150,6 +152,9 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
           continue;
         }
 
+        final dateKey = _dateKey(normalizedSessionDate);
+        videoSessionDates.add(dateKey);
+
         final moodKey = await _resolveLatestMoodForSession(
           uid: uid,
           sessionId: doc.id,
@@ -157,7 +162,6 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
         );
         if (moodKey == null) continue;
 
-        final dateKey = _dateKey(normalizedSessionDate);
         final candidate = _DailyMoodSession(
           dateTime: sessionDateTime,
           moodKey: moodKey,
@@ -178,10 +182,12 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
         setState(() {
           _savedMoodsByDate = moodMap;
           _autoRetrievedMoodDates = autoRetrievedDates;
+          _videoSessionDates = videoSessionDates;
         });
       } else {
         _savedMoodsByDate = moodMap;
         _autoRetrievedMoodDates = autoRetrievedDates;
+        _videoSessionDates = videoSessionDates;
       }
     } catch (e) {
       debugPrint('Error loading saved moods from Firestore: $e');
@@ -270,6 +276,11 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
   bool _canUserUpdateDate(DateTime date) {
     final dateKey = _dateKey(date);
     return _autoRetrievedMoodDates.contains(dateKey);
+  }
+
+  bool _hasVideoSessionForDate(DateTime date) {
+    final dateKey = _dateKey(date);
+    return _videoSessionDates.contains(dateKey);
   }
 
   String? _extractDominantEmotionFromSession(Map<String, dynamic> data) {
@@ -580,8 +591,14 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
 
               return Expanded(
                 child: GestureDetector(
-                  onTap: canUserUpdate
-                      ? () => _showMoodSelectionDialog(context, date)
+                  onTap: isToday
+                      ? () {
+                    if (canUserUpdate) {
+                      _showMoodSelectionDialog(context, date);
+                    } else {
+                      _showMoodUnavailableDialog(context, date);
+                    }
+                  }
                       : null,
                   child: Padding(
                     padding: EdgeInsets.only(right: index == 6 ? 0 : 6),
@@ -690,6 +707,60 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
                   ),
                 ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showMoodUnavailableDialog(BuildContext context, DateTime selectedDate) {
+    final hasVideoSession = _hasVideoSessionForDate(selectedDate);
+
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.18),
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(22),
+        ),
+        title: Text(
+          hasVideoSession
+              ? tr(context, 'Mood is not ready yet', 'المزاج لسه مش جاهز')
+              : tr(context, 'Video session needed', 'محتاج جلسة فيديو'),
+          style: const TextStyle(
+            color: Color(0xFF4A3572),
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        content: Text(
+          hasVideoSession
+              ? tr(
+            context,
+            'We found a video session for today, but no automatic mood was detected yet. Please wait for the video analysis to finish, then try again.',
+            'لقينا جلسة فيديو لليوم، لكن المزاج التلقائي لسه متسجلش. استني تحليل الفيديو يخلص وبعدها جربي تاني.',
+          )
+              : tr(
+            context,
+            'To update today\'s mood, you need to complete a video session first. The app uses the video session analysis to detect your automatic mood, then you can adjust it here if needed.',
+            'علشان تحدثي مزاج النهارده، لازم تعملي جلسة فيديو الأول. التطبيق بيستخدم تحليل جلسة الفيديو علشان يحدد المزاج التلقائي، وبعدها تقدري تعدليه من هنا لو محتاجة.',
+          ),
+          style: const TextStyle(
+            fontSize: 14,
+            height: 1.45,
+            color: Color(0xFF7E769B),
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(
+              tr(context, 'Got it', 'تمام'),
+              style: const TextStyle(
+                color: Color(0xFF7A5AF8),
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
         ],

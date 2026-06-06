@@ -1,12 +1,12 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:model_viewer_plus/model_viewer_plus.dart';
 import 'package:provider/provider.dart';
 
 import 'package:ana_ifs_app/core/services/firestore_service.dart';
 import 'package:ana_ifs_app/features/progress/presentation/providers/milestone_provider.dart';
 import 'package:ana_ifs_app/l10n/app_strings.dart';
+import '../../../../cached_o3d_widget.dart';
 import '../../domain/entities/milestone.dart';
 import '../../domain/entities/stable_character_history.dart';
 
@@ -16,6 +16,12 @@ String _milestoneTitle(BuildContext context, Milestone milestone) {
 
 String _milestoneDescription(BuildContext context, Milestone milestone) {
   return isArabic(context) ? milestone.descriptionAr : milestone.descriptionEn;
+}
+
+String _modelAssetPath(String glbFileName) {
+  final trimmed = glbFileName.trim();
+  if (trimmed.startsWith('assets/')) return trimmed;
+  return 'assets/models/$trimmed';
 }
 
 class ProgressHistory extends StatefulWidget {
@@ -240,6 +246,7 @@ class _ProgressHistoryState extends State<ProgressHistory> {
               children: [
                 _PopupCharacterModelPreview(
                   glbFileName: item.glbFileName,
+                  characterName: item.characterName,
                   height: 180,
                   width: double.infinity,
                 ),
@@ -628,6 +635,7 @@ class _StableCharacterHistoryCard extends StatelessWidget {
                 'stable-preview-${item.characterName}-${item.glbFileName}-${item.stableAt.millisecondsSinceEpoch}',
               ),
               glbFileName: item.glbFileName,
+              characterName: item.characterName,
               height: 108,
               width: 96,
             ),
@@ -699,19 +707,44 @@ class _StableCharacterHistoryCard extends StatelessWidget {
 
 class _StableCharacterCardPreview extends StatelessWidget {
   final String glbFileName;
+  final String characterName;
   final double width;
   final double height;
 
   const _StableCharacterCardPreview({
     super.key,
     required this.glbFileName,
+    required this.characterName,
     required this.width,
     required this.height,
   });
 
+  static const Map<String, String> imageFileNamesByCharacter = {
+    'ashamed': 'ashamed.png',
+    'confused': 'confused.png',
+    'controller': 'controller.png',
+    'dependent': 'dependent.png',
+    'excessive_gamer': 'excessive_gamer.png',
+    'fearful': 'fearful.png',
+    'guider': 'guider.png',
+    'inner_critic': 'inner_critic.png',
+    'jealous': 'jealous.png',
+    'letter': 'letter.png',
+    'lonely': 'lonely.png',
+    'neglected': 'neglected.png',
+    'overeater_binger': 'overeater_binger.png',
+    'overwhelmed': 'overwhelmed.png',
+    'people_pleaser': 'people_pleaser.png',
+    'perfectionist': 'perfectionist.png',
+    'procrastinator': 'procrastinator.png',
+    'stoic': 'stoic.png',
+    'workaholic': 'workaholic.png',
+    'wounded_child': 'wounded_child.png',
+  };
+
   @override
   Widget build(BuildContext context) {
-    final modelPath = 'assets/models/$glbFileName';
+    final imagePath = _imageAssetPath();
 
     return Container(
       width: width,
@@ -731,42 +764,122 @@ class _StableCharacterCardPreview extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: IgnorePointer(
         ignoring: true,
-        child: ModelViewer(
-          key: ValueKey('card-model-$glbFileName'),
-          src: modelPath,
-          alt: glbFileName,
-          ar: false,
-          autoRotate: false,
-          cameraControls: false,
-          disableZoom: true,
-          disableTap: true,
-          interactionPrompt: InteractionPrompt.none,
-          backgroundColor: const Color(0x00000000),
+        child: ClipRect(
+          child: Transform.scale(
+            scale: 0.9,
+            alignment: Alignment.bottomCenter,
+            child: Image.asset(
+              imagePath,
+              key: ValueKey('card-image-$imagePath'),
+              fit: BoxFit.contain,
+              alignment: Alignment.bottomCenter,
+              errorBuilder: (context, error, stackTrace) {
+                return const Center(
+                  child: Icon(
+                    Icons.person_rounded,
+                    color: Color(0xFF59A874),
+                    size: 42,
+                  ),
+                );
+              },
+            ),
+          ),
         ),
       ),
     );
   }
+
+  String _imageAssetPath() {
+    final normalizedGlbName = normalizeCharacterKey(glbFileName);
+    final normalizedCharacterName = normalizeCharacterKey(characterName);
+
+    final imageFileName = imageFileNamesByCharacter[normalizedGlbName] ??
+        imageFileNamesByCharacter[normalizedCharacterName] ??
+        '$normalizedGlbName.png';
+
+    return 'assets/images/$imageFileName';
+  }
+
+  static String normalizeCharacterKey(String value) {
+    var normalized = value
+        .split('/')
+        .last
+        .toLowerCase()
+        .replaceAll(RegExp(r'\.(glb|gltf|png|jpg|jpeg)$'), '')
+        .replaceAll('&', 'and')
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '_')
+        .replaceAll(RegExp(r'^_+|_+$'), '');
+
+    if (normalized.startsWith('the_')) {
+      normalized = normalized.substring(4);
+    }
+
+    if (normalized.endsWith('_part')) {
+      normalized = normalized.substring(0, normalized.length - 5);
+    }
+
+    const aliases = {
+      'over_eater_binger': 'overeater_binger',
+      'overeater': 'overeater_binger',
+      'binger': 'overeater_binger',
+      'lonely_part': 'lonely',
+      'neglected_part': 'neglected',
+      'ashamed_part': 'ashamed',
+      'fearful_part': 'fearful',
+      'dependent_part': 'dependent',
+      'confused_part': 'confused',
+      'overwhelmed_part': 'overwhelmed',
+      'wounded_child_part': 'wounded_child',
+    };
+
+    return aliases[normalized] ?? normalized;
+  }
 }
 
-class _PopupCharacterModelPreview extends StatelessWidget {
+
+class _PopupCharacterModelPreview extends StatefulWidget {
   final String glbFileName;
+  final String characterName;
   final double width;
   final double height;
 
   const _PopupCharacterModelPreview({
     super.key,
     required this.glbFileName,
+    required this.characterName,
     required this.width,
     required this.height,
   });
 
   @override
+  State<_PopupCharacterModelPreview> createState() => _PopupCharacterModelPreviewState();
+}
+
+class _PopupCharacterModelPreviewState extends State<_PopupCharacterModelPreview> {
+  bool _showModel = false;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Let the dialog open and paint the lightweight PNG first.
+    // Creating ModelViewer/CachedO3D immediately inside the dialog creates an
+    // Android PlatformView/WebView and can block the UI thread for a few frames.
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await Future<void>.delayed(const Duration(milliseconds: 450));
+      if (!mounted) return;
+      setState(() => _showModel = true);
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final modelPath = 'assets/models/$glbFileName';
+    final modelPath = _modelAssetPath(widget.glbFileName);
+    final imagePath = _popupImageAssetPath();
 
     return Container(
-      width: width,
-      height: height,
+      width: widget.width,
+      height: widget.height,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(20),
         gradient: const LinearGradient(
@@ -780,15 +893,70 @@ class _PopupCharacterModelPreview extends StatelessWidget {
         border: Border.all(color: const Color(0xFFD8EFE1)),
       ),
       clipBehavior: Clip.antiAlias,
-      child: ModelViewer(
-        key: ValueKey('popup-model-$glbFileName'),
-        src: modelPath,
-        alt: glbFileName,
-        ar: false,
-        autoRotate: true,
-        cameraControls: true,
-        disableZoom: true,
-        backgroundColor: const Color(0x00000000),
+      child: RepaintBoundary(
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            _PopupImagePlaceholder(imagePath: imagePath),
+            if (_showModel)
+              CachedO3D(
+                key: ValueKey('popup-cached-model-$modelPath'),
+                glbPath: modelPath,
+                cacheKey: modelPath,
+                width: widget.width,
+                height: widget.height,
+                autoPlay: false,
+                cameraControls: true,
+                ar: false,
+                backgroundColor: Colors.transparent,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _popupImageAssetPath() {
+    final normalizedGlbName = _StableCharacterCardPreview.normalizeCharacterKey(widget.glbFileName);
+    final normalizedCharacterName = _StableCharacterCardPreview.normalizeCharacterKey(widget.characterName);
+
+    final imageFileName = _StableCharacterCardPreview.imageFileNamesByCharacter[normalizedGlbName] ??
+        _StableCharacterCardPreview.imageFileNamesByCharacter[normalizedCharacterName] ??
+        '$normalizedGlbName.png';
+
+    return 'assets/images/$imageFileName';
+  }
+}
+
+class _PopupImagePlaceholder extends StatelessWidget {
+  final String imagePath;
+
+  const _PopupImagePlaceholder({required this.imagePath});
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      ignoring: true,
+      child: ClipRect(
+        child: Transform.scale(
+          scale: 0.86,
+          alignment: Alignment.bottomCenter,
+          child: Image.asset(
+            imagePath,
+            key: ValueKey('popup-image-$imagePath'),
+            fit: BoxFit.contain,
+            alignment: Alignment.bottomCenter,
+            errorBuilder: (context, error, stackTrace) {
+              return const Center(
+                child: Icon(
+                  Icons.person_rounded,
+                  color: Color(0xFF59A874),
+                  size: 54,
+                ),
+              );
+            },
+          ),
+        ),
       ),
     );
   }
