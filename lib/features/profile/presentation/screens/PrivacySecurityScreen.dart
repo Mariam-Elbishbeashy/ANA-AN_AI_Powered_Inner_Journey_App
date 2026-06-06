@@ -1,11 +1,8 @@
 // privacy_security_screen.dart
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:ana_ifs_app/l10n/app_strings.dart';
-import 'package:ana_ifs_app/core/services/auth_service.dart';
-import 'package:ana_ifs_app/features/auth/data/datasources/auth_remote_data_source.dart';
-import 'package:ana_ifs_app/features/auth/data/repositories/auth_repository_impl.dart';
-import 'package:ana_ifs_app/features/auth/domain/usecases/change_password.dart';
 
 class PrivacySecurityScreen extends StatefulWidget {
   const PrivacySecurityScreen({super.key});
@@ -15,12 +12,8 @@ class PrivacySecurityScreen extends StatefulWidget {
 }
 
 class _PrivacySecurityScreenState extends State<PrivacySecurityScreen> {
-  bool _dataCollection = true;
-  bool _analytics = true;
-  bool _secureSession = true;
-  late final _authRepository =
-      AuthRepositoryImpl(AuthRemoteDataSource(AuthService()));
-  late final _changePassword = ChangePassword(_authRepository);
+  late final FirebaseAuth _firebaseAuth = FirebaseAuth.instance;
+  late final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   @override
   Widget build(BuildContext context) {
@@ -104,29 +97,40 @@ class _PrivacySecurityScreenState extends State<PrivacySecurityScreen> {
                           icon: Icons.security_rounded,
                           title: isArabicValue ? 'تشفير البيانات' : 'Data Encryption',
                           subtitle: isArabicValue
-                              ? 'جميع بياناتك مشفرة باستخدام تشفير من طرف إلى طرف'
-                              : 'All your data is encrypted using end-to-end encryption',
-                        ),
-                        const Divider(height: 24),
-                        _PrivacySwitch(
-                          title: isArabicValue ? 'جمع البيانات' : 'Data Collection',
-                          subtitle: isArabicValue
-                              ? 'السماح بجمع البيانات المجهولة لتحسين التطبيق'
-                              : 'Allow anonymous data collection to improve the app',
-                          value: _dataCollection,
-                          onChanged: (value) => setState(() => _dataCollection = value),
-                        ),
-                        const Divider(height: 24),
-                        _PrivacySwitch(
-                          title: isArabicValue ? 'التحليلات' : 'Analytics',
-                          subtitle: isArabicValue
-                              ? 'مشاركة بيانات الاستخدام لتحليل الأنماط'
-                              : 'Share usage data for pattern analysis',
-                          value: _analytics,
-                          onChanged: (value) => setState(() => _analytics = value),
+                              ? 'بيانات حسابك وجلساتك محفوظة بشكل آمن داخل التطبيق'
+                              : 'Your account data and sessions are kept securely inside the app',
                         ),
                       ],
                     ),
+                  ),
+
+                  const SizedBox(height: 30),
+
+                  // Account Settings
+                  Text(
+                    isArabicValue ? 'إعدادات الحساب' : 'Account Settings',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF2A1E3B),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.05),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: _buildEditNameTile(context, isArabicValue),
                   ),
 
                   const SizedBox(height: 30),
@@ -157,15 +161,6 @@ class _PrivacySecurityScreenState extends State<PrivacySecurityScreen> {
                     ),
                     child: Column(
                       children: [
-                        _PrivacySwitch(
-                          title: isArabicValue ? 'جلسة آمنة' : 'Secure Session',
-                          subtitle: isArabicValue
-                              ? 'تسجيل الخروج التلقائي بعد فترة من عدم النشاط'
-                              : 'Automatically log out after period of inactivity',
-                          value: _secureSession,
-                          onChanged: (value) => setState(() => _secureSession = value),
-                        ),
-                        const Divider(height: 24),
                         ListTile(
                           contentPadding: EdgeInsets.zero,
                           leading: Container(
@@ -235,55 +230,6 @@ class _PrivacySecurityScreenState extends State<PrivacySecurityScreen> {
                     ),
                   ),
 
-                  const SizedBox(height: 30),
-
-                  // Data Export
-                  Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.05),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF8E7CFF).withValues(alpha: 0.1),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.download_rounded,
-                            color: Color(0xFF8E7CFF), size: 20),
-                      ),
-                      title: Text(
-                        isArabicValue ? 'تصدير البيانات' : 'Export Data',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF2A1E3B),
-                        ),
-                      ),
-                      subtitle: Text(
-                        isArabicValue
-                            ? 'تنزيل جميع بياناتك في ملف PDF'
-                            : 'Download all your data as PDF file',
-                        style: const TextStyle(fontSize: 13, color: Color(0xFF7A6A5A)),
-                      ),
-                      trailing: const Icon(Icons.arrow_forward_ios_rounded,
-                          size: 16, color: Color(0xFFD0C6E8)),
-                      onTap: () {
-                        // Export data functionality
-                      },
-                    ),
-                  ),
-
                   const SizedBox(height: 40), // Extra padding at bottom
                 ],
               ),
@@ -294,16 +240,318 @@ class _PrivacySecurityScreenState extends State<PrivacySecurityScreen> {
     );
   }
 
+  Widget _buildEditNameTile(BuildContext context, bool isArabicValue) {
+    final user = _firebaseAuth.currentUser;
+
+    Widget buildTile(String subtitle) {
+      return ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: const Color(0xFF8E7CFF).withValues(alpha: 0.1),
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(
+            Icons.person_rounded,
+            color: Color(0xFF8E7CFF),
+            size: 20,
+          ),
+        ),
+        title: Text(
+          isArabicValue ? 'تعديل الاسم' : 'Edit Name',
+          style: const TextStyle(
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF2A1E3B),
+          ),
+        ),
+        subtitle: Text(
+          subtitle,
+          style: const TextStyle(fontSize: 13, color: Color(0xFF7A6A5A)),
+        ),
+        trailing: const Icon(
+          Icons.arrow_forward_ios_rounded,
+          size: 16,
+          color: Color(0xFFD0C6E8),
+        ),
+        onTap: () {
+          _showEditNameDialog(context, isArabicValue);
+        },
+      );
+    }
+
+    if (user == null) {
+      return buildTile(
+        isArabicValue
+            ? 'سجّلي الدخول عشان تقدري تعدّلي اسم الحساب'
+            : 'Sign in to edit your account name',
+      );
+    }
+
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: _firestore.collection('users').doc(user.uid).snapshots(),
+      builder: (context, snapshot) {
+        final data = snapshot.data?.data();
+        final savedName = (data?['displayName'] ??
+            data?['firstName'] ??
+            user.displayName ??
+            '')
+            .toString()
+            .trim();
+
+        return buildTile(
+          savedName.isEmpty
+              ? (isArabicValue
+              ? 'اضغطي هنا لإضافة اسمك'
+              : 'Tap here to add your name')
+              : savedName,
+        );
+      },
+    );
+  }
+
+  Future<void> _showEditNameDialog(
+      BuildContext context,
+      bool isArabicValue,
+      ) async {
+    final screenContext = context;
+    final nameController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    String? serverError;
+    bool submitting = false;
+    bool dialogClosed = false;
+
+    Future<void> submitName(
+        StateSetter dialogSetState,
+        BuildContext dialogContext,
+        ) async {
+      if (submitting) return;
+      if (!(formKey.currentState?.validate() ?? false)) return;
+
+      dialogSetState(() {
+        submitting = true;
+        serverError = null;
+      });
+
+      try {
+        await _updateUserName(nameController.text);
+        if (!dialogContext.mounted) return;
+
+        dialogClosed = true;
+        Navigator.of(dialogContext).pop();
+
+        if (!mounted) return;
+        ScaffoldMessenger.of(screenContext).showSnackBar(
+          SnackBar(
+            content: Text(
+              isArabicValue
+                  ? 'تم تحديث الاسم بنجاح'
+                  : 'Name updated successfully',
+            ),
+            backgroundColor: const Color(0xFF8E7CFF),
+          ),
+        );
+      } catch (_) {
+        if (!dialogContext.mounted || dialogClosed) return;
+        dialogSetState(() {
+          serverError = isArabicValue
+              ? 'فشل تحديث الاسم'
+              : 'Failed to update name';
+          submitting = false;
+        });
+      } finally {
+        // Do not call the dialog setState after Navigator.pop().
+        // Calling it after the dialog is closed can rebuild TextFormField
+        // with a controller that has already been disposed.
+        if (dialogContext.mounted && !dialogClosed && submitting) {
+          dialogSetState(() => submitting = false);
+        }
+      }
+    }
+
+    final user = _firebaseAuth.currentUser;
+    if (user != null) {
+      try {
+        final userDoc = await _firestore.collection('users').doc(user.uid).get();
+        final data = userDoc.data();
+        final currentName = (data?['displayName'] ??
+            data?['firstName'] ??
+            user.displayName ??
+            '')
+            .toString()
+            .trim();
+        nameController.text = currentName;
+      } catch (_) {
+        nameController.text = (user.displayName ?? '').trim();
+      }
+    }
+
+    await showDialog<void>(
+      context: screenContext,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (dialogContext, dialogSetState) {
+            return Directionality(
+              textDirection:
+              isArabicValue ? TextDirection.rtl : TextDirection.ltr,
+              child: AlertDialog(
+                title: Text(isArabicValue ? 'تعديل الاسم' : 'Edit name'),
+                content: Form(
+                  key: formKey,
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextFormField(
+                        controller: nameController,
+                        enabled: !submitting,
+                        textInputAction: TextInputAction.done,
+                        textAlign:
+                        isArabicValue ? TextAlign.right : TextAlign.left,
+                        textDirection: isArabicValue
+                            ? TextDirection.rtl
+                            : TextDirection.ltr,
+                        decoration: InputDecoration(
+                          labelText: isArabicValue ? 'اسمك' : 'Your name',
+                          hintText: isArabicValue
+                              ? 'اكتبي الاسم اللي تحبي يظهر'
+                              : 'Enter the name you want to display',
+                        ),
+                        validator: (value) {
+                          final trimmed = (value ?? '').trim();
+                          if (trimmed.isEmpty) {
+                            return isArabicValue
+                                ? 'يرجى إدخال الاسم'
+                                : 'Enter your name';
+                          }
+                          if (trimmed.length < 2) {
+                            return isArabicValue
+                                ? 'الاسم قصير جداً'
+                                : 'Name is too short';
+                          }
+                          return null;
+                        },
+                        onChanged: (_) {
+                          if (serverError != null) {
+                            dialogSetState(() => serverError = null);
+                          }
+                        },
+                        onFieldSubmitted: (_) =>
+                            submitName(dialogSetState, dialogContext),
+                      ),
+                      if (serverError != null)
+                        Padding(
+                          padding:
+                          const EdgeInsets.only(top: 8, left: 4, right: 4),
+                          child: Align(
+                            alignment: isArabicValue
+                                ? Alignment.centerRight
+                                : Alignment.centerLeft,
+                            child: Text(
+                              serverError!,
+                              style: const TextStyle(
+                                color: Color(0xFFD9534F),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: submitting
+                        ? null
+                        : () {
+                      dialogClosed = true;
+                      Navigator.of(dialogContext).pop();
+                    },
+                    child: Text(isArabicValue ? 'إلغاء' : 'Cancel'),
+                  ),
+                  ElevatedButton(
+                    onPressed: submitting
+                        ? null
+                        : () => submitName(dialogSetState, dialogContext),
+                    child: submitting
+                        ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                        : Text(isArabicValue ? 'حفظ' : 'Save'),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    ).whenComplete(() {
+      dialogClosed = true;
+      nameController.dispose();
+    });
+  }
+
+  Future<void> _updateUserName(String name) async {
+    final trimmedName = name.trim();
+    final user = _firebaseAuth.currentUser;
+
+    if (user == null) {
+      throw FirebaseAuthException(code: 'no-current-user');
+    }
+
+    final firstName = trimmedName.split(RegExp(r'\s+')).first;
+
+    await user.updateDisplayName(trimmedName);
+
+    await _firestore.collection('users').doc(user.uid).set(
+      {
+        'displayName': trimmedName,
+        'firstName': firstName,
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  Future<void> _changeCurrentUserPassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final user = _firebaseAuth.currentUser;
+    final email = user?.email;
+
+    if (user == null || email == null || email.trim().isEmpty) {
+      throw FirebaseAuthException(code: 'no-current-user');
+    }
+
+    final credential = EmailAuthProvider.credential(
+      email: email,
+      password: currentPassword,
+    );
+
+    await user.reauthenticateWithCredential(credential);
+    await user.updatePassword(newPassword);
+  }
+
   Future<void> _showChangePasswordDialog(
-    BuildContext context,
-    bool isArabicValue,
-  ) async {
+      BuildContext context,
+      bool isArabicValue,
+      ) async {
     final currentController = TextEditingController();
     final newController = TextEditingController();
     final confirmController = TextEditingController();
     final formKey = GlobalKey<FormState>();
     String? serverError;
     bool submitting = false;
+    bool dialogClosed = false;
 
     await showDialog<void>(
       context: context,
@@ -312,7 +560,7 @@ class _PrivacySecurityScreenState extends State<PrivacySecurityScreen> {
           builder: (context, setState) {
             return AlertDialog(
               title:
-                  Text(isArabicValue ? 'تغيير كلمة المرور' : 'Change password'),
+              Text(isArabicValue ? 'تغيير كلمة المرور' : 'Change password'),
               content: Form(
                 key: formKey,
                 autovalidateMode: AutovalidateMode.onUserInteraction,
@@ -324,7 +572,7 @@ class _PrivacySecurityScreenState extends State<PrivacySecurityScreen> {
                       obscureText: true,
                       decoration: InputDecoration(
                         labelText:
-                            isArabicValue ? 'كلمة المرور الحالية' : 'Current password',
+                        isArabicValue ? 'كلمة المرور الحالية' : 'Current password',
                       ),
                       validator: (value) {
                         if ((value ?? '').isEmpty) {
@@ -346,7 +594,7 @@ class _PrivacySecurityScreenState extends State<PrivacySecurityScreen> {
                       obscureText: true,
                       decoration: InputDecoration(
                         labelText:
-                            isArabicValue ? 'كلمة المرور الجديدة' : 'New password',
+                        isArabicValue ? 'كلمة المرور الجديدة' : 'New password',
                       ),
                       validator: (value) {
                         if ((value ?? '').isEmpty) {
@@ -368,7 +616,7 @@ class _PrivacySecurityScreenState extends State<PrivacySecurityScreen> {
                       obscureText: true,
                       decoration: InputDecoration(
                         labelText:
-                            isArabicValue ? 'تأكيد كلمة المرور' : 'Confirm password',
+                        isArabicValue ? 'تأكيد كلمة المرور' : 'Confirm password',
                       ),
                       validator: (value) {
                         if ((value ?? '').isEmpty) {
@@ -387,7 +635,7 @@ class _PrivacySecurityScreenState extends State<PrivacySecurityScreen> {
                     if (serverError != null)
                       Padding(
                         padding:
-                            const EdgeInsets.only(top: 8, left: 4, right: 4),
+                        const EdgeInsets.only(top: 8, left: 4, right: 4),
                         child: Align(
                           alignment: Alignment.centerLeft,
                           child: Text(
@@ -407,74 +655,79 @@ class _PrivacySecurityScreenState extends State<PrivacySecurityScreen> {
                 TextButton(
                   onPressed: submitting
                       ? null
-                      : () => Navigator.of(dialogContext).pop(),
+                      : () {
+                    dialogClosed = true;
+                    Navigator.of(dialogContext).pop();
+                  },
                   child: Text(isArabicValue ? 'إلغاء' : 'Cancel'),
                 ),
                 ElevatedButton(
                   onPressed: submitting
                       ? null
                       : () async {
-                          if (!(formKey.currentState?.validate() ?? false)) {
-                            return;
-                          }
-                          setState(() => submitting = true);
-                          try {
-                            await _changePassword(
-                              currentPassword: currentController.text,
-                              newPassword: newController.text,
-                            );
-                            if (!mounted) return;
-                            Navigator.of(dialogContext).pop();
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  isArabicValue
-                                      ? 'تم تغيير كلمة المرور بنجاح'
-                                      : 'Password updated successfully',
-                                ),
-                                backgroundColor: const Color(0xFF8E7CFF),
-                              ),
-                            );
-                          } on FirebaseAuthException catch (e) {
-                            if (!mounted) return;
-                            switch (e.code) {
-                              case 'wrong-password':
-                                serverError = isArabicValue
-                                    ? 'كلمة المرور الحالية غير صحيحة'
-                                    : 'Current password is incorrect';
-                                break;
-                              case 'weak-password':
-                                serverError = isArabicValue
-                                    ? 'كلمة المرور الجديدة ضعيفة'
-                                    : 'New password is too weak';
-                                break;
-                              case 'requires-recent-login':
-                                serverError = isArabicValue
-                                    ? 'يرجى تسجيل الدخول مرة أخرى ثم المحاولة'
-                                    : 'Please log in again and retry';
-                                break;
-                              default:
-                                serverError = isArabicValue
-                                    ? 'فشل تحديث كلمة المرور'
-                                    : 'Failed to update password';
-                            }
-                          } catch (_) {
-                            if (!mounted) return;
-                            serverError = isArabicValue
-                                ? 'فشل تحديث كلمة المرور'
-                                : 'Failed to update password';
-                          } finally {
-                            if (mounted) {
-                              setState(() => submitting = false);
-                            }
-                          }
-                        },
+                    if (!(formKey.currentState?.validate() ?? false)) {
+                      return;
+                    }
+                    setState(() => submitting = true);
+                    try {
+                      await _changeCurrentUserPassword(
+                        currentPassword: currentController.text,
+                        newPassword: newController.text,
+                      );
+                      if (!mounted || dialogClosed) return;
+                      dialogClosed = true;
+                      Navigator.of(dialogContext).pop();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            isArabicValue
+                                ? 'تم تغيير كلمة المرور بنجاح'
+                                : 'Password updated successfully',
+                          ),
+                          backgroundColor: const Color(0xFF8E7CFF),
+                        ),
+                      );
+                    } on FirebaseAuthException catch (e) {
+                      if (!mounted || dialogClosed) return;
+                      switch (e.code) {
+                        case 'wrong-password':
+                        case 'invalid-credential':
+                          serverError = isArabicValue
+                              ? 'كلمة المرور الحالية غير صحيحة'
+                              : 'Current password is incorrect';
+                          break;
+                        case 'weak-password':
+                          serverError = isArabicValue
+                              ? 'كلمة المرور الجديدة ضعيفة'
+                              : 'New password is too weak';
+                          break;
+                        case 'requires-recent-login':
+                          serverError = isArabicValue
+                              ? 'يرجى تسجيل الدخول مرة أخرى ثم المحاولة'
+                              : 'Please log in again and retry';
+                          break;
+                        default:
+                          serverError = isArabicValue
+                              ? 'فشل تحديث كلمة المرور'
+                              : 'Failed to update password';
+                      }
+                    } catch (_) {
+                      if (!mounted || dialogClosed) return;
+                      serverError = isArabicValue
+                          ? 'فشل تحديث كلمة المرور'
+                          : 'Failed to update password';
+                    } finally {
+                      if (mounted && !dialogClosed) {
+                        setState(() => submitting = false);
+                      }
+                    }
+                  },
                   child: submitting
                       ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
                       : Text(isArabicValue ? 'تحديث' : 'Update'),
                 ),
               ],
@@ -482,7 +735,12 @@ class _PrivacySecurityScreenState extends State<PrivacySecurityScreen> {
           },
         );
       },
-    );
+    ).whenComplete(() {
+      dialogClosed = true;
+      currentController.dispose();
+      newController.dispose();
+      confirmController.dispose();
+    });
   }
 
   void _showDeleteDialog(BuildContext context, bool isArabicValue) {
@@ -563,56 +821,6 @@ class _PrivacyItem extends StatelessWidget {
               ),
             ],
           ),
-        ),
-      ],
-    );
-  }
-}
-
-class _PrivacySwitch extends StatelessWidget {
-  final String title;
-  final String subtitle;
-  final bool value;
-  final ValueChanged<bool> onChanged;
-
-  const _PrivacySwitch({
-    required this.title,
-    required this.subtitle,
-    required this.value,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF2A1E3B),
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                subtitle,
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: Color(0xFF7A6A5A),
-                ),
-              ),
-            ],
-          ),
-        ),
-        Switch(
-          value: value,
-          onChanged: onChanged,
-          activeColor: const Color(0xFF8E7CFF),
         ),
       ],
     );

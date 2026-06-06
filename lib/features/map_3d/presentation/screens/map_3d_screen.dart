@@ -10,6 +10,7 @@ import 'package:ana_ifs_app/features/map_3d/presentation/widgets/path_painter.da
 import 'package:ana_ifs_app/features/map_3d/presentation/widgets/wandering_blob.dart';
 import 'package:ana_ifs_app/features/map_3d/presentation/widgets/character_detail_dialog.dart';
 import 'package:ana_ifs_app/core/services/firestore_service.dart';
+import '../../../../glb_cache_manager.dart';
 
 class Map3DScreen extends StatefulWidget {
   final String name;
@@ -64,6 +65,25 @@ class _Map3DScreenState extends State<Map3DScreen> {
   DateTime? _lastUserActivity;
   int _modelRefreshKey = 0;
   late StreamSubscription<QuerySnapshot> _charactersSubscription;
+
+  Future<void> _preloadCharacterGlbsForDialog(
+      List<UserCharacter> characters, {
+        bool waitForPreload = false,
+      }) {
+    final paths = characters
+        .where((character) => character.glbFileName.trim().isNotEmpty)
+        .map((character) => 'assets/models/${character.glbFileName}')
+        .toSet();
+
+    final future = GLBCacheManager().preloadAssets(paths);
+
+    if (waitForPreload) {
+      return future;
+    }
+
+    unawaited(future);
+    return Future<void>.value();
+  }
 
   @override
   void initState() {
@@ -133,6 +153,8 @@ class _Map3DScreenState extends State<Map3DScreen> {
           mapSlots[i] = allCharactersSorted[i];
         }
 
+        _preloadCharacterGlbsForDialog(allCharactersSorted);
+
         // Increment refresh key to force 3D models to reload
         _modelRefreshKey++;
         _isLoading = false;
@@ -165,6 +187,12 @@ class _Map3DScreenState extends State<Map3DScreen> {
       final stable = allCharacters.where((c) => c.currentState == 'stable').toList();
       final active = allCharacters.where((c) => c.currentState == 'active').toList();
       final inactive = allCharacters.where((c) => c.currentState == 'inactive').toList();
+
+      final allCharactersSortedForPreload = [...stable, ...active, ...inactive];
+      await _preloadCharacterGlbsForDialog(
+        allCharactersSortedForPreload,
+        waitForPreload: true,
+      );
 
       if (mounted) {
         setState(() {
@@ -227,6 +255,8 @@ class _Map3DScreenState extends State<Map3DScreen> {
     // Combine and assign
     final allCharactersSorted = [...stable, ...active, ...inactive];
 
+    _preloadCharacterGlbsForDialog(allCharactersSorted);
+
     for (int i = 0; i < allCharactersSorted.length && i < mapSlots.length; i++) {
       mapSlots[i] = allCharactersSorted[i];
       print('DEBUG: Slot $i assigned from initial: ${allCharactersSorted[i].displayNameEn} '
@@ -268,6 +298,13 @@ class _Map3DScreenState extends State<Map3DScreen> {
         ),
       );
       return;
+    }
+
+    final glbPath = character.glbFileName.isNotEmpty
+        ? 'assets/models/${character.glbFileName}'
+        : '';
+    if (glbPath.isNotEmpty) {
+      unawaited(GLBCacheManager().preloadAsset(glbPath));
     }
 
     // Get current language state
