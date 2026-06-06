@@ -157,6 +157,10 @@ class DailyTaskNotificationService {
         IOSFlutterLocalNotificationsPlugin>()
         ?.requestPermissions(alert: true, badge: true, sound: true);
 
+    // Keep the daily renewal reminder registered with the OS.
+    // It fires only when the calendar day changes, even if the app is closed.
+    await scheduleDailyTasksRenewalNotification();
+
     // Keep the next one-time reminders registered with the OS.
     // They appear even when the app is fully closed, but they are not repeated.
     await scheduleAutomaticDailyTaskReminders();
@@ -264,6 +268,12 @@ class DailyTaskNotificationService {
     await prefs.setInt(_eveningHourKey, settings.eveningHour);
     await prefs.setInt(_eveningMinuteKey, settings.eveningMinute);
 
+    if (settings.renewalEnabled) {
+      await scheduleDailyTasksRenewalNotification(settingsOverride: settings);
+    } else {
+      await cancelDailyTasksRenewalNotification();
+    }
+
     if (settings.taskRemindersEnabled) {
       await scheduleAutomaticDailyTaskReminders(settingsOverride: settings);
     } else {
@@ -273,21 +283,45 @@ class DailyTaskNotificationService {
   }
 
   static Future<void> showDailyTasksRenewedNotification() async {
-    final settings = await loadSettings();
+    // This method can be called when tasks are created or when the app opens.
+    // It must not show anything immediately; it only makes sure the next
+    // day-change notification is scheduled with the OS.
+    await scheduleDailyTasksRenewalNotification();
+  }
+
+  static Future<void> scheduleDailyTasksRenewalNotification({
+    DailyTaskReminderSettings? settingsOverride,
+  }) async {
+    final settings = settingsOverride ?? await loadSettings();
+
+    await cancelDailyTasksRenewalNotification();
+
     if (!settings.renewalEnabled) return;
 
-    await _plugin.show(
+    final scheduledTime = _nextDayChangeTime();
+
+    await _safeZonedSchedule(
       id: renewalNotificationId,
       title: 'Daily tasks renewed',
       body: 'Your new daily activities are ready.',
+      scheduledDate: scheduledTime,
       notificationDetails: _notificationDetails(
         channelId: 'daily_tasks_renewal_channel',
         channelName: 'Daily Tasks Renewal',
-        channelDescription: 'Notification when daily tasks are renewed',
+        channelDescription:
+        'Notification when daily tasks are renewed at day change',
         sound: settings.soundEnabled,
         vibration: settings.vibrationEnabled,
       ),
+      payload: 'daily_tasks_renewed|day_change',
+      matchDateTimeComponents: DateTimeComponents.time,
     );
+
+    await _upsertScheduledInAppRenewal(scheduledTime: scheduledTime);
+  }
+
+  static Future<void> cancelDailyTasksRenewalNotification() async {
+    await _plugin.cancel(id: renewalNotificationId);
   }
 
 
@@ -414,6 +448,54 @@ class DailyTaskNotificationService {
     ]) {
       await _plugin.cancel(id: id);
     }
+  }
+
+  static tz.TZDateTime _nextDayChangeTime() {
+    final now = tz.TZDateTime.now(tz.local);
+    final tomorrow = now.add(const Duration(days: 1));
+
+    return tz.TZDateTime(
+      tz.local,
+      tomorrow.year,
+      tomorrow.month,
+      tomorrow.day,
+    );
+  }
+
+  static Future<void> _upsertScheduledInAppRenewal({
+    required tz.TZDateTime scheduledTime,
+  }) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final dateId = _formatDateIdFromDateTime(scheduledTime);
+    final notificationId = 'daily_tasks_renewed_$dateId';
+
+    final notificationRef = FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .collection('appNotifications')
+        .doc(notificationId);
+
+    await notificationRef.set({
+      'id': notificationId,
+      'type': 'daily_tasks_renewed',
+      'titleEn': 'Daily tasks renewed',
+      'titleAr': 'تم تجديد المهام اليومية',
+      'bodyEn': 'Your new daily activities are ready.',
+      'bodyAr': 'أنشطتك اليومية الجديدة جاهزة.',
+      'isOpened': false,
+      'date': dateId,
+      'scheduledAt': Timestamp.fromDate(DateTime(
+        scheduledTime.year,
+        scheduledTime.month,
+        scheduledTime.day,
+        scheduledTime.hour,
+        scheduledTime.minute,
+      )),
+      'createdAt': FieldValue.serverTimestamp(),
+      'openedAt': null,
+    }, SetOptions(merge: true));
   }
 
   static tz.TZDateTime _nextInstanceOfTime({

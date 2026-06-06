@@ -6,11 +6,43 @@ import 'package:ana_ifs_app/features/progress/presentation/providers/milestone_p
 import '../../domain/entities/milestone.dart';
 
 String _milestoneTitle(BuildContext context, Milestone milestone) {
-  return isArabic(context) ? milestone.titleAr : milestone.titleEn;
+  return _localizedDigits(
+    context,
+    isArabic(context) ? milestone.titleAr : milestone.titleEn,
+  );
 }
 
 String _milestoneDescription(BuildContext context, Milestone milestone) {
-  return isArabic(context) ? milestone.descriptionAr : milestone.descriptionEn;
+  return _localizedDigits(
+    context,
+    isArabic(context) ? milestone.descriptionAr : milestone.descriptionEn,
+  );
+}
+
+String _localizedDigits(BuildContext context, Object? value) {
+  final text = value?.toString() ?? '';
+  if (!isArabic(context)) return text;
+
+  const englishDigits = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+  const arabicDigits = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+
+  var converted = text;
+  for (var i = 0; i < englishDigits.length; i++) {
+    converted = converted.replaceAll(englishDigits[i], arabicDigits[i]);
+  }
+  return converted;
+}
+
+String _localizedDate(BuildContext context, DateTime date) {
+  return _localizedDigits(context, date.toString().split(' ')[0]);
+}
+
+String _localizedProgressValue(
+    BuildContext context,
+    int current,
+    int target,
+    ) {
+  return _localizedDigits(context, '$current/$target');
 }
 
 class ProgressAchievements extends StatefulWidget {
@@ -77,33 +109,38 @@ class _ProgressAchievementsState extends State<ProgressAchievements> {
           _showAllStreakAchievements,
         );
 
-        return Column(
-          children: [
-            if (allCharacterDiscoveryMilestones.isNotEmpty)
-              _buildCharacterDiscoverySection(
-                characterDiscoveryMilestones,
-                allCharacterDiscoveryMilestones,
-                context,
-              ),
-            if (allCharacterDiscoveryMilestones.isNotEmpty &&
-                (streakAchievements.isNotEmpty || allStableMilestones.isNotEmpty))
-              const SizedBox(height: 28),
-            if (allStreakAchievements.isNotEmpty)
-              _buildStreakAchievementsSection(
-                streakAchievements,
-                allStreakAchievements,
-                milestoneProvider,
-                context,
-              ),
-            if (allStreakAchievements.isNotEmpty && allStableMilestones.isNotEmpty)
-              const SizedBox(height: 28),
-            if (allStableMilestones.isNotEmpty)
-              _buildStableSection(
-                stableMilestones,
-                allStableMilestones,
-                context,
-              ),
-          ],
+        final isAr = isArabic(context);
+
+        return Directionality(
+          textDirection: isAr ? TextDirection.rtl : TextDirection.ltr,
+          child: Column(
+            children: [
+              if (allCharacterDiscoveryMilestones.isNotEmpty)
+                _buildCharacterDiscoverySection(
+                  characterDiscoveryMilestones,
+                  allCharacterDiscoveryMilestones,
+                  context,
+                ),
+              if (allCharacterDiscoveryMilestones.isNotEmpty &&
+                  (streakAchievements.isNotEmpty || allStableMilestones.isNotEmpty))
+                const SizedBox(height: 28),
+              if (allStreakAchievements.isNotEmpty)
+                _buildStreakAchievementsSection(
+                  streakAchievements,
+                  allStreakAchievements,
+                  milestoneProvider,
+                  context,
+                ),
+              if (allStreakAchievements.isNotEmpty && allStableMilestones.isNotEmpty)
+                const SizedBox(height: 28),
+              if (allStableMilestones.isNotEmpty)
+                _buildStableSection(
+                  stableMilestones,
+                  allStableMilestones,
+                  context,
+                ),
+            ],
+          ),
         );
       },
     );
@@ -162,7 +199,7 @@ class _ProgressAchievementsState extends State<ProgressAchievements> {
       subtitle: tr(
         context,
         'Celebrate every character that reaches stability',
-        'احتفلي بكل شخصية تصل إلى الاستقرار',
+        'احتفل بكل شخصية بتوصل للاستقرار',
       ),
       action: allMilestones.length > 2
           ? TextButton(
@@ -255,107 +292,110 @@ class _ProgressAchievementsState extends State<ProgressAchievements> {
     showDialog(
       context: context,
       barrierColor: Colors.black.withValues(alpha: 0.18),
-      builder: (context) => Dialog(
-        backgroundColor: Colors.transparent,
-        insetPadding: const EdgeInsets.symmetric(horizontal: 28),
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(28),
-            boxShadow: [
-              BoxShadow(
-                color: accent.withValues(alpha: 0.18),
-                blurRadius: 28,
-                offset: const Offset(0, 14),
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _HexagonIconBadge(
-                icon: _getAchievementIcon(milestone),
-                backgroundColor: soft,
-                iconColor: accent,
-                size: 72,
-              ),
-              const SizedBox(height: 14),
-              Text(
-                _milestoneTitle(context, milestone),
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF2D2344),
+      builder: (context) => Directionality(
+        textDirection: isArabic(context) ? TextDirection.rtl : TextDirection.ltr,
+        child: Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 28),
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(28),
+              boxShadow: [
+                BoxShadow(
+                  color: accent.withValues(alpha: 0.18),
+                  blurRadius: 28,
+                  offset: const Offset(0, 14),
                 ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _milestoneDescription(context, milestone),
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 14,
-                  height: 1.5,
-                  color: Color(0xFF7E769B),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _HexagonIconBadge(
+                  icon: _getAchievementIcon(milestone),
+                  backgroundColor: soft,
+                  iconColor: accent,
+                  size: 72,
                 ),
-              ),
-              const SizedBox(height: 18),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF8F7FF),
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: const Color(0xFFE7E3FF)),
-                ),
-                child: Column(
-                  children: [
-                    _DialogInfoRow(
-                      label: tr(context, 'Category', 'الفئة'),
-                      value: _localizedCategory(context, milestone.category),
-                    ),
-                    const SizedBox(height: 10),
-                    _DialogInfoRow(
-                      label: tr(context, 'Progress', 'التقدم'),
-                      value: '${milestone.currentCount}/${milestone.targetCount}',
-                    ),
-                    if (milestone.streakDays > 0) ...[
-                      const SizedBox(height: 10),
-                      _DialogInfoRow(
-                        label: tr(context, 'Current streak', 'السلسلة الحالية'),
-                        value: '${milestone.streakDays}',
-                      ),
-                    ],
-                    if (milestone.achievedAt != null) ...[
-                      const SizedBox(height: 10),
-                      _DialogInfoRow(
-                        label: tr(context, 'Unlocked on', 'تم فتحه في'),
-                        value: milestone.achievedAt!.toString().split(' ')[0],
-                        valueColor: accent,
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              const SizedBox(height: 18),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () => Navigator.pop(context),
-                  style: ElevatedButton.styleFrom(
-                    elevation: 0,
-                    backgroundColor: accent,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(18),
-                    ),
+                const SizedBox(height: 14),
+                Text(
+                  _milestoneTitle(context, milestone),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF2D2344),
                   ),
-                  child: Text(tr(context, 'Close', 'إغلاق')),
                 ),
-              ),
-            ],
+                const SizedBox(height: 8),
+                Text(
+                  _milestoneDescription(context, milestone),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    height: 1.5,
+                    color: Color(0xFF7E769B),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8F7FF),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: const Color(0xFFE7E3FF)),
+                  ),
+                  child: Column(
+                    children: [
+                      _DialogInfoRow(
+                        label: tr(context, 'Category', 'الفئة'),
+                        value: _localizedCategory(context, milestone.category),
+                      ),
+                      const SizedBox(height: 10),
+                      _DialogInfoRow(
+                        label: tr(context, 'Progress', 'التقدم'),
+                        value: _localizedProgressValue(context, milestone.currentCount, milestone.targetCount),
+                      ),
+                      if (milestone.streakDays > 0) ...[
+                        const SizedBox(height: 10),
+                        _DialogInfoRow(
+                          label: tr(context, 'Current streak', 'السلسلة الحالية'),
+                          value: _localizedDigits(context, milestone.streakDays),
+                        ),
+                      ],
+                      if (milestone.achievedAt != null) ...[
+                        const SizedBox(height: 10),
+                        _DialogInfoRow(
+                          label: tr(context, 'Unlocked on', 'تم فتحه في'),
+                          value: _localizedDate(context, milestone.achievedAt!),
+                          valueColor: accent,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 18),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: ElevatedButton.styleFrom(
+                      elevation: 0,
+                      backgroundColor: accent,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                    ),
+                    child: Text(tr(context, 'Close', 'إغلاق')),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -554,7 +594,7 @@ class _AchievementCard extends StatelessWidget {
                     Row(
                       children: [
                         _SoftChip(
-                          text: '${milestone.currentCount}/${milestone.targetCount}',
+                          text: _localizedProgressValue(context, milestone.currentCount, milestone.targetCount),
                           background: softColor,
                           color: color,
                         ),
@@ -574,7 +614,10 @@ class _AchievementCard extends StatelessWidget {
                     if (milestone.achievedAt != null) ...[
                       const SizedBox(height: 6),
                       Text(
-                        '${tr(context, 'Unlocked on', 'تم فتحه في')} ${milestone.achievedAt!.toString().split(' ')[0]}',
+                        _localizedDigits(
+                          context,
+                          '${tr(context, 'Unlocked on', 'تم فتحه في')} ${_localizedDate(context, milestone.achievedAt!)}',
+                        ),
                         style: TextStyle(
                           fontSize: 12,
                           color: color,
@@ -741,7 +784,7 @@ class _StreakAchievementCard extends StatelessWidget {
                     Row(
                       children: [
                         _SoftChip(
-                          text: '$currentStreak/${milestone.targetCount}',
+                          text: _localizedProgressValue(context, currentStreak, milestone.targetCount),
                           background: streakSoft,
                           color: streakColor,
                         ),
@@ -769,7 +812,10 @@ class _StreakAchievementCard extends StatelessWidget {
                     if (milestone.achievedAt != null) ...[
                       const SizedBox(height: 6),
                       Text(
-                        '${tr(context, 'Unlocked on', 'تم فتحه في')} ${milestone.achievedAt!.toString().split(' ')[0]}',
+                        _localizedDigits(
+                          context,
+                          '${tr(context, 'Unlocked on', 'تم فتحه في')} ${_localizedDate(context, milestone.achievedAt!)}',
+                        ),
                         style: const TextStyle(
                           fontSize: 12,
                           color: streakColor,
@@ -824,7 +870,7 @@ class _DialogInfoRow extends StatelessWidget {
           ),
         ),
         Text(
-          value,
+          _localizedDigits(context, value),
           style: TextStyle(
             fontSize: 13,
             color: valueColor ?? const Color(0xFF2D2344),
@@ -868,7 +914,7 @@ class _SoftChip extends StatelessWidget {
             const SizedBox(width: 5),
           ],
           Text(
-            text,
+            _localizedDigits(context, text),
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w700,

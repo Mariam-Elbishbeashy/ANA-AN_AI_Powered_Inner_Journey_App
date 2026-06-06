@@ -352,56 +352,62 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 color: Colors.white,
                 borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 48,
-                      height: 5,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFD0C6E8),
-                        borderRadius: BorderRadius.circular(20),
+              child: Directionality(
+                textDirection:
+                isArabicValue ? TextDirection.rtl : TextDirection.ltr,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 48,
+                        height: 5,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFD0C6E8),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 22),
-                  Text(
-                    isArabicValue ? 'اختيار اللغة' : 'Choose Language',
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF2A1E3B),
+                    const SizedBox(height: 22),
+                    Text(
+                      isArabicValue ? 'اختيار اللغة' : 'Choose Language',
+                      textAlign: isArabicValue ? TextAlign.right : TextAlign.left,
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF2A1E3B),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    isArabicValue
-                        ? 'سيتم تطبيق اللغة مباشرة على التطبيق.'
-                        : 'The language will be applied immediately across the app.',
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: Color(0xFF7A6A5A),
+                    const SizedBox(height: 8),
+                    Text(
+                      isArabicValue
+                          ? 'سيتم تطبيق اللغة مباشرة على التطبيق.'
+                          : 'The language will be applied immediately across the app.',
+                      textAlign: isArabicValue ? TextAlign.right : TextAlign.left,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: Color(0xFF7A6A5A),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 20),
-                  _LanguageOption(
-                    title: 'English',
-                    subtitle: 'Use ANA in English',
-                    selected: selectedLanguage == 'en',
-                    isSaving: isSaving && selectedLanguage == 'en',
-                    onTap: () => saveLanguage('en'),
-                  ),
-                  const SizedBox(height: 12),
-                  _LanguageOption(
-                    title: 'العربية',
-                    subtitle: 'استخدم ANA باللغة العربية',
-                    selected: selectedLanguage == 'ar',
-                    isSaving: isSaving && selectedLanguage == 'ar',
-                    onTap: () => saveLanguage('ar'),
-                  ),
-                ],
+                    const SizedBox(height: 20),
+                    _LanguageOption(
+                      title: 'English',
+                      subtitle: 'Use ANA in English',
+                      selected: selectedLanguage == 'en',
+                      isSaving: isSaving && selectedLanguage == 'en',
+                      onTap: () => saveLanguage('en'),
+                    ),
+                    const SizedBox(height: 12),
+                    _LanguageOption(
+                      title: 'العربية',
+                      subtitle: 'استخدم ANA باللغة العربية',
+                      selected: selectedLanguage == 'ar',
+                      isSaving: isSaving && selectedLanguage == 'ar',
+                      onTap: () => saveLanguage('ar'),
+                    ),
+                  ],
+                ),
               ),
             );
           },
@@ -552,12 +558,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     const SizedBox(height: 30),
 
                     // My Characters Section
-                    Text(
-                      isArabicValue ? 'شخصياتي النشطة' : 'My Active Characters',
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF2A1E3B),
+                    Align(
+                      alignment: isArabicValue
+                          ? Alignment.centerRight
+                          : Alignment.centerLeft,
+                      child: Text(
+                        isArabicValue ? 'شخصياتي النشطة' : 'My Active Characters',
+                        textAlign: isArabicValue ? TextAlign.right : TextAlign.left,
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF2A1E3B),
+                        ),
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -569,54 +581,68 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           color: const Color(0xFFF0ECF7),
                           borderRadius: BorderRadius.circular(16),
                         ),
-                        child: Column(
-                          children: [
-                            const Icon(
-                              Icons.psychology_outlined,
-                              size: 40,
-                              color: Color(0xFF8E7CFF),
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              isArabicValue
-                                  ? 'لا توجد شخصيات نشطة'
-                                  : 'No active characters',
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                                color: Color(0xFF2A1E3B),
+                        child: Directionality(
+                          textDirection:
+                          isArabicValue ? TextDirection.rtl : TextDirection.ltr,
+                          child: Column(
+                            crossAxisAlignment: isArabicValue
+                                ? CrossAxisAlignment.end
+                                : CrossAxisAlignment.center,
+                            children: [
+                              const Center(
+                                child: Icon(
+                                  Icons.psychology_outlined,
+                                  size: 40,
+                                  color: Color(0xFF8E7CFF),
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              isArabicValue
-                                  ? 'الشخصيات النشطة هي التي تؤثر حالياً على حياتك اليومية'
-                                  : 'Active characters are the ones currently influencing your daily life',
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(color: Color(0xFF7A6A5A)),
-                            ),
-                            const SizedBox(height: 16),
-                            ElevatedButton(
-                              onPressed: () {
-                                // Navigate to questionnaire
-                                Navigator.of(context).pushReplacement(
-                                  MaterialPageRoute(
-                                    builder: (_) =>
-                                    const InitialMotivationScreen(),
-                                  ),
-                                );
-                              },
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF8E7CFF),
-                                foregroundColor: Colors.white,
-                              ),
-                              child: Text(
+                              const SizedBox(height: 16),
+                              Text(
                                 isArabicValue
-                                    ? 'بدء الاستبيان'
-                                    : 'Take Questionnaire',
+                                    ? 'لا توجد شخصيات نشطة'
+                                    : 'No active characters',
+                                textAlign:
+                                isArabicValue ? TextAlign.right : TextAlign.center,
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF2A1E3B),
+                                ),
                               ),
-                            ),
-                          ],
+                              const SizedBox(height: 8),
+                              Text(
+                                isArabicValue
+                                    ? 'الشخصيات النشطة هي التي تؤثر حالياً على حياتك اليومية'
+                                    : 'Active characters are the ones currently influencing your daily life',
+                                textAlign:
+                                isArabicValue ? TextAlign.right : TextAlign.center,
+                                style: const TextStyle(color: Color(0xFF7A6A5A)),
+                              ),
+                              const SizedBox(height: 16),
+                              Center(
+                                child: ElevatedButton(
+                                  onPressed: () {
+                                    // Navigate to questionnaire
+                                    Navigator.of(context).pushReplacement(
+                                      MaterialPageRoute(
+                                        builder: (_) =>
+                                        const InitialMotivationScreen(),
+                                      ),
+                                    );
+                                  },
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF8E7CFF),
+                                    foregroundColor: Colors.white,
+                                  ),
+                                  child: Text(
+                                    isArabicValue
+                                        ? 'بدء الاستبيان'
+                                        : 'Take Questionnaire',
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       )
                     else if (_isLoading)
@@ -642,12 +668,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     const SizedBox(height: 30),
 
                     // Account Settings
-                    Text(
-                      isArabicValue ? 'إعدادات الحساب' : 'Account Settings',
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF2A1E3B),
+                    Align(
+                      alignment: isArabicValue
+                          ? Alignment.centerRight
+                          : Alignment.centerLeft,
+                      child: Text(
+                        isArabicValue ? 'إعدادات الحساب' : 'Account Settings',
+                        textAlign: isArabicValue ? TextAlign.right : TextAlign.left,
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF2A1E3B),
+                        ),
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -733,41 +765,52 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           onPressed: () {
                             showDialog(
                               context: context,
-                              builder: (context) => AlertDialog(
-                                title: Text(
-                                  isArabicValue
-                                      ? 'إعادة الاستبيان'
-                                      : 'Retake Questionnaire',
-                                ),
-                                content: Text(
-                                  isArabicValue
-                                      ? 'إعادة الاستبيان ستقوم بحذف الشخصيات الحالية وإزالة تقدمك الحالي. هل تريد المتابعة؟'
-                                      : 'Retaking the questionnaire will remove your current characters and clear your current progress. Do you want to continue?',
-                                ),
-                                actions: [
-                                  TextButton(
-                                    onPressed: () => Navigator.pop(context),
-                                    child:
-                                    Text(isArabicValue ? 'إلغاء' : 'Cancel'),
+                              builder: (context) => Directionality(
+                                textDirection: isArabicValue
+                                    ? TextDirection.rtl
+                                    : TextDirection.ltr,
+                                child: AlertDialog(
+                                  title: Text(
+                                    isArabicValue
+                                        ? 'إعادة الاستبيان'
+                                        : 'Retake Questionnaire',
+                                    textAlign: isArabicValue
+                                        ? TextAlign.right
+                                        : TextAlign.left,
                                   ),
-                                  TextButton(
-                                    onPressed: _isRetaking
-                                        ? null
-                                        : () async {
-                                      Navigator.pop(context);
-                                      await _handleRetakeQuestionnaire(
-                                        isArabicValue,
-                                      );
-                                    },
-                                    child: Text(
-                                      _isRetaking
-                                          ? (isArabicValue
-                                          ? 'جاري الإعادة...'
-                                          : 'Resetting...')
-                                          : (isArabicValue ? 'إعادة' : 'Retake'),
+                                  content: Text(
+                                    isArabicValue
+                                        ? 'إعادة الاستبيان ستقوم بحذف الشخصيات الحالية وإزالة تقدمك الحالي. هل تريد المتابعة؟'
+                                        : 'Retaking the questionnaire will remove your current characters and clear your current progress. Do you want to continue?',
+                                    textAlign: isArabicValue
+                                        ? TextAlign.right
+                                        : TextAlign.left,
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(context),
+                                      child:
+                                      Text(isArabicValue ? 'إلغاء' : 'Cancel'),
                                     ),
-                                  ),
-                                ],
+                                    TextButton(
+                                      onPressed: _isRetaking
+                                          ? null
+                                          : () async {
+                                        Navigator.pop(context);
+                                        await _handleRetakeQuestionnaire(
+                                          isArabicValue,
+                                        );
+                                      },
+                                      child: Text(
+                                        _isRetaking
+                                            ? (isArabicValue
+                                            ? 'جاري الإعادة...'
+                                            : 'Resetting...')
+                                            : (isArabicValue ? 'إعادة' : 'Retake'),
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             );
                           },
@@ -778,21 +821,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               borderRadius: BorderRadius.circular(12),
                             ),
                           ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(Icons.replay_rounded, size: 20),
-                              const SizedBox(width: 12),
-                              Text(
-                                isArabicValue
-                                    ? 'إعادة الاستبيان'
-                                    : 'Retake Questionnaire',
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700,
+                          child: Directionality(
+                            textDirection: isArabicValue
+                                ? TextDirection.rtl
+                                : TextDirection.ltr,
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(Icons.replay_rounded, size: 20),
+                                const SizedBox(width: 12),
+                                Text(
+                                  isArabicValue
+                                      ? 'إعادة الاستبيان'
+                                      : 'Retake Questionnaire',
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w700,
+                                  ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
                       ),
@@ -805,31 +853,42 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         onPressed: () {
                           showDialog(
                             context: context,
-                            builder: (context) => AlertDialog(
-                              title: Text(
-                                isArabicValue ? 'تسجيل الخروج' : 'Logout',
-                              ),
-                              content: Text(
-                                isArabicValue
-                                    ? 'هل أنت متأكد أنك تريد تسجيل الخروج؟'
-                                    : 'Are you sure you want to logout?',
-                              ),
-                              actions: [
-                                TextButton(
-                                  onPressed: () => Navigator.pop(context),
-                                  child:
-                                  Text(isArabicValue ? 'إلغاء' : 'Cancel'),
+                            builder: (context) => Directionality(
+                              textDirection: isArabicValue
+                                  ? TextDirection.rtl
+                                  : TextDirection.ltr,
+                              child: AlertDialog(
+                                title: Text(
+                                  isArabicValue ? 'تسجيل الخروج' : 'Logout',
+                                  textAlign: isArabicValue
+                                      ? TextAlign.right
+                                      : TextAlign.left,
                                 ),
-                                TextButton(
-                                  onPressed: () {
-                                    Navigator.pop(context);
-                                    widget.onLogout();
-                                  },
-                                  child: Text(
-                                    isArabicValue ? 'تسجيل الخروج' : 'Logout',
+                                content: Text(
+                                  isArabicValue
+                                      ? 'هل أنت متأكد أنك تريد تسجيل الخروج؟'
+                                      : 'Are you sure you want to logout?',
+                                  textAlign: isArabicValue
+                                      ? TextAlign.right
+                                      : TextAlign.left,
+                                ),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(context),
+                                    child:
+                                    Text(isArabicValue ? 'إلغاء' : 'Cancel'),
                                   ),
-                                ),
-                              ],
+                                  TextButton(
+                                    onPressed: () {
+                                      Navigator.pop(context);
+                                      widget.onLogout();
+                                    },
+                                    child: Text(
+                                      isArabicValue ? 'تسجيل الخروج' : 'Logout',
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           );
                         },
@@ -843,19 +902,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             ),
                           ),
                         ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.logout_rounded, size: 20),
-                            const SizedBox(width: 12),
-                            Text(
-                              isArabicValue ? 'تسجيل الخروج' : 'Logout',
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
+                        child: Directionality(
+                          textDirection: isArabicValue
+                              ? TextDirection.rtl
+                              : TextDirection.ltr,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.logout_rounded, size: 20),
+                              const SizedBox(width: 12),
+                              Text(
+                                isArabicValue ? 'تسجيل الخروج' : 'Logout',
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -1017,8 +1081,12 @@ class _CharacterCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isArabicValue = isArabic(context);
     final color = _getArchetypeColor(character.archetype);
     final imagePath = _getImagePathForCharacter(character.characterName);
+    final displayName = isArabicValue && character.displayNameAr.isNotEmpty
+        ? character.displayNameAr
+        : character.displayNameEn;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -1035,84 +1103,91 @@ class _CharacterCard extends StatelessWidget {
           ),
         ],
       ),
-      child: Row(
-        children: [
-          CircleAvatar(
-            radius: 25,
-            backgroundColor: color.withValues(alpha: 0.1),
-            child: Padding(
-              padding: const EdgeInsets.all(4),
-              child: ClipOval(
-                child: Image.asset(
-                  imagePath,
-                  width: 50,
-                  height: 50,
-                  fit: BoxFit.contain,
+      child: Directionality(
+        textDirection: isArabicValue ? TextDirection.rtl : TextDirection.ltr,
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 25,
+              backgroundColor: color.withValues(alpha: 0.1),
+              child: Padding(
+                padding: const EdgeInsets.all(4),
+                child: ClipOval(
+                  child: Image.asset(
+                    imagePath,
+                    width: 50,
+                    height: 50,
+                    fit: BoxFit.contain,
+                  ),
                 ),
               ),
             ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  isArabic(context) && character.displayNameAr.isNotEmpty
-                      ? character.displayNameAr
-                      : character.displayNameEn,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF2A1E3B),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    displayName,
+                    textAlign:
+                    isArabicValue ? TextAlign.right : TextAlign.left,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF2A1E3B),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: color.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        _getLocalizedArchetype(context, character.archetype),
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: color,
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: color.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          _getLocalizedArchetype(context, character.archetype),
+                          textAlign:
+                          isArabicValue ? TextAlign.right : TextAlign.left,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: color,
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFAB47BC).withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        isArabic(context) ? 'نشط' : 'ACTIVE',
-                        style: const TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFFAB47BC),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFAB47BC).withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          isArabicValue ? 'نشط' : 'ACTIVE',
+                          textAlign:
+                          isArabicValue ? TextAlign.right : TextAlign.left,
+                          style: const TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFFAB47BC),
+                          ),
                         ),
                       ),
-                    ),
-                  ],
-                ),
-              ],
+                    ],
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -1149,68 +1224,76 @@ class _LanguageOption extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: isSaving ? null : onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: selected
-              ? const Color(0xFF8E7CFF).withValues(alpha: 0.10)
-              : const Color(0xFFF9F6FF),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: selected ? const Color(0xFF8E7CFF) : const Color(0xFFE5DEFF),
-            width: selected ? 1.5 : 1,
+    final isArabicValue = isArabic(context);
+
+    return Directionality(
+      textDirection: isArabicValue ? TextDirection.rtl : TextDirection.ltr,
+      child: InkWell(
+        onTap: isSaving ? null : onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: selected
+                ? const Color(0xFF8E7CFF).withValues(alpha: 0.10)
+                : const Color(0xFFF9F6FF),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color:
+              selected ? const Color(0xFF8E7CFF) : const Color(0xFFE5DEFF),
+              width: selected ? 1.5 : 1,
+            ),
           ),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: selected ? const Color(0xFF8E7CFF) : Colors.white,
-                shape: BoxShape.circle,
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: selected ? const Color(0xFF8E7CFF) : Colors.white,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  selected ? Icons.check_rounded : Icons.language_rounded,
+                  color: selected ? Colors.white : const Color(0xFF8E7CFF),
+                  size: 20,
+                ),
               ),
-              child: Icon(
-                selected ? Icons.check_rounded : Icons.language_rounded,
-                color: selected ? Colors.white : const Color(0xFF8E7CFF),
-                size: 20,
-              ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF2A1E3B),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      textAlign: isArabicValue ? TextAlign.right : TextAlign.left,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF2A1E3B),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitle,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: Color(0xFF7A6A5A),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      textAlign: isArabicValue ? TextAlign.right : TextAlign.left,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF7A6A5A),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            if (isSaving)
-              const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-          ],
+              if (isSaving)
+                const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -1232,32 +1315,41 @@ class _SettingsItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      onTap: onTap,
-      leading: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: const Color(0xFF8E7CFF).withValues(alpha: 0.1),
-          shape: BoxShape.circle,
+    final isArabicValue = isArabic(context);
+
+    return Directionality(
+      textDirection: isArabicValue ? TextDirection.rtl : TextDirection.ltr,
+      child: ListTile(
+        onTap: onTap,
+        leading: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: const Color(0xFF8E7CFF).withValues(alpha: 0.1),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(icon, color: const Color(0xFF8E7CFF), size: 20),
         ),
-        child: Icon(icon, color: const Color(0xFF8E7CFF), size: 20),
-      ),
-      title: Text(
-        title,
-        style: const TextStyle(
-          fontWeight: FontWeight.w600,
-          color: Color(0xFF2A1E3B),
+        title: Text(
+          title,
+          textAlign: isArabicValue ? TextAlign.right : TextAlign.left,
+          style: const TextStyle(
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF2A1E3B),
+          ),
         ),
-      ),
-      subtitle: Text(
-        subtitle,
-        style: const TextStyle(fontSize: 13, color: Color(0xFF7A6A5A)),
-      ),
-      trailing: const Icon(
-        Icons.arrow_forward_ios_rounded,
-        size: 16,
-        color: Color(0xFFD0C6E8),
+        subtitle: Text(
+          subtitle,
+          textAlign: isArabicValue ? TextAlign.right : TextAlign.left,
+          style: const TextStyle(fontSize: 13, color: Color(0xFF7A6A5A)),
+        ),
+        trailing: Icon(
+          isArabicValue
+              ? Icons.chevron_right_rounded
+              : Icons.chevron_right_rounded,
+          size: 22,
+          color: const Color(0xFFD0C6E8),
+        ),
       ),
     );
   }

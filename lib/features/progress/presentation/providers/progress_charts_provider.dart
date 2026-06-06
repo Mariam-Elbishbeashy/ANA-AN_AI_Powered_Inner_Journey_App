@@ -136,24 +136,11 @@ class ProgressChartsProvider {
         charactersByDocId.clear();
 
         for (final doc in snapshot.docs) {
-          final data = {
-            ...doc.data(),
-            '__docId': doc.id,
-          };
-
-          final docId = doc.id;
-          charactersByDocId[docId] = data;
-
-          final characterName =
-          (data['characterName'] ?? '').toString().trim().toLowerCase();
-          if (characterName.isNotEmpty) {
-            charactersByName[characterName] = data;
-          }
-
-          final normalizedName = characterName.replaceAll(' ', '_');
-          if (normalizedName != characterName) {
-            charactersByName[normalizedName] = data;
-          }
+          _cacheCharacterDocument(
+            doc,
+            charactersByName: charactersByName,
+            charactersByDocId: charactersByDocId,
+          );
         }
 
         emit();
@@ -219,24 +206,11 @@ class ProgressChartsProvider {
         charactersByDocId.clear();
 
         for (final doc in snapshot.docs) {
-          final data = {
-            ...doc.data(),
-            '__docId': doc.id,
-          };
-
-          final docId = doc.id;
-          charactersByDocId[docId] = data;
-
-          final characterName =
-          (data['characterName'] ?? '').toString().trim().toLowerCase();
-          if (characterName.isNotEmpty) {
-            charactersByName[characterName] = data;
-          }
-
-          final normalizedName = characterName.replaceAll(' ', '_');
-          if (normalizedName != characterName) {
-            charactersByName[normalizedName] = data;
-          }
+          _cacheCharacterDocument(
+            doc,
+            charactersByName: charactersByName,
+            charactersByDocId: charactersByDocId,
+          );
         }
 
         emit();
@@ -260,6 +234,135 @@ class ProgressChartsProvider {
     return controller.stream;
   }
 
+  void _cacheCharacterDocument(
+      QueryDocumentSnapshot<Map<String, dynamic>> doc, {
+        required Map<String, Map<String, dynamic>> charactersByName,
+        required Map<String, Map<String, dynamic>> charactersByDocId,
+      }) {
+    final data = {
+      ...doc.data(),
+      '__docId': doc.id,
+    };
+
+    _addLookupAlias(doc.id, data, charactersByDocId);
+    _addLookupAlias(data['characterId'], data, charactersByDocId);
+    _addLookupAlias(data['id'], data, charactersByDocId);
+
+    final aliasCandidates = [
+      doc.id,
+      data['characterId'],
+      data['id'],
+      data['characterName'],
+      data['displayName'],
+      data['displayNameEn'],
+      data['displayNameAr'],
+      data['name'],
+      data['nameEn'],
+      data['nameAr'],
+      data['title'],
+      data['titleEn'],
+      data['titleAr'],
+    ];
+
+    for (final candidate in aliasCandidates) {
+      _addLookupAlias(candidate, data, charactersByName);
+    }
+  }
+
+  void _addLookupAlias(
+      dynamic rawValue,
+      Map<String, dynamic> characterData,
+      Map<String, Map<String, dynamic>> target,
+      ) {
+    final normalized = _normalizeLookupKey(rawValue);
+    if (normalized.isEmpty) return;
+
+    target[normalized] = characterData;
+
+    final underscored = normalized.replaceAll(RegExp(r'\s+'), '_');
+    if (underscored.isNotEmpty) target[underscored] = characterData;
+
+    final spaced = normalized.replaceAll('_', ' ');
+    if (spaced.isNotEmpty) target[spaced] = characterData;
+
+    final compact = normalized.replaceAll(RegExp(r'[\s_\-]+'), '');
+    if (compact.isNotEmpty) target[compact] = characterData;
+  }
+
+  String _normalizeLookupKey(dynamic value) {
+    if (value == null) return '';
+    return value
+        .toString()
+        .trim()
+        .toLowerCase()
+        .replaceAll(RegExp(r'\s+'), ' ');
+  }
+
+  bool _isActiveCharacter(Map<String, dynamic> characterData) {
+    final stateCandidates = [
+      characterData['currentState'],
+      characterData['state'],
+      characterData['status'],
+      characterData['characterState'],
+      characterData['activityState'],
+    ];
+
+    for (final state in stateCandidates) {
+      final isActive = _activeValueFromState(state);
+      if (isActive != null) return isActive;
+    }
+
+    final activeCandidates = [
+      characterData['isActive'],
+      characterData['active'],
+      characterData['isCurrentlyActive'],
+    ];
+
+    for (final activeFlag in activeCandidates) {
+      if (activeFlag is bool) return activeFlag;
+    }
+
+    if (characterData['isStable'] == true ||
+        characterData['stable'] == true ||
+        characterData['isInactive'] == true ||
+        characterData['inactive'] == true) {
+      return false;
+    }
+
+    // If the app saved a stable timestamp but no explicit active state, keep the
+    // character hidden from the charts until it is explicitly marked active again.
+    if (characterData['stableAt'] != null) {
+      return false;
+    }
+
+    // Existing characters that do not have a state field are treated as active
+    // so old user data keeps appearing normally.
+    return true;
+  }
+
+  bool? _activeValueFromState(dynamic rawState) {
+    final state = _normalizeLookupKey(rawState).replaceAll('_', ' ');
+    if (state.isEmpty) return null;
+
+    if (state.contains('inactive') ||
+        state.contains('stable') ||
+        state.contains('stabilized') ||
+        state.contains('healed') ||
+        state.contains('archived') ||
+        state.contains('hidden')) {
+      return false;
+    }
+
+    if (state.contains('active') ||
+        state.contains('reactivated') ||
+        state.contains('new') ||
+        state.contains('discovered')) {
+      return true;
+    }
+
+    return null;
+  }
+
   List<VideoSessionFlowPoint> extractVideoSessionFlow(
       List<QueryDocumentSnapshot<Map<String, dynamic>>> sessionDocs, {
         required Map<String, Map<String, dynamic>> charactersByName,
@@ -271,8 +374,7 @@ class ProgressChartsProvider {
     for (final doc in sessionDocs) {
       final data = doc.data();
 
-      final sessionCharacterId =
-      (data['characterId'] ?? '').toString().trim().toLowerCase();
+      final sessionCharacterId = _normalizeLookupKey(data['characterId']);
       if (sessionCharacterId.isEmpty) {
         continue;
       }
@@ -286,9 +388,7 @@ class ProgressChartsProvider {
         continue;
       }
 
-      final currentState =
-      (characterData['currentState'] ?? 'active').toString().toLowerCase();
-      if (currentState != 'active') {
+      if (!_isActiveCharacter(characterData)) {
         continue;
       }
 
@@ -421,8 +521,7 @@ class ProgressChartsProvider {
         continue;
       }
 
-      final sessionCharacterId =
-      (data['characterId'] ?? '').toString().trim().toLowerCase();
+      final sessionCharacterId = _normalizeLookupKey(data['characterId']);
       if (sessionCharacterId.isEmpty) {
         continue;
       }
@@ -434,6 +533,10 @@ class ProgressChartsProvider {
       );
 
       if (characterData == null) {
+        continue;
+      }
+
+      if (!_isActiveCharacter(characterData)) {
         continue;
       }
 
@@ -479,24 +582,27 @@ class ProgressChartsProvider {
         required Map<String, Map<String, dynamic>> charactersByName,
         required Map<String, Map<String, dynamic>> charactersByDocId,
       }) {
-    Map<String, dynamic>? characterData;
+    final normalizedId = _normalizeLookupKey(sessionCharacterId);
+    final lookupCandidates = <String>{
+      normalizedId,
+      normalizedId.replaceAll(' ', '_'),
+      normalizedId.replaceAll('_', ' '),
+      normalizedId.replaceAll(RegExp(r'[\s_\-]+'), ''),
+    }..removeWhere((value) => value.isEmpty);
 
-    characterData = charactersByName[sessionCharacterId];
-    characterData ??= charactersByName[sessionCharacterId.replaceAll(' ', '_')];
-    characterData ??= charactersByName[sessionCharacterId.replaceAll('_', ' ')];
-    characterData ??= charactersByDocId[sessionCharacterId];
+    for (final key in lookupCandidates) {
+      final characterData = charactersByName[key] ?? charactersByDocId[key];
+      if (characterData != null) return characterData;
+    }
 
-    if (characterData == null) {
-      for (final entry in charactersByName.entries) {
-        if (entry.key.contains(sessionCharacterId) ||
-            sessionCharacterId.contains(entry.key)) {
-          characterData = entry.value;
-          break;
-        }
+    for (final entry in charactersByName.entries) {
+      if (entry.key.isEmpty) continue;
+      if (entry.key.contains(normalizedId) || normalizedId.contains(entry.key)) {
+        return entry.value;
       }
     }
 
-    return characterData;
+    return null;
   }
 
   String _resolveCanonicalCharacterId(

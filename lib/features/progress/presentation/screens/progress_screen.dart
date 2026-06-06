@@ -12,6 +12,30 @@ import 'package:ana_ifs_app/features/progress/presentation/widgets/progress_hist
 import '../widgets/mood_visuals.dart';
 import '../widgets/progress_background.dart';
 
+
+String _toArabicDigits(String value) {
+  const englishDigits = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+  const arabicDigits = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+
+  var localizedValue = value;
+  for (var i = 0; i < englishDigits.length; i++) {
+    localizedValue = localizedValue.replaceAll(englishDigits[i], arabicDigits[i]);
+  }
+  return localizedValue;
+}
+
+String _localizedDigits(BuildContext context, String value) {
+  return isArabic(context) ? _toArabicDigits(value) : value;
+}
+
+TextDirection _localizedDirection(BuildContext context) {
+  return isArabic(context) ? TextDirection.rtl : TextDirection.ltr;
+}
+
+TextAlign _localizedTextAlign(BuildContext context) {
+  return isArabic(context) ? TextAlign.right : TextAlign.left;
+}
+
 class ProgressScreen extends StatefulWidget {
   final String name;
   final VoidCallback onLogout;
@@ -662,7 +686,7 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          '${date.day}',
+                          _localizedDigits(context, '${date.day}'),
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight:
@@ -720,132 +744,168 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
     showDialog(
       context: context,
       barrierColor: Colors.black.withValues(alpha: 0.18),
-      builder: (dialogContext) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(22),
-        ),
-        title: Text(
-          hasVideoSession
-              ? tr(context, 'Mood is not ready yet', 'المزاج لسه مش جاهز')
-              : tr(context, 'Video session needed', 'محتاج جلسة فيديو'),
-          style: const TextStyle(
-            color: Color(0xFF4A3572),
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        content: Text(
-          hasVideoSession
-              ? tr(
-            context,
-            'We found a video session for today, but no automatic mood was detected yet. Please wait for the video analysis to finish, then try again.',
-            'لقينا جلسة فيديو لليوم، لكن المزاج التلقائي لسه متسجلش. استني تحليل الفيديو يخلص وبعدها جربي تاني.',
-          )
-              : tr(
-            context,
-            'To update today\'s mood, you need to complete a video session first. The app uses the video session analysis to detect your automatic mood, then you can adjust it here if needed.',
-            'علشان تحدثي مزاج النهارده، لازم تعملي جلسة فيديو الأول. التطبيق بيستخدم تحليل جلسة الفيديو علشان يحدد المزاج التلقائي، وبعدها تقدري تعدليه من هنا لو محتاجة.',
-          ),
-          style: const TextStyle(
-            fontSize: 14,
-            height: 1.45,
-            color: Color(0xFF7E769B),
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: Text(
-              tr(context, 'Got it', 'تمام'),
+      builder: (dialogContext) {
+        final isAr = isArabic(dialogContext);
+        final textDirection = isAr ? TextDirection.rtl : TextDirection.ltr;
+        final textAlign = isAr ? TextAlign.right : TextAlign.left;
+
+        return Directionality(
+          textDirection: textDirection,
+          child: AlertDialog(
+            actionsAlignment:
+            isAr ? MainAxisAlignment.start : MainAxisAlignment.end,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(22),
+            ),
+            title: Text(
+              hasVideoSession
+                  ? tr(dialogContext, 'Mood is not ready yet', 'المزاج لسه مش جاهز')
+                  : tr(dialogContext, 'Video session needed', 'محتاج جلسة فيديو'),
+              textAlign: textAlign,
               style: const TextStyle(
-                color: Color(0xFF7A5AF8),
+                color: Color(0xFF4A3572),
                 fontWeight: FontWeight.w700,
               ),
             ),
+            content: Text(
+              hasVideoSession
+                  ? tr(
+                dialogContext,
+                'We found a video session for today, but no automatic mood was detected yet. Please wait for the video analysis to finish, then try again.',
+                'لقينا جلسة فيديو لليوم، لكن المزاج التلقائي لسه متسجلش. استني تحليل الفيديو يخلص وبعدها جربي تاني.',
+              )
+                  : tr(
+                dialogContext,
+                'To update today\'s mood, you need to complete a video session first. The app uses the video session analysis to detect your automatic mood, then you can adjust it here if needed.',
+                'علشان تحدثي مزاج النهارده، لازم تعملي جلسة فيديو الأول. التطبيق بيستخدم تحليل جلسة الفيديو علشان يحدد المزاج التلقائي، وبعدها تقدري تعدليه من هنا لو محتاجة.',
+              ),
+              textAlign: textAlign,
+              style: const TextStyle(
+                fontSize: 14,
+                height: 1.45,
+                color: Color(0xFF7E769B),
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: Text(
+                  tr(dialogContext, 'Got it', 'تمام'),
+                  style: const TextStyle(
+                    color: Color(0xFF7A5AF8),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
   void _showMoodSelectionDialog(BuildContext context, DateTime selectedDate) {
     showDialog(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(22),
-        ),
-        title: Text(
-          tr(context, 'Update Today\'s Mood', 'تحديث مزاج اليوم'),
-          style: const TextStyle(
-            color: Color(0xFF4A3572),
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: moodVisuals.entries.map((entry) {
-                final mood = entry.value;
+      builder: (dialogContext) {
+        final isAr = isArabic(dialogContext);
+        final textDirection = isAr ? TextDirection.rtl : TextDirection.ltr;
+        final textAlign = isAr ? TextAlign.right : TextAlign.left;
+        final savedForTodayText = tr(
+          dialogContext,
+          'saved for today',
+          'تم حفظه لليوم',
+        );
 
-                return Container(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF6F1FF),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: const Color(0xFFE1D6FF)),
-                  ),
-                  child: ListTile(
-                    leading: CircleAvatar(
-                      radius: 20,
-                      backgroundColor: Colors.white,
-                      child: buildMoodSvg(mood.key, size: 30),
-                    ),
-                    title: Text(
-                      isArabic(context) ? mood.labelAr : mood.labelEn,
-                      style: const TextStyle(
-                        color: Color(0xFF4A3572),
-                        fontWeight: FontWeight.w600,
+        return Directionality(
+          textDirection: textDirection,
+          child: AlertDialog(
+            actionsAlignment:
+            isAr ? MainAxisAlignment.start : MainAxisAlignment.end,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(22),
+            ),
+            title: Text(
+              tr(dialogContext, 'Update Today\'s Mood', 'تحديث مزاج اليوم'),
+              textAlign: textAlign,
+              style: const TextStyle(
+                color: Color(0xFF4A3572),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: moodVisuals.entries.map((entry) {
+                    final mood = entry.value;
+                    final moodLabel = isAr ? mood.labelAr : mood.labelEn;
+
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF6F1FF),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: const Color(0xFFE1D6FF)),
                       ),
-                    ),
-                    onTap: () async {
-                      Navigator.pop(dialogContext);
-
-                      await _saveMoodForDate(
-                        date: selectedDate,
-                        moodKey: mood.key,
-                      );
-
-                      if (!mounted) return;
-
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            '${_moodLabel(context, mood.key)} ${tr(context, 'saved for today', 'تم حفظه لليوم')}',
-                          ),
-                          backgroundColor: const Color(0xFF7A5AF8),
-                          behavior: SnackBarBehavior.floating,
+                      child: ListTile(
+                        leading: CircleAvatar(
+                          radius: 20,
+                          backgroundColor: Colors.white,
+                          child: buildMoodSvg(mood.key, size: 30),
                         ),
-                      );
-                    },
-                  ),
-                );
-              }).toList(),
+                        title: Text(
+                          moodLabel,
+                          textAlign: textAlign,
+                          style: const TextStyle(
+                            color: Color(0xFF4A3572),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        onTap: () async {
+                          Navigator.pop(dialogContext);
+
+                          await _saveMoodForDate(
+                            date: selectedDate,
+                            moodKey: mood.key,
+                          );
+
+                          if (!mounted) return;
+
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Directionality(
+                                textDirection: textDirection,
+                                child: Text(
+                                  '$moodLabel $savedForTodayText',
+                                  textAlign: textAlign,
+                                ),
+                              ),
+                              backgroundColor: const Color(0xFF7A5AF8),
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
+                        },
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
             ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: Text(
+                  tr(dialogContext, 'Cancel', 'إلغاء'),
+                  style: const TextStyle(color: Color(0xFF7A5AF8)),
+                ),
+              ),
+            ],
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: Text(
-              tr(context, 'Cancel', 'إلغاء'),
-              style: const TextStyle(color: Color(0xFF7A5AF8)),
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -955,13 +1015,13 @@ class __ProgressScreenContentState extends State<_ProgressScreenContent> {
                         children: [
                           Expanded(
                             child: _OverviewMetric(
-                              value: '$currentStreak',
+                              value: _localizedDigits(context, '$currentStreak'),
                               label: tr(context, 'Streak', 'السلسلة'),
                             ),
                           ),
                           Expanded(
                             child: _OverviewMetric(
-                              value: '$totalAchieved/$totalMilestones',
+                              value: _localizedDigits(context, '$totalAchieved/$totalMilestones'),
                               label: tr(context, 'Achievements', 'الإنجازات'),
                             ),
                           ),
@@ -1090,7 +1150,7 @@ class _ProgressRing extends StatelessWidget {
             ),
             alignment: Alignment.center,
             child: Text(
-              '${(safeProgress * 100).round()}%',
+              _localizedDigits(context, '${(safeProgress * 100).round()}%'),
               style: const TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.w800,

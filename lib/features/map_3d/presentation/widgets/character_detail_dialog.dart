@@ -105,6 +105,7 @@ class CharacterDetailDialog extends StatelessWidget {
           insetPadding: const EdgeInsets.all(20),
           child: Container(
             width: double.infinity,
+            clipBehavior: Clip.antiAlias,
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(30),
@@ -154,10 +155,7 @@ class CharacterDetailDialog extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(width: 10),
-                        Icon(
-                          Icons.insights_rounded,
-                          color: const Color(0xFF6A5CFF).withValues(alpha: 0.5),
-                        ),
+                        _buildHeaderCloseButton(context),
                       ],
                     ),
                   ),
@@ -223,6 +221,29 @@ class CharacterDetailDialog extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildHeaderCloseButton(BuildContext context) {
+    return GestureDetector(
+      onTap: () => Navigator.pop(context),
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        width: 34,
+        height: 34,
+        decoration: BoxDecoration(
+          color: const Color(0xFF6A5CFF).withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: const Color(0xFF6A5CFF).withValues(alpha: 0.18),
+          ),
+        ),
+        child: const Icon(
+          Icons.close_rounded,
+          size: 20,
+          color: Color(0xFF6A5CFF),
+        ),
+      ),
     );
   }
 

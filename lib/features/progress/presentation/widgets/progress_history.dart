@@ -6,22 +6,26 @@ import 'package:provider/provider.dart';
 import 'package:ana_ifs_app/core/services/firestore_service.dart';
 import 'package:ana_ifs_app/features/progress/presentation/providers/milestone_provider.dart';
 import 'package:ana_ifs_app/l10n/app_strings.dart';
-import '../../../../cached_o3d_widget.dart';
 import '../../domain/entities/milestone.dart';
 import '../../domain/entities/stable_character_history.dart';
 
+String _localizeNumbers(BuildContext context, String value) {
+  if (!isArabic(context)) return value;
+
+  const arabicDigits = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+  return value.replaceAllMapped(RegExp(r'\d'), (match) {
+    return arabicDigits[int.parse(match.group(0)!)];
+  });
+}
+
 String _milestoneTitle(BuildContext context, Milestone milestone) {
-  return isArabic(context) ? milestone.titleAr : milestone.titleEn;
+  final title = isArabic(context) ? milestone.titleAr : milestone.titleEn;
+  return _localizeNumbers(context, title);
 }
 
 String _milestoneDescription(BuildContext context, Milestone milestone) {
-  return isArabic(context) ? milestone.descriptionAr : milestone.descriptionEn;
-}
-
-String _modelAssetPath(String glbFileName) {
-  final trimmed = glbFileName.trim();
-  if (trimmed.startsWith('assets/')) return trimmed;
-  return 'assets/models/$trimmed';
+  final description = isArabic(context) ? milestone.descriptionAr : milestone.descriptionEn;
+  return _localizeNumbers(context, description);
 }
 
 class ProgressHistory extends StatefulWidget {
@@ -70,92 +74,98 @@ class _ProgressHistoryState extends State<ProgressHistory> {
             ? completedAchievements
             : completedAchievements.take(_collapsedAchievementHistoryLimit).toList();
 
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            StreamBuilder<List<StableCharacterHistory>>(
-              stream: _stableHistoryStream,
-              builder: (context, snapshot) {
-                if (!snapshot.hasData && snapshot.connectionState == ConnectionState.waiting) {
-                  return _LoadingHistoryCard(
-                    title: tr(context, 'Stable Characters History', 'سجل الشخصيات المستقرة'),
-                  );
-                }
+        final isAr = isArabic(context);
 
-                final stableHistory = List<StableCharacterHistory>.from(
-                  snapshot.data ?? const <StableCharacterHistory>[],
-                )..sort((a, b) => b.stableAt.compareTo(a.stableAt));
+        return Directionality(
+          textDirection: isAr ? TextDirection.rtl : TextDirection.ltr,
+          child: Column(
+            crossAxisAlignment:
+            isAr ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+            children: [
+              StreamBuilder<List<StableCharacterHistory>>(
+                stream: _stableHistoryStream,
+                builder: (context, snapshot) {
+                  if (!snapshot.hasData && snapshot.connectionState == ConnectionState.waiting) {
+                    return _LoadingHistoryCard(
+                      title: tr(context, 'Stable Characters History', 'سجل الشخصيات المستقرة'),
+                    );
+                  }
 
-                final hasMoreStableHistory =
-                    stableHistory.length > _collapsedStableHistoryLimit;
+                  final stableHistory = List<StableCharacterHistory>.from(
+                    snapshot.data ?? const <StableCharacterHistory>[],
+                  )..sort((a, b) => b.stableAt.compareTo(a.stableAt));
 
-                if (stableHistory.isEmpty) {
-                  return _EmptyHistoryCard(
+                  final hasMoreStableHistory =
+                      stableHistory.length > _collapsedStableHistoryLimit;
+
+                  if (stableHistory.isEmpty) {
+                    return _EmptyHistoryCard(
+                      title: tr(context, 'Stable Characters History', 'سجل الشخصيات المستقرة'),
+                      subtitle: tr(
+                        context,
+                        'Stable characters will appear here.',
+                        'ستظهر الشخصيات المستقرة هنا.',
+                      ),
+                    );
+                  }
+
+                  final visibleHistory = _showAllStableHistory
+                      ? stableHistory
+                      : stableHistory.take(_collapsedStableHistoryLimit).toList();
+
+                  return _HistorySectionShell(
                     title: tr(context, 'Stable Characters History', 'سجل الشخصيات المستقرة'),
                     subtitle: tr(
                       context,
-                      'Stable characters will appear here.',
-                      'ستظهر الشخصيات المستقرة هنا.',
+                      'A quiet record of parts that have reached inner balance.',
+                      'سجل هادئ للأجزاء التي وصلت إلى توازن داخلي.',
                     ),
-                  );
-                }
-
-                final visibleHistory = _showAllStableHistory
-                    ? stableHistory
-                    : stableHistory.take(_collapsedStableHistoryLimit).toList();
-
-                return _HistorySectionShell(
-                  title: tr(context, 'Stable Characters History', 'سجل الشخصيات المستقرة'),
-                  subtitle: tr(
-                    context,
-                    'A quiet record of parts that have reached inner balance.',
-                    'سجل هادئ للأجزاء التي وصلت إلى توازن داخلي.',
-                  ),
-                  action: hasMoreStableHistory
-                      ? TextButton(
-                    onPressed: () {
-                      setState(() {
-                        _showAllStableHistory = !_showAllStableHistory;
-                      });
-                    },
-                    child: Text(
-                      _showAllStableHistory
-                          ? tr(context, 'See Less', 'عرض أقل')
-                          : tr(context, 'See More', 'عرض المزيد'),
-                      style: const TextStyle(
-                        color: Color(0xFF8E7CFF),
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  )
-                      : null,
-                  child: Column(
-                    children: visibleHistory
-                        .map(
-                          (item) => Padding(
-                        padding: const EdgeInsets.only(bottom: 14),
-                        child: _StableCharacterHistoryCard(
-                          key: ValueKey(
-                            'stable-card-${item.characterName}-${item.glbFileName}-${item.stableAt.millisecondsSinceEpoch}',
-                          ),
-                          item: item,
-                          onTap: () => _showStableCharacterHistoryDialog(item, context),
+                    action: hasMoreStableHistory
+                        ? TextButton(
+                      onPressed: () {
+                        setState(() {
+                          _showAllStableHistory = !_showAllStableHistory;
+                        });
+                      },
+                      child: Text(
+                        _showAllStableHistory
+                            ? tr(context, 'See Less', 'عرض أقل')
+                            : tr(context, 'See More', 'عرض المزيد'),
+                        style: const TextStyle(
+                          color: Color(0xFF8E7CFF),
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
                     )
-                        .toList(),
-                  ),
-                );
-              },
-            ),
-            if (completedAchievements.isNotEmpty) const SizedBox(height: 28),
-            if (completedAchievements.isNotEmpty)
-              _buildAchievementHistorySection(
-                completedAchievements,
-                visibleAchievements,
-                context,
+                        : null,
+                    child: Column(
+                      children: visibleHistory
+                          .map(
+                            (item) => Padding(
+                          padding: const EdgeInsets.only(bottom: 14),
+                          child: _StableCharacterHistoryCard(
+                            key: ValueKey(
+                              'stable-card-${item.characterName}-${item.glbFileName}-${item.stableAt.millisecondsSinceEpoch}',
+                            ),
+                            item: item,
+                            onTap: () => _showStableCharacterHistoryDialog(item, context),
+                          ),
+                        ),
+                      )
+                          .toList(),
+                    ),
+                  );
+                },
               ),
-          ],
+              if (completedAchievements.isNotEmpty) const SizedBox(height: 28),
+              if (completedAchievements.isNotEmpty)
+                _buildAchievementHistorySection(
+                  completedAchievements,
+                  visibleAchievements,
+                  context,
+                ),
+            ],
+          ),
         );
       },
     );
@@ -225,83 +235,86 @@ class _ProgressHistoryState extends State<ProgressHistory> {
             ? (item.displayNameAr ?? item.characterName)
             : (item.displayNameEn ?? item.characterName);
 
-        return Dialog(
-          backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Container(
-            padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(28),
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFF59A874).withValues(alpha: 0.16),
-                  blurRadius: 28,
-                  offset: const Offset(0, 14),
-                ),
-              ],
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _PopupCharacterModelPreview(
-                  glbFileName: item.glbFileName,
-                  characterName: item.characterName,
-                  height: 180,
-                  width: double.infinity,
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  characterName,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF2D2344),
+        return Directionality(
+          textDirection: isAr ? TextDirection.rtl : TextDirection.ltr,
+          child: Dialog(
+            backgroundColor: Colors.transparent,
+            insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(28),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF59A874).withValues(alpha: 0.16),
+                    blurRadius: 28,
+                    offset: const Offset(0, 14),
                   ),
-                ),
-                const SizedBox(height: 14),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF8F7FF),
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(color: const Color(0xFFE7E3FF)),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _PopupCharacterModelPreview(
+                    glbFileName: item.glbFileName,
+                    characterName: item.characterName,
+                    height: 180,
+                    width: double.infinity,
                   ),
-                  child: Column(
-                    children: [
-                      _DialogInfoRow(
-                        label: tr(dialogContext, 'Archetype', 'النمط'),
-                        value: _localizedArchetype(dialogContext, item.archetype),
-                      ),
-                      const SizedBox(height: 10),
-                      _DialogInfoRow(
-                        label: tr(dialogContext, 'Stable on', 'تاريخ الاستقرار'),
-                        value: _formatDate(item.stableAt),
-                        valueColor: const Color(0xFF59A874),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: () => Navigator.pop(dialogContext),
-                    style: ElevatedButton.styleFrom(
-                      elevation: 0,
-                      backgroundColor: const Color(0xFF59A874),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(18),
-                      ),
+                  const SizedBox(height: 16),
+                  Text(
+                    characterName,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF2D2344),
                     ),
-                    child: Text(tr(dialogContext, 'Close', 'إغلاق')),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 14),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8F7FF),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: const Color(0xFFE7E3FF)),
+                    ),
+                    child: Column(
+                      children: [
+                        _DialogInfoRow(
+                          label: tr(dialogContext, 'Archetype', 'النمط'),
+                          value: _localizedArchetype(dialogContext, item.archetype),
+                        ),
+                        const SizedBox(height: 10),
+                        _DialogInfoRow(
+                          label: tr(dialogContext, 'Stable on', 'تاريخ الاستقرار'),
+                          value: _formatDate(dialogContext, item.stableAt),
+                          valueColor: const Color(0xFF59A874),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.pop(dialogContext),
+                      style: ElevatedButton.styleFrom(
+                        elevation: 0,
+                        backgroundColor: const Color(0xFF59A874),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(18),
+                        ),
+                      ),
+                      child: Text(tr(dialogContext, 'Close', 'إغلاق')),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         );
@@ -315,98 +328,101 @@ class _ProgressHistoryState extends State<ProgressHistory> {
     showDialog(
       context: context,
       barrierColor: Colors.black.withValues(alpha: 0.18),
-      builder: (dialogContext) => Dialog(
-        backgroundColor: Colors.transparent,
-        insetPadding: const EdgeInsets.symmetric(horizontal: 28),
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(28),
-            boxShadow: [
-              BoxShadow(
-                color: badgeStyle.mainColor.withValues(alpha: 0.14),
-                blurRadius: 28,
-                offset: const Offset(0, 14),
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _HexagonBadge(
-                size: 94,
-                style: badgeStyle,
-              ),
-              const SizedBox(height: 16),
-              Text(
-                _milestoneTitle(dialogContext, milestone),
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF2D2344),
+      builder: (dialogContext) => Directionality(
+        textDirection: isArabic(dialogContext) ? TextDirection.rtl : TextDirection.ltr,
+        child: Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 28),
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(28),
+              boxShadow: [
+                BoxShadow(
+                  color: badgeStyle.mainColor.withValues(alpha: 0.14),
+                  blurRadius: 28,
+                  offset: const Offset(0, 14),
                 ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _milestoneDescription(dialogContext, milestone),
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 14,
-                  height: 1.5,
-                  color: Color(0xFF7E769B),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _HexagonBadge(
+                  size: 94,
+                  style: badgeStyle,
                 ),
-              ),
-              const SizedBox(height: 18),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF8F7FF),
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: const Color(0xFFE7E3FF)),
+                const SizedBox(height: 16),
+                Text(
+                  _milestoneTitle(dialogContext, milestone),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF2D2344),
+                  ),
                 ),
-                child: Column(
-                  children: [
-                    _DialogInfoRow(
-                      label: tr(dialogContext, 'Category', 'الفئة'),
-                      value: _localizedCategory(dialogContext, milestone.category),
-                    ),
-                    const SizedBox(height: 10),
-                    _DialogInfoRow(
-                      label: tr(dialogContext, 'Progress', 'التقدم'),
-                      value: '${milestone.currentCount}/${milestone.targetCount}',
-                    ),
-                    if (milestone.achievedAt != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  _milestoneDescription(dialogContext, milestone),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    height: 1.5,
+                    color: Color(0xFF7E769B),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8F7FF),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: const Color(0xFFE7E3FF)),
+                  ),
+                  child: Column(
+                    children: [
+                      _DialogInfoRow(
+                        label: tr(dialogContext, 'Category', 'الفئة'),
+                        value: _localizedCategory(dialogContext, milestone.category),
+                      ),
                       const SizedBox(height: 10),
                       _DialogInfoRow(
-                        label: tr(dialogContext, 'Unlocked on', 'تم فتحه في'),
-                        value: _formatDate(milestone.achievedAt!),
-                        valueColor: badgeStyle.mainColor,
+                        label: tr(dialogContext, 'Progress', 'التقدم'),
+                        value: '${milestone.currentCount}/${milestone.targetCount}',
                       ),
+                      if (milestone.achievedAt != null) ...[
+                        const SizedBox(height: 10),
+                        _DialogInfoRow(
+                          label: tr(dialogContext, 'Unlocked on', 'تم فتحه في'),
+                          value: _formatDate(dialogContext, milestone.achievedAt!),
+                          valueColor: badgeStyle.mainColor,
+                        ),
+                      ],
                     ],
-                  ],
-                ),
-              ),
-              const SizedBox(height: 18),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () => Navigator.pop(dialogContext),
-                  style: ElevatedButton.styleFrom(
-                    elevation: 0,
-                    backgroundColor: badgeStyle.mainColor,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(18),
-                    ),
                   ),
-                  child: Text(tr(dialogContext, 'Close', 'إغلاق')),
                 ),
-              ),
-            ],
+                const SizedBox(height: 18),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.pop(dialogContext),
+                    style: ElevatedButton.styleFrom(
+                      elevation: 0,
+                      backgroundColor: badgeStyle.mainColor,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                    ),
+                    child: Text(tr(dialogContext, 'Close', 'إغلاق')),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -441,11 +457,11 @@ class _ProgressHistoryState extends State<ProgressHistory> {
     }
   }
 
-  String _formatDate(DateTime date) {
+  String _formatDate(BuildContext context, DateTime date) {
     final y = date.year.toString().padLeft(4, '0');
     final m = date.month.toString().padLeft(2, '0');
     final d = date.day.toString().padLeft(2, '0');
-    return '$y-$m-$d';
+    return _localizeNumbers(context, '$y-$m-$d');
   }
 }
 
@@ -464,38 +480,57 @@ class _HistorySectionShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isAr = isArabic(context);
+    final textDirection = isAr ? TextDirection.rtl : TextDirection.ltr;
+    final textAlign = isAr ? TextAlign.right : TextAlign.left;
+
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: isAr ? CrossAxisAlignment.end : CrossAxisAlignment.start,
       children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF2D2344),
+        Directionality(
+          textDirection: textDirection,
+          child: Row(
+            textDirection: textDirection,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment:
+                  isAr ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: double.infinity,
+                      child: Text(
+                        _localizeNumbers(context, title),
+                        textDirection: textDirection,
+                        textAlign: textAlign,
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF2D2344),
+                        ),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
-                    subtitle,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: Color(0xFF8F87B3),
-                      height: 1.4,
+                    const SizedBox(height: 5),
+                    SizedBox(
+                      width: double.infinity,
+                      child: Text(
+                        _localizeNumbers(context, subtitle),
+                        textDirection: textDirection,
+                        textAlign: textAlign,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          color: Color(0xFF8F87B3),
+                          height: 1.4,
+                        ),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            if (action != null) action!,
-          ],
+              if (action != null) action!,
+            ],
+          ),
         ),
         const SizedBox(height: 16),
         child,
@@ -531,7 +566,8 @@ class _LoadingHistoryCard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            title,
+            _localizeNumbers(context, title),
+            textAlign: TextAlign.center,
             style: const TextStyle(
               fontSize: 17,
               fontWeight: FontWeight.w800,
@@ -570,7 +606,7 @@ class _EmptyHistoryCard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            title,
+            _localizeNumbers(context, title),
             textAlign: TextAlign.center,
             style: const TextStyle(
               fontSize: 18,
@@ -580,7 +616,7 @@ class _EmptyHistoryCard extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            subtitle,
+            _localizeNumbers(context, subtitle),
             textAlign: TextAlign.center,
             style: const TextStyle(
               fontSize: 13,
@@ -663,7 +699,7 @@ class _StableCharacterHistoryCard extends StatelessWidget {
                         color: const Color(0xFF8E7CFF),
                       ),
                       _HistoryChip(
-                        text: '${tr(context, 'Stable', 'مستقرة')} • ${_formatCompactDate(item.stableAt)}',
+                        text: '${tr(context, 'Stable', 'مستقرة')} • ${_formatCompactDate(context, item.stableAt)}',
                         background: const Color(0xFFE8F8EE),
                         color: const Color(0xFF59A874),
                       ),
@@ -673,9 +709,9 @@ class _StableCharacterHistoryCard extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 10),
-            const Icon(
-              Icons.chevron_right_rounded,
-              color: Color(0xFFAEA7C9),
+            Icon(
+              isAr ? Icons.chevron_right_rounded : Icons.chevron_right_rounded,
+              color: const Color(0xFFAEA7C9),
               size: 24,
             ),
           ],
@@ -684,11 +720,11 @@ class _StableCharacterHistoryCard extends StatelessWidget {
     );
   }
 
-  String _formatCompactDate(DateTime date) {
+  String _formatCompactDate(BuildContext context, DateTime date) {
     final y = date.year.toString().padLeft(4, '0');
     final m = date.month.toString().padLeft(2, '0');
     final d = date.day.toString().padLeft(2, '0');
-    return '$y-$m-$d';
+    return _localizeNumbers(context, '$y-$m-$d');
   }
 
   String _localizedArchetype(BuildContext context, String archetype) {
@@ -837,7 +873,7 @@ class _StableCharacterCardPreview extends StatelessWidget {
 }
 
 
-class _PopupCharacterModelPreview extends StatefulWidget {
+class _PopupCharacterModelPreview extends StatelessWidget {
   final String glbFileName;
   final String characterName;
   final double width;
@@ -852,34 +888,12 @@ class _PopupCharacterModelPreview extends StatefulWidget {
   });
 
   @override
-  State<_PopupCharacterModelPreview> createState() => _PopupCharacterModelPreviewState();
-}
-
-class _PopupCharacterModelPreviewState extends State<_PopupCharacterModelPreview> {
-  bool _showModel = false;
-
-  @override
-  void initState() {
-    super.initState();
-
-    // Let the dialog open and paint the lightweight PNG first.
-    // Creating ModelViewer/CachedO3D immediately inside the dialog creates an
-    // Android PlatformView/WebView and can block the UI thread for a few frames.
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await Future<void>.delayed(const Duration(milliseconds: 450));
-      if (!mounted) return;
-      setState(() => _showModel = true);
-    });
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final modelPath = _modelAssetPath(widget.glbFileName);
     final imagePath = _popupImageAssetPath();
 
     return Container(
-      width: widget.width,
-      height: widget.height,
+      width: width,
+      height: height,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(20),
         gradient: const LinearGradient(
@@ -894,35 +908,22 @@ class _PopupCharacterModelPreviewState extends State<_PopupCharacterModelPreview
       ),
       clipBehavior: Clip.antiAlias,
       child: RepaintBoundary(
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            _PopupImagePlaceholder(imagePath: imagePath),
-            if (_showModel)
-              CachedO3D(
-                key: ValueKey('popup-cached-model-$modelPath'),
-                glbPath: modelPath,
-                cacheKey: modelPath,
-                width: widget.width,
-                height: widget.height,
-                autoPlay: false,
-                cameraControls: true,
-                ar: false,
-                backgroundColor: Colors.transparent,
-              ),
-          ],
-        ),
+        child: _PopupImagePlaceholder(imagePath: imagePath),
       ),
     );
   }
 
   String _popupImageAssetPath() {
-    final normalizedGlbName = _StableCharacterCardPreview.normalizeCharacterKey(widget.glbFileName);
-    final normalizedCharacterName = _StableCharacterCardPreview.normalizeCharacterKey(widget.characterName);
+    final normalizedGlbName =
+    _StableCharacterCardPreview.normalizeCharacterKey(glbFileName);
+    final normalizedCharacterName =
+    _StableCharacterCardPreview.normalizeCharacterKey(characterName);
 
-    final imageFileName = _StableCharacterCardPreview.imageFileNamesByCharacter[normalizedGlbName] ??
-        _StableCharacterCardPreview.imageFileNamesByCharacter[normalizedCharacterName] ??
-        '$normalizedGlbName.png';
+    final imageFileName =
+        _StableCharacterCardPreview.imageFileNamesByCharacter[normalizedGlbName] ??
+            _StableCharacterCardPreview
+                .imageFileNamesByCharacter[normalizedCharacterName] ??
+            '$normalizedGlbName.png';
 
     return 'assets/images/$imageFileName';
   }
@@ -1255,7 +1256,7 @@ class _DialogInfoRow extends StatelessWidget {
       children: [
         Expanded(
           child: Text(
-            label,
+            _localizeNumbers(context, label),
             style: const TextStyle(
               fontSize: 13,
               color: Color(0xFF8A84A4),
@@ -1265,7 +1266,7 @@ class _DialogInfoRow extends StatelessWidget {
         ),
         Expanded(
           child: Text(
-            value,
+            _localizeNumbers(context, value),
             textAlign: TextAlign.end,
             style: TextStyle(
               fontSize: 13,
@@ -1299,7 +1300,7 @@ class _HistoryChip extends StatelessWidget {
         borderRadius: BorderRadius.circular(30),
       ),
       child: Text(
-        text,
+        _localizeNumbers(context, text),
         style: TextStyle(
           fontSize: 12,
           fontWeight: FontWeight.w700,

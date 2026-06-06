@@ -259,6 +259,8 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
   }
 
   Future<void> _launchUri(Uri uri, {required String fallbackMessage}) async {
+    final isArabicValue = isArabic(context);
+
     try {
       final launched = await launchUrl(
         uri,
@@ -268,7 +270,13 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
       if (!launched && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(fallbackMessage),
+            content: Directionality(
+              textDirection: isArabicValue ? TextDirection.rtl : TextDirection.ltr,
+              child: Text(
+                fallbackMessage,
+                textAlign: isArabicValue ? TextAlign.right : TextAlign.left,
+              ),
+            ),
             backgroundColor: const Color(0xFF8E7CFF),
           ),
         );
@@ -343,6 +351,7 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: Row(
+              textDirection: TextDirection.ltr,
               children: [
                 IconButton(
                   icon: const Icon(
@@ -356,7 +365,9 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
                 Expanded(
                   child: Text(
                     isArabicValue ? 'المساعدة والدعم' : 'Help & Support',
-                    textAlign: TextAlign.left,
+                    textAlign: isArabicValue ? TextAlign.right : TextAlign.left,
+                    textDirection:
+                    isArabicValue ? TextDirection.rtl : TextDirection.ltr,
                     style: const TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.w800,
@@ -1224,7 +1235,7 @@ class _ContactOption extends StatelessWidget {
 
     final arrowIcon = Icon(
       isArabicValue
-          ? Icons.arrow_back_ios_rounded
+          ? Icons.arrow_forward_ios_rounded
           : Icons.arrow_forward_ios_rounded,
       size: 16,
       color: const Color(0xFFD0C6E8),

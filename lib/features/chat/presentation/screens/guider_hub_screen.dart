@@ -32,6 +32,8 @@ class ChatScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const accent = Color(0xFFB79CFF);
+    final isAr = isArabic(context);
+
     return Column(
       children: [
         TopHelloBar(
@@ -89,7 +91,7 @@ class ChatScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 30),
                 Text(
-                  tr(context, "Chat with The Guider", "تحدث مع المُرشد"),
+                  tr(context, "Chat with The Guider", "اتكلم مع المُرشد"),
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     fontSize: 24,
@@ -102,7 +104,7 @@ class ChatScreen extends StatelessWidget {
                   tr(
                     context,
                     "The Guider is your calm, supportive companion. It helps you slow down, notice your inner parts, and gently reframe what you share.",
-                    "المُرشد هو رفيقك الهادئ والداعم. يساعدك على التمهّل وملاحظة أجزائك الداخلية، وإعادة صياغة ما تشاركه بلطف.",
+                    "المُرشد هو صاحبك الهادي والداعم. بيساعدك تهدى، وتلاحظ الأجزاء اللي جواك، ويعيد صياغة اللي بتشاركه بلُطف.",
                   ),
                   textAlign: TextAlign.center,
                   style: const TextStyle(
@@ -119,62 +121,73 @@ class ChatScreen extends StatelessWidget {
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(color: const Color(0xFFE5DEFF)),
                   ),
-                  child: Column(
-                    children: [
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.info_rounded,
-                            color: accent,
-                            size: 20,
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              tr(context, "How it works:", "كيف يعمل:"),
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
-                                color: Color(0xFF2A1E3B),
+                  child: Directionality(
+                    textDirection: isAr ? TextDirection.rtl : TextDirection.ltr,
+                    child: Column(
+                      crossAxisAlignment:
+                      isAr ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          textDirection:
+                          isAr ? TextDirection.rtl : TextDirection.ltr,
+                          children: [
+                            Icon(
+                              Icons.info_rounded,
+                              color: accent,
+                              size: 20,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                tr(context, "How it works:", "بيشتغل إزاي:"),
+                                textAlign:
+                                isAr ? TextAlign.right : TextAlign.left,
+                                textDirection:
+                                isAr ? TextDirection.rtl : TextDirection.ltr,
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF2A1E3B),
+                                ),
                               ),
                             ),
+                          ],
+                        ),
+                        const SizedBox(height: 15),
+                        _InstructionStep(
+                          number: 1,
+                          text: tr(
+                            context,
+                            "Say what's on your mind",
+                            "قول اللي في بالك",
                           ),
-                        ],
-                      ),
-                      const SizedBox(height: 15),
-                      _InstructionStep(
-                        number: 1,
-                        text: tr(
-                          context,
-                          "Say what's on your mind",
-                          "قل ما يدور في ذهنك",
                         ),
-                      ),
-                      _InstructionStep(
-                        number: 2,
-                        text: tr(
-                          context,
-                          "Let The Guider reflect and reframe",
-                          "دع المُرشد يعكس ويعيد الصياغة",
+                        _InstructionStep(
+                          number: 2,
+                          text: tr(
+                            context,
+                            "Let The Guider reflect and reframe",
+                            "سيب المُرشد يعكس ويعيد صياغه",
+                          ),
                         ),
-                      ),
-                      _InstructionStep(
-                        number: 3,
-                        text: tr(
-                          context,
-                          "Notice which inner part shows up",
-                          "لاحظ أي جزء داخلي يظهر",
+                        _InstructionStep(
+                          number: 3,
+                          text: tr(
+                            context,
+                            "Notice which inner part shows up",
+                            "لاحظ أنهي جزء داخلي ظهر",
+                          ),
                         ),
-                      ),
-                      _InstructionStep(
-                        number: 4,
-                        text: tr(
-                          context,
-                          "Choose a next step with clarity",
-                          "اختر الخطوة التالية بوضوح",
+                        _InstructionStep(
+                          number: 4,
+                          text: tr(
+                            context,
+                            "Choose a next step with clarity",
+                            "اختار الخطوة الجاية بوضوح",
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
                 const SizedBox(height: 24),
@@ -225,9 +238,12 @@ class _InstructionStep extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isAr = isArabic(context);
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(
+        textDirection: isAr ? TextDirection.rtl : TextDirection.ltr,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
@@ -240,7 +256,8 @@ class _InstructionStep extends StatelessWidget {
             ),
             child: Center(
               child: Text(
-                '$number',
+                isAr ? _toArabicDigits(number) : '$number',
+                textDirection: isAr ? TextDirection.rtl : TextDirection.ltr,
                 style: const TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w700,
@@ -253,6 +270,8 @@ class _InstructionStep extends StatelessWidget {
           Expanded(
             child: Text(
               text,
+              textAlign: isAr ? TextAlign.right : TextAlign.left,
+              textDirection: isAr ? TextDirection.rtl : TextDirection.ltr,
               style: const TextStyle(
                 fontSize: 15,
                 color: Color(0xFF4B3A66),
@@ -263,6 +282,18 @@ class _InstructionStep extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  String _toArabicDigits(Object value) {
+    var text = value.toString();
+    const englishDigits = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+    const arabicDigits = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+
+    for (int i = 0; i < englishDigits.length; i++) {
+      text = text.replaceAll(englishDigits[i], arabicDigits[i]);
+    }
+
+    return text;
   }
 }
 
@@ -342,101 +373,112 @@ class _GuiderCommunicationHub extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _GlassCard(
-      padding: const EdgeInsets.all(20),
-      radius: 22,
-      accentColor: const Color(0xFF6A5CFF),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [
-                      Color(0xFFB4A3FF),
-                      Color(0xFFA78BFA),
-                    ],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFFA78BFA).withValues(alpha: 0.3),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
+    final isAr = isArabic(context);
+
+    return Directionality(
+      textDirection: isAr ? TextDirection.rtl : TextDirection.ltr,
+      child: _GlassCard(
+        padding: const EdgeInsets.all(20),
+        radius: 22,
+        accentColor: const Color(0xFF6A5CFF),
+        child: Column(
+          crossAxisAlignment:
+          isAr ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          children: [
+            Row(
+              textDirection: isAr ? TextDirection.rtl : TextDirection.ltr,
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [
+                        Color(0xFFB4A3FF),
+                        Color(0xFFA78BFA),
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
                     ),
-                  ],
-                ),
-                child: const Icon(
-                  Icons.chat_bubble_rounded,
-                  color: Colors.white,
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Text(
-                tr(context, 'Talk to Me', 'تحدث معي'),
-                style: const TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w900,
-                  color: Color(0xFF2A1E3B),
-                  letterSpacing: -0.3,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: _HubButton(
-                  icon: Icons.chat_bubble_rounded,
-                  title: tr(context, 'Chat', 'دردشة'),
-                  subtitle: tr(
-                    context,
-                    'Text conversation',
-                    'محادثة نصية',
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFFA78BFA).withValues(alpha: 0.3),
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
                   ),
-                  gradientColors: const [Color(0xFF8E7CFF), Color(0xFF6A5CFF)],
-                  onTap: onChat,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _HubButton(
-                  icon: Icons.mic_rounded,
-                  title: tr(context, 'Voice', 'صوت'),
-                  subtitle: tr(
-                    context,
-                    'Speak freely',
-                    'تحدث بحرية',
+                  child: const Icon(
+                    Icons.chat_bubble_rounded,
+                    color: Colors.white,
+                    size: 20,
                   ),
-                  gradientColors: const [Color(0xFFA78BFA), Color(0xFF9B7BFF)],
-                  onTap: onVoice,
                 ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _HubButton(
-                  icon: Icons.videocam_rounded,
-                  title: tr(context, 'Video', 'فيديو'),
-                  subtitle: tr(
-                    context,
-                    'Video call',
-                    'مكالمة فيديو',
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    tr(context, 'Talk to Me', 'اتكلم معايا'),
+                    textAlign: isAr ? TextAlign.right : TextAlign.left,
+                    textDirection: isAr ? TextDirection.rtl : TextDirection.ltr,
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF2A1E3B),
+                      letterSpacing: -0.3,
+                    ),
                   ),
-                  gradientColors: const [Color(0xFF6A5CFF), Color(0xFF4A3F8F)],
-                  onTap: onVideo,
                 ),
-              ),
-            ],
-          ),
-        ],
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: _HubButton(
+                    icon: Icons.chat_bubble_rounded,
+                    title: tr(context, 'Chat', 'شات'),
+                    subtitle: tr(
+                      context,
+                      'Text conversation',
+                      'محادثة كتابة',
+                    ),
+                    gradientColors: const [Color(0xFF8E7CFF), Color(0xFF6A5CFF)],
+                    onTap: onChat,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _HubButton(
+                    icon: Icons.mic_rounded,
+                    title: tr(context, 'Voice', 'صوت'),
+                    subtitle: tr(
+                      context,
+                      'Speak freely',
+                      'اتكلم براحتك',
+                    ),
+                    gradientColors: const [Color(0xFFA78BFA), Color(0xFF9B7BFF)],
+                    onTap: onVoice,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _HubButton(
+                    icon: Icons.videocam_rounded,
+                    title: tr(context, 'Video', 'فيديو'),
+                    subtitle: tr(
+                      context,
+                      'Video call',
+                      'مكالمة فيديو',
+                    ),
+                    gradientColors: const [Color(0xFF6A5CFF), Color(0xFF4A3F8F)],
+                    onTap: onVideo,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

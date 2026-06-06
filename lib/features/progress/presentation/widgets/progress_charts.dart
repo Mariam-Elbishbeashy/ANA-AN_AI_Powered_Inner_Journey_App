@@ -47,13 +47,267 @@ class ProgressCharts extends StatelessWidget {
 
   Widget _buildIntensitySection(BuildContext context) {
     return _ChartSectionShell(
-      title: tr(context, 'Session Intensity', 'شدة جلسات '),
+      title: tr(context, 'Session Intensity', 'شدة الجلسات'),
       subtitle: tr(
         context,
         'Track how each session starts and ends over time',
-        'تابعي كيف تبدأ وتنتهي شدة كل جلسة مع الوقت',
+        'تابع شدة كل جلسة من أولها لآخرها مع الوقت',
       ),
+      action: _buildIntensityHelpButton(context),
       child: _buildIntensityOverviewCard(context),
+    );
+  }
+
+  Widget _buildIntensityHelpButton(BuildContext context) {
+    final isAr = isArabic(context);
+    final tooltipMessage = tr(
+      context,
+      'What does this chart show?',
+      'الشارت ده بيعرض إيه؟',
+    );
+    final title = tr(context, 'Session Intensity', 'شدة الجلسات');
+    final paragraphs = [
+      tr(
+        context,
+        'This chart shows only active characters. Stable or inactive characters stay hidden here, even if they still have old intensity data.',
+        'الشارت ده بيعرض الشخصيات النشطة بس. الشخصيات المستقرة أو غير النشطة مش هتظهر هنا حتى لو عندها بيانات شدة قديمة.',
+      ),
+      tr(
+        context,
+        'Intensity means how strongly the character is showing up in the session. A higher percentage means the feeling, voice, or behavior is stronger.',
+        'الشدة معناها الشخصية ظاهرة قد إيه في الجلسة. كل ما النسبة تعلى، يبقى الإحساس أو الصوت أو التصرف أقوى.',
+      ),
+      tr(
+        context,
+        'Chat intensity comes from the written conversation. Voice intensity comes from voice tone and emotional signals. Video intensity combines the session signals with face and voice cues when available.',
+        'شدة الدردشة بتيجي من الكلام المكتوب. شدة الصوت بتيجي من نبرة الصوت والإشارات العاطفية. شدة الفيديو بتجمع إشارات الجلسة مع تعبيرات الوش والصوت لما يكونوا متاحين.',
+      ),
+      tr(
+        context,
+        'In Day view, tap a start or end dot to see the session type and exact intensity. In Week view, tap a day bar to see the latest sessions.',
+        'في عرض اليوم، دوس على نقطة البداية أو النهاية عشان تشوف نوع الجلسة وقيمة الشدة. وفي عرض الأسبوع، دوس على عمود اليوم عشان تشوف آخر الجلسات.',
+      ),
+    ];
+
+    return _buildChartHelpButton(
+      context,
+      isAr: isAr,
+      tooltipMessage: tooltipMessage,
+      title: title,
+      icon: Icons.help_outline_rounded,
+      paragraphs: paragraphs,
+    );
+  }
+
+  Widget _buildEmotionHelpButton(BuildContext context) {
+    final isAr = isArabic(context);
+    final tooltipMessage = tr(
+      context,
+      'What does this chart show?',
+      'الشارت ده بيعرض إيه؟',
+    );
+    final title = tr(context, 'Video Call Emotions', 'مشاعر مكالمات الفيديو');
+    final paragraphs = [
+      tr(
+        context,
+        'This chart shows the emotion detected at the start and end of each video session for active characters only.',
+        'الشارت ده بيعرض المشاعر اللي اتعرفت في بداية ونهاية كل جلسة فيديو للشخصيات النشطة بس.',
+      ),
+      tr(
+        context,
+        'Each point is an emotion state like happy, sad, angry, fear, surprise, or neutral. The line helps you see how the emotion moved during the session.',
+        'كل نقطة بتمثل حالة شعورية زي سعيد، حزين، غاضب، خوف، مفاجأة، أو محايد. والخط بيساعدك تشوف الإحساس اتحرك إزاي خلال الجلسة.',
+      ),
+      tr(
+        context,
+        'Tap a point to see the session, stage, character, and exact emotion label.',
+        'دوس على أي نقطة عشان تشوف الجلسة، المرحلة، الشخصية، واسم الشعور بالظبط.',
+      ),
+    ];
+
+    return _buildChartHelpButton(
+      context,
+      isAr: isAr,
+      tooltipMessage: tooltipMessage,
+      title: title,
+      icon: Icons.help_outline_rounded,
+      paragraphs: paragraphs,
+    );
+  }
+
+  Widget _buildToneHelpButton(BuildContext context) {
+    final isAr = isArabic(context);
+    final tooltipMessage = tr(
+      context,
+      'What does this chart show?',
+      'الشارت ده بيعرض إيه؟',
+    );
+    final title = tr(context, 'Call Tone', 'نبرة المكالمات');
+    final paragraphs = [
+      tr(
+        context,
+        'This chart shows how the tone changes from the start to the end of voice and video sessions for active characters only.',
+        'الشارت ده بيعرض النبرة بتتغير إزاي من بداية لنهاية جلسات الصوت والفيديو للشخصيات النشطة بس.',
+      ),
+      tr(
+        context,
+        'Tone describes the sound/emotional quality of the session, such as calm, anxious, angry, sad, happy, or neutral.',
+        'النبرة بتوصف جودة الصوت أو الإحساس في الجلسة، زي هادئ، قلق، غاضب، حزين، سعيد، أو محايد.',
+      ),
+      tr(
+        context,
+        'Tap a point to see whether it is the start or end of the session and the exact tone label.',
+        'دوس على أي نقطة عشان تشوف هل هي بداية ولا نهاية الجلسة واسم النبرة بالظبط.',
+      ),
+    ];
+
+    return _buildChartHelpButton(
+      context,
+      isAr: isAr,
+      tooltipMessage: tooltipMessage,
+      title: title,
+      icon: Icons.help_outline_rounded,
+      paragraphs: paragraphs,
+    );
+  }
+
+  Widget _buildChartHelpButton(
+      BuildContext context, {
+        required bool isAr,
+        required String tooltipMessage,
+        required String title,
+        required IconData icon,
+        required List<String> paragraphs,
+      }) {
+    return Padding(
+      padding: const EdgeInsetsDirectional.only(start: 6),
+      child: Tooltip(
+        message: tooltipMessage,
+        child: InkWell(
+          onTap: () => _showChartHelpDialog(
+            context,
+            isAr: isAr,
+            title: title,
+            icon: icon,
+            paragraphs: paragraphs,
+          ),
+          borderRadius: BorderRadius.circular(999),
+          child: Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF7F5FF),
+              shape: BoxShape.circle,
+              border: Border.all(color: const Color(0xFFE7E1FF)),
+            ),
+            child: Icon(
+              icon,
+              size: 17,
+              color: const Color(0xFF8E7CFF),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showChartHelpDialog(
+      BuildContext context, {
+        required bool isAr,
+        required String title,
+        required IconData icon,
+        required List<String> paragraphs,
+      }) {
+    showDialog<void>(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.20),
+      builder: (dialogContext) {
+        return Directionality(
+          textDirection: isAr ? TextDirection.rtl : TextDirection.ltr,
+          child: Dialog(
+            insetPadding: const EdgeInsets.symmetric(horizontal: 34, vertical: 24),
+            backgroundColor: Colors.transparent,
+            child: Container(
+              constraints: const BoxConstraints(maxWidth: 340),
+              padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: const Color(0xFFE9E4FF)),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF2A1E3B).withValues(alpha: 0.14),
+                    blurRadius: 22,
+                    offset: const Offset(0, 12),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment:
+                isAr ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 34,
+                        height: 34,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFF2EFFF),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          icon,
+                          size: 20,
+                          color: const Color(0xFF8E7CFF),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          title,
+                          textAlign: isAr ? TextAlign.right : TextAlign.left,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF2A1E3B),
+                          ),
+                        ),
+                      ),
+                      InkWell(
+                        onTap: () => Navigator.of(dialogContext).pop(),
+                        borderRadius: BorderRadius.circular(999),
+                        child: const Padding(
+                          padding: EdgeInsets.all(4),
+                          child: Icon(
+                            Icons.close_rounded,
+                            size: 19,
+                            color: Color(0xFF9CA3AF),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  for (int i = 0; i < paragraphs.length; i++) ...[
+                    if (i > 0) const SizedBox(height: 10),
+                    Text(
+                      paragraphs[i],
+                      textAlign: isAr ? TextAlign.right : TextAlign.left,
+                      style: const TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF6D6486),
+                        height: 1.45,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -94,8 +348,9 @@ class ProgressCharts extends StatelessWidget {
       subtitle: tr(
         context,
         'Track how session emotions move from one feeling to another',
-        'تابعي كيف تنتقل مشاعر الجلسات من شعور إلى آخر',
+        'تابع إزاي مشاعر الجلسات بتتنقل من إحساس لإحساس تاني',
       ),
+      action: _buildEmotionHelpButton(context),
       child: _buildVideoFlowOverviewCard(
         context,
         type: _VideoFlowCardType.emotion,
@@ -105,12 +360,13 @@ class ProgressCharts extends StatelessWidget {
 
   Widget _buildVideoToneSection(BuildContext context) {
     return _ChartSectionShell(
-      title: tr(context, 'Call Tone', 'نبرة مكالمات'),
+      title: tr(context, 'Call Tone', 'نبرة المكالمات'),
       subtitle: tr(
         context,
         'Track the tone flow across your sessions',
-        'تابعي تغيّر النبرة عبر جلسات',
+        'تابع تغيّر النبرة خلال جلساتك',
       ),
+      action: _buildToneHelpButton(context),
       child: _buildVideoFlowOverviewCard(
         context,
         type: _VideoFlowCardType.tone,
@@ -970,6 +1226,8 @@ class _ChartSectionShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isAr = isArabic(context);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -978,19 +1236,35 @@ class _ChartSectionShell extends StatelessWidget {
           children: [
             Expanded(
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment:
+                isAr ? CrossAxisAlignment.end : CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF2D2344),
-                    ),
+                  Row(
+                    mainAxisAlignment:
+                    isAr ? MainAxisAlignment.end : MainAxisAlignment.start,
+                    textDirection: isAr ? TextDirection.rtl : TextDirection.ltr,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          title,
+                          textAlign: isAr ? TextAlign.right : TextAlign.left,
+                          textDirection: isAr ? TextDirection.rtl : TextDirection.ltr,
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF2D2344),
+                          ),
+                        ),
+                      ),
+                      if (action != null) action!,
+                    ],
                   ),
                   const SizedBox(height: 5),
                   Text(
                     subtitle,
+                    textAlign: isAr ? TextAlign.right : TextAlign.left,
+                    textDirection: isAr ? TextDirection.rtl : TextDirection.ltr,
                     style: const TextStyle(
                       fontSize: 14,
                       color: Color(0xFF8F87B3),
@@ -1000,7 +1274,6 @@ class _ChartSectionShell extends StatelessWidget {
                 ],
               ),
             ),
-            if (action != null) action!,
           ],
         ),
         const SizedBox(height: 16),
@@ -1023,6 +1296,7 @@ class _IntensityHabitLandCard extends StatefulWidget {
 
 class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
   int _selectedCharacterIndex = 0;
+  String? _selectedCharacterId;
   int _pageOffset = 0;
   bool _isWeekView = true;
   final GlobalKey _intensityDayChartKey = GlobalKey();
@@ -1050,6 +1324,37 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
   }
 
   @override
+  void didUpdateWidget(covariant _IntensityHabitLandCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    final characterIds = _groupByCharacter(widget.allSessions).keys.toList();
+    final previousSelectedId = _selectedCharacterId;
+    _syncSelectedCharacter(characterIds);
+
+    if (previousSelectedId != _selectedCharacterId) {
+      _hideIntensityDayPopup();
+      _pageOffset = 0;
+    }
+  }
+
+  void _syncSelectedCharacter(List<String> characterIds) {
+    if (characterIds.isEmpty) {
+      _selectedCharacterId = null;
+      _selectedCharacterIndex = 0;
+      return;
+    }
+
+    if (_selectedCharacterId == null ||
+        !characterIds.contains(_selectedCharacterId)) {
+      _selectedCharacterId = characterIds.first;
+      _selectedCharacterIndex = 0;
+      return;
+    }
+
+    _selectedCharacterIndex = characterIds.indexOf(_selectedCharacterId!);
+  }
+
+  @override
   Widget build(BuildContext context) {
     final grouped = _groupByCharacter(widget.allSessions);
     final characterIds = grouped.keys.toList();
@@ -1058,11 +1363,9 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
       return const SizedBox.shrink();
     }
 
-    if (_selectedCharacterIndex >= characterIds.length) {
-      _selectedCharacterIndex = 0;
-    }
+    _syncSelectedCharacter(characterIds);
 
-    final selectedId = characterIds[_selectedCharacterIndex];
+    final selectedId = _selectedCharacterId!;
     final selectedSessions = grouped[selectedId]!..sort((a, b) => a.date.compareTo(b.date));
 
     final periodData = _isWeekView
@@ -1185,6 +1488,8 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
       height: 38,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
+        reverse: isArabic(context) &&
+            Directionality.of(context) != TextDirection.rtl,
         itemCount: characterIds.length,
         separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
@@ -1197,6 +1502,7 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
               _hideIntensityDayPopup();
               setState(() {
                 _selectedCharacterIndex = index;
+                _selectedCharacterId = id;
                 _pageOffset = 0;
               });
             },
@@ -1529,7 +1835,7 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
     );
   }
 
-  void _showWeeklyIntensitySessionsPopup(
+  _WeeklyIntensityPopupPayload _buildWeeklyIntensityPopupPayload(
       BuildContext context,
       WeeklyDayIntensitySummary summary,
       ) {
@@ -1540,6 +1846,33 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
         ? sortedSessions
         : sortedSessions.sublist(sortedSessions.length - 3);
 
+    final rows = <_WeeklyIntensityPopupRowData>[];
+    for (int index = 0; index < latestSessions.length; index++) {
+      final originalIndex = sortedSessions.length - latestSessions.length + index + 1;
+      final session = latestSessions[index];
+      rows.add(
+        _WeeklyIntensityPopupRowData(
+          session: session,
+          title: '${_sessionLabel(context, originalIndex)} • ${_sessionTypeShortLabel(context, session.sessionType)}',
+          subtitle:
+          '${tr(context, 'Start', 'البداية')} ${_localizedNumber(context, session.startPercent.round())}%  →  ${tr(context, 'End', 'النهاية')} ${_localizedNumber(context, session.endPercent.round())}%',
+          averageLabel: '${_localizedNumber(context, session.averagePercent.round())}%',
+        ),
+      );
+    }
+
+    return _WeeklyIntensityPopupPayload(
+      title: _formatMonthDay(context, summary.date),
+      subtitle:
+      '${tr(context, 'Latest 3 sessions', 'آخر ٣ جلسات')} • ${tr(context, 'Avg', 'المتوسط')} ${_localizedNumber(context, summary.averagePercent.round())}%',
+      rows: rows,
+    );
+  }
+
+  void _showWeeklyIntensitySessionsPopup(
+      BuildContext context,
+      _WeeklyIntensityPopupPayload payload,
+      ) {
     showDialog<void>(
       context: context,
       barrierColor: Colors.black.withValues(alpha: 0.20),
@@ -1573,7 +1906,7 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            _formatMonthDay(context, summary.date),
+                            payload.title,
                             style: const TextStyle(
                               fontSize: 15,
                               fontWeight: FontWeight.w800,
@@ -1582,7 +1915,7 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            '${tr(context, 'Latest 3 sessions', 'آخر ٣ جلسات')} • ${tr(context, 'Avg', 'المتوسط')} ${summary.averagePercent.round()}%',
+                            payload.subtitle,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
@@ -1612,15 +1945,10 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
                 ListView.separated(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
-                  itemCount: latestSessions.length,
+                  itemCount: payload.rows.length,
                   separatorBuilder: (_, __) => const SizedBox(height: 7),
                   itemBuilder: (context, index) {
-                    final originalIndex = sortedSessions.length - latestSessions.length + index + 1;
-                    return _buildWeeklyIntensitySessionPopupRow(
-                      context,
-                      latestSessions[index],
-                      originalIndex,
-                    );
+                    return _buildWeeklyIntensitySessionPopupRow(payload.rows[index]);
                   },
                 ),
               ],
@@ -1632,12 +1960,9 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
   }
 
   Widget _buildWeeklyIntensitySessionPopupRow(
-      BuildContext context,
-      CharacterSessionIntensity session,
-      int index,
+      _WeeklyIntensityPopupRowData row,
       ) {
-    final color = _sessionTypeColor(session.sessionType);
-    final average = session.averagePercent.round();
+    final color = _sessionTypeColor(row.session.sessionType);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
@@ -1662,7 +1987,7 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '${_sessionLabel(context, index)} • ${_sessionTypeShortLabel(context, session.sessionType)}',
+                  row.title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
@@ -1673,7 +1998,7 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  '${tr(context, 'Start', 'البداية')} ${session.startPercent.round()}%  →  ${tr(context, 'End', 'النهاية')} ${session.endPercent.round()}%',
+                  row.subtitle,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
@@ -1693,7 +2018,7 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
               borderRadius: BorderRadius.circular(999),
             ),
             child: Text(
-              '$average%',
+              row.averageLabel,
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.w900,
@@ -1722,6 +2047,16 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
       BuildContext context,
       _CharacterPeriodData periodData,
       ) {
+    final popupPayloadsByDay = <int, _WeeklyIntensityPopupPayload>{};
+    periodData.dayItems.forEach((dayIndex, summary) {
+      if (summary.sessions.isNotEmpty) {
+        popupPayloadsByDay[dayIndex] = _buildWeeklyIntensityPopupPayload(
+          context,
+          summary,
+        );
+      }
+    });
+
     return BarChart(
       BarChartData(
         alignment: BarChartAlignment.spaceAround,
@@ -1738,10 +2073,10 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
             final groupIndex = response?.spot?.touchedBarGroupIndex;
             if (groupIndex == null || groupIndex < 0 || groupIndex > 6) return;
 
-            final item = periodData.dayItems[groupIndex];
-            if (item == null || item.sessions.isEmpty) return;
+            final payload = popupPayloadsByDay[groupIndex];
+            if (payload == null) return;
 
-            _showWeeklyIntensitySessionsPopup(context, item);
+            _showWeeklyIntensitySessionsPopup(context, payload);
           },
         ),
         gridData: FlGridData(
@@ -1885,6 +2220,7 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
 
     final startPointLabel = tr(context, 'Start', 'البداية');
     final endPointLabel = tr(context, 'End', 'النهاية');
+    final intensityMetricLabel = tr(context, 'Intensity', 'الشدة');
     final sessionLabels = List.generate(
       sessions.length,
           (index) => _sessionLabel(context, index + 1),
@@ -1893,6 +2229,19 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
       sessions.length,
           (index) => _sessionTypeShortLabel(context, sessions[index].sessionType),
     );
+    final sessionDateLabels = List.generate(
+      sessions.length,
+          (index) => _formatMonthDay(context, sessions[index].date),
+    );
+    final startIntensityLabels = List.generate(
+      sessions.length,
+          (index) => _localizedNumber(context, sessions[index].startPercent.round()),
+    );
+    final endIntensityLabels = List.generate(
+      sessions.length,
+          (index) => _localizedNumber(context, sessions[index].endPercent.round()),
+    );
+    final tooltipTextBySpot = <String, String>{};
 
     const leftReservedSize = 42.0;
     const bottomReservedSize = 40.0;
@@ -2011,24 +2360,21 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
               }
 
               final spot = touchedSpots.first;
-              final sessionIndex = spot.barIndex;
-              if (sessionIndex < 0 || sessionIndex >= sessions.length) return;
+              final key = '${spot.barIndex}_${spot.spotIndex}';
+              final text = tooltipTextBySpot[key];
+              if (text == null || text.trim().isEmpty) {
+                _hideIntensityDayPopup();
+                return;
+              }
 
-              final tapPosition = event.localPosition;
-              if (tapPosition == null) return;
-
-              final session = sessions[sessionIndex];
-              final isStart = spot.spotIndex == 0;
-              final sessionColor = _sessionTypeColor(session.sessionType);
-              final pointLabel = isStart ? startPointLabel : endPointLabel;
-              final text = '${sessionLabels[sessionIndex]} • ${sessionTypeLabels[sessionIndex]}\n'
-                  '$pointLabel: ${spot.y.round()}%';
               final chartHeight = (_intensityDayChartKey.currentContext?.findRenderObject() as RenderBox?)
                   ?.size
                   .height ??
                   240.0;
 
-              final localPosition = _intensityDaySpotLocalPosition(
+              // Match the emotion/tone popups by anchoring the popup to the
+              // actual chart point center, not to the user's finger position.
+              final popupAnchor = _intensityDaySpotLocalPosition(
                 spot,
                 Size(width, chartHeight),
                 minX: chartMinX,
@@ -2039,19 +2385,7 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
                 bottomReservedSize: bottomReservedSize,
               );
 
-              // Show the popup only when the user taps directly on a dot,
-              // not when tapping the connecting line or empty chart space.
-              if ((tapPosition - localPosition).distance > 16) {
-                _hideIntensityDayPopup();
-                return;
-              }
-
-              _showIntensityDayPointPopup(
-                context,
-                text,
-                localPosition,
-                sessionColor,
-              );
+              _showIntensityDayPointPopup(context, text, popupAnchor);
             },
             getTouchedSpotIndicator: (barData, spotIndexes) {
               return spotIndexes.map((index) {
@@ -2084,6 +2418,13 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
             final s = sessions[i];
             final x0 = (i * 2).toDouble();
             final x1 = x0 + 1;
+
+            tooltipTextBySpot['${i}_0'] =
+            '${sessionLabels[i]} • ${sessionTypeLabels[i]}\n'
+                '${sessionDateLabels[i]} • $startPointLabel $intensityMetricLabel: ${startIntensityLabels[i]}%';
+            tooltipTextBySpot['${i}_1'] =
+            '${sessionLabels[i]} • ${sessionTypeLabels[i]}\n'
+                '${sessionDateLabels[i]} • $endPointLabel $intensityMetricLabel: ${endIntensityLabels[i]}%';
 
             Color lineColor;
             Color startDotFill;
@@ -2256,7 +2597,6 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
       BuildContext context,
       String text,
       Offset localPosition,
-      Color accentColor,
       ) {
     _hideIntensityDayPopup();
 
@@ -2269,12 +2609,12 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
     final globalPoint = chartBox.localToGlobal(localPosition);
     final overlayPoint = overlayBox.globalToLocal(globalPoint);
 
-    const popupWidth = 124.0;
+    const popupWidth = 158.0;
     const horizontalPadding = 8.0;
     const verticalGap = 10.0;
     const arrowSize = 10.0;
-    const estimatedHeight = 58.0;
 
+    final estimatedHeight = text.contains('\n') ? 50.0 : 40.0;
     final left = (overlayPoint.dx - popupWidth / 2).clamp(
       horizontalPadding,
       overlayBox.size.width - popupWidth - horizontalPadding,
@@ -2290,98 +2630,36 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
     );
 
     _intensityDayPopupEntry = OverlayEntry(
-      builder: (_) {
-        return Stack(
-          children: [
-            Positioned.fill(
-              child: ModalBarrier(
-                dismissible: true,
-                onDismiss: _hideIntensityDayPopup,
-                color: Colors.transparent,
-              ),
-            ),
-            Positioned(
-              left: left,
-              top: top,
-              child: Material(
-                color: Colors.transparent,
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () {},
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        width: popupWidth,
-                        padding: const EdgeInsets.fromLTRB(9, 7, 6, 7),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF4B2D73),
-                          borderRadius: BorderRadius.circular(10),
-                          boxShadow: [
-                            BoxShadow(
-                              color: const Color(0xFF2A1E3B).withValues(alpha: 0.20),
-                              blurRadius: 12,
-                              offset: const Offset(0, 6),
-                            ),
-                          ],
-                        ),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              child: Text(
-                                text,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 9.5,
-                                  fontWeight: FontWeight.w800,
-                                  height: 1.25,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            GestureDetector(
-                              behavior: HitTestBehavior.opaque,
-                              onTap: _hideIntensityDayPopup,
-                              child: const Padding(
-                                padding: EdgeInsets.all(1.5),
-                                child: Icon(
-                                  Icons.close_rounded,
-                                  size: 13,
-                                  color: Color(0xFFEDE8FF),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      SizedBox(
-                        width: popupWidth,
-                        height: arrowSize,
-                        child: Stack(
-                          children: [
-                            Positioned(
-                              left: arrowLeft,
-                              top: -1,
-                              child: CustomPaint(
-                                size: const Size(arrowSize, arrowSize),
-                                painter: _IntensityTooltipTrianglePainter(
-                                  color: const Color(0xFF4B2D73),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+      builder: (overlayContext) {
+        return Positioned.fill(
+          child: Material(
+            color: Colors.transparent,
+            child: Stack(
+              children: [
+                GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onTap: () {
+                    _intensityDayPopupEntry?.remove();
+                    _intensityDayPopupEntry = null;
+                  },
+                  child: const SizedBox.expand(),
+                ),
+                Positioned(
+                  left: left,
+                  top: top,
+                  width: popupWidth,
+                  child: _SmallFlowPointPopup(
+                    text: text,
+                    arrowLeft: arrowLeft,
+                    onClose: () {
+                      _intensityDayPopupEntry?.remove();
+                      _intensityDayPopupEntry = null;
+                    },
                   ),
                 ),
-              ),
+              ],
             ),
-          ],
+          ),
         );
       },
     );
@@ -2599,6 +2877,32 @@ class _IntensityHabitLandCardState extends State<_IntensityHabitLandCard> {
   }
 }
 
+class _WeeklyIntensityPopupPayload {
+  final String title;
+  final String subtitle;
+  final List<_WeeklyIntensityPopupRowData> rows;
+
+  const _WeeklyIntensityPopupPayload({
+    required this.title,
+    required this.subtitle,
+    required this.rows,
+  });
+}
+
+class _WeeklyIntensityPopupRowData {
+  final CharacterSessionIntensity session;
+  final String title;
+  final String subtitle;
+  final String averageLabel;
+
+  const _WeeklyIntensityPopupRowData({
+    required this.session,
+    required this.title,
+    required this.subtitle,
+    required this.averageLabel,
+  });
+}
+
 class _IntensityTooltipTrianglePainter extends CustomPainter {
   final Color color;
 
@@ -2697,6 +3001,7 @@ class _VideoFlowHabitLandCardState extends State<_VideoFlowHabitLandCard> {
   final GlobalKey _flowChartKey = GlobalKey();
   OverlayEntry? _flowPointPopupEntry;
   int _selectedCharacterIndex = 0;
+  String? _selectedCharacterId;
   int _pageOffset = 0;
   bool _isWeekView = true;
 
@@ -2723,16 +3028,46 @@ class _VideoFlowHabitLandCardState extends State<_VideoFlowHabitLandCard> {
   }
 
   @override
+  void didUpdateWidget(covariant _VideoFlowHabitLandCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    final characterIds = _groupByCharacter(widget.allPoints).keys.toList();
+    final previousSelectedId = _selectedCharacterId;
+    _syncSelectedCharacter(characterIds);
+
+    if (previousSelectedId != _selectedCharacterId) {
+      _flowPointPopupEntry?.remove();
+      _flowPointPopupEntry = null;
+      _pageOffset = 0;
+    }
+  }
+
+  void _syncSelectedCharacter(List<String> characterIds) {
+    if (characterIds.isEmpty) {
+      _selectedCharacterId = null;
+      _selectedCharacterIndex = 0;
+      return;
+    }
+
+    if (_selectedCharacterId == null ||
+        !characterIds.contains(_selectedCharacterId)) {
+      _selectedCharacterId = characterIds.first;
+      _selectedCharacterIndex = 0;
+      return;
+    }
+
+    _selectedCharacterIndex = characterIds.indexOf(_selectedCharacterId!);
+  }
+
+  @override
   Widget build(BuildContext context) {
     final grouped = _groupByCharacter(widget.allPoints);
     final characterIds = grouped.keys.toList();
     if (characterIds.isEmpty) return const SizedBox.shrink();
 
-    if (_selectedCharacterIndex >= characterIds.length) {
-      _selectedCharacterIndex = 0;
-    }
+    _syncSelectedCharacter(characterIds);
 
-    final selectedId = characterIds[_selectedCharacterIndex];
+    final selectedId = _selectedCharacterId!;
     final points = grouped[selectedId]!..sort((a, b) => a.date.compareTo(b.date));
     final periodData = _isWeekView ? _buildWeekData(points) : _buildDayData(points);
     final latestLabel = periodData.points.isEmpty
@@ -2871,6 +3206,8 @@ class _VideoFlowHabitLandCardState extends State<_VideoFlowHabitLandCard> {
       height: 38,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
+        reverse: isArabic(context) &&
+            Directionality.of(context) != TextDirection.rtl,
         itemCount: characterIds.length,
         separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
@@ -2882,6 +3219,7 @@ class _VideoFlowHabitLandCardState extends State<_VideoFlowHabitLandCard> {
             onTap: () {
               setState(() {
                 _selectedCharacterIndex = index;
+                _selectedCharacterId = id;
                 _pageOffset = 0;
               });
             },
@@ -3921,6 +4259,7 @@ class _ToneFlowHabitLandCardState extends State<_ToneFlowHabitLandCard> {
   final GlobalKey _toneChartKey = GlobalKey();
   OverlayEntry? _tonePointPopupEntry;
   int _selectedCharacterIndex = 0;
+  String? _selectedCharacterId;
   int _pageOffset = 0;
   bool _isWeekView = true;
 
@@ -3929,6 +4268,38 @@ class _ToneFlowHabitLandCardState extends State<_ToneFlowHabitLandCard> {
     _tonePointPopupEntry?.remove();
     _tonePointPopupEntry = null;
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ToneFlowHabitLandCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    final characterIds = _groupByCharacter(widget.allPoints).keys.toList();
+    final previousSelectedId = _selectedCharacterId;
+    _syncSelectedCharacter(characterIds);
+
+    if (previousSelectedId != _selectedCharacterId) {
+      _tonePointPopupEntry?.remove();
+      _tonePointPopupEntry = null;
+      _pageOffset = 0;
+    }
+  }
+
+  void _syncSelectedCharacter(List<String> characterIds) {
+    if (characterIds.isEmpty) {
+      _selectedCharacterId = null;
+      _selectedCharacterIndex = 0;
+      return;
+    }
+
+    if (_selectedCharacterId == null ||
+        !characterIds.contains(_selectedCharacterId)) {
+      _selectedCharacterId = characterIds.first;
+      _selectedCharacterIndex = 0;
+      return;
+    }
+
+    _selectedCharacterIndex = characterIds.indexOf(_selectedCharacterId!);
   }
 
   static const Color _purple = Color(0xFF8E7CFF);
@@ -3949,11 +4320,9 @@ class _ToneFlowHabitLandCardState extends State<_ToneFlowHabitLandCard> {
     final characterIds = grouped.keys.toList();
     if (characterIds.isEmpty) return const SizedBox.shrink();
 
-    if (_selectedCharacterIndex >= characterIds.length) {
-      _selectedCharacterIndex = 0;
-    }
+    _syncSelectedCharacter(characterIds);
 
-    final selectedId = characterIds[_selectedCharacterIndex];
+    final selectedId = _selectedCharacterId!;
     final points = List<VideoSessionFlowPoint>.from(grouped[selectedId] ?? const [])
       ..sort((a, b) => a.date.compareTo(b.date));
     final periodData = _isWeekView ? _buildWeekData(points) : _buildDayData(points);
@@ -4085,6 +4454,8 @@ class _ToneFlowHabitLandCardState extends State<_ToneFlowHabitLandCard> {
       height: 38,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
+        reverse: isArabic(context) &&
+            Directionality.of(context) != TextDirection.rtl,
         itemCount: characterIds.length,
         separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
@@ -4096,6 +4467,7 @@ class _ToneFlowHabitLandCardState extends State<_ToneFlowHabitLandCard> {
             onTap: () {
               setState(() {
                 _selectedCharacterIndex = index;
+                _selectedCharacterId = id;
                 _pageOffset = 0;
               });
             },

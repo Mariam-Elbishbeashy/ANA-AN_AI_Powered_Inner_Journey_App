@@ -8,6 +8,23 @@ import 'package:ana_ifs_app/l10n/app_strings.dart';
 import 'package:ana_ifs_app/features/character/domain/entities/user_character.dart';
 import 'package:ana_ifs_app/features/profile/presentation/screens/profile_screen.dart';
 
+
+String _anaArabicDigits(Object value) {
+  var text = value.toString();
+  const englishDigits = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+  const arabicDigits = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+
+  for (int i = 0; i < englishDigits.length; i++) {
+    text = text.replaceAll(englishDigits[i], arabicDigits[i]);
+  }
+
+  return text;
+}
+
+String _localizedAnaNumber(BuildContext context, Object value) {
+  return isArabic(context) ? _anaArabicDigits(value) : value.toString();
+}
+
 class AnaNotificationItem {
   final String id;
   final String titleEn;
@@ -293,8 +310,13 @@ class _TopBarIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isArabicValue = isArabic(context);
+
     return Container(
-      margin: const EdgeInsets.only(left: 8),
+      margin: EdgeInsets.only(
+        left: isArabicValue ? 0 : 8,
+        right: isArabicValue ? 8 : 0,
+      ),
       decoration: BoxDecoration(
         color: const Color(0xFFF3EDFF),
         borderRadius: BorderRadius.circular(12),
@@ -311,7 +333,8 @@ class _TopBarIconButton extends StatelessWidget {
           if (badgeCount > 0)
             Positioned(
               top: -5,
-              right: -5,
+              right: isArabicValue ? null : -5,
+              left: isArabicValue ? -5 : null,
               child: Container(
                 constraints: const BoxConstraints(minWidth: 20, minHeight: 20),
                 padding: const EdgeInsets.symmetric(horizontal: 5),
@@ -322,7 +345,11 @@ class _TopBarIconButton extends StatelessWidget {
                 ),
                 child: Center(
                   child: Text(
-                    badgeCount > 99 ? '99+' : '$badgeCount',
+                    badgeCount > 99
+                        ? (isArabicValue ? '٩٩+' : '99+')
+                        : _localizedAnaNumber(context, badgeCount),
+                    textDirection:
+                    isArabicValue ? TextDirection.rtl : TextDirection.ltr,
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 10,
@@ -567,135 +594,163 @@ class _SettingsBottomSheetState extends State<SettingsBottomSheet> {
       return tr(context, 'Just now', 'الآن');
     }
     if (difference.inMinutes < 60) {
+      final minutes = _localizedAnaNumber(context, difference.inMinutes);
       return tr(
         context,
         '${difference.inMinutes} min ago',
-        'منذ ${difference.inMinutes} دقيقة',
+        'منذ $minutes دقيقة',
       );
     }
     if (difference.inHours < 24) {
+      final hours = _localizedAnaNumber(context, difference.inHours);
       return tr(
         context,
         '${difference.inHours} h ago',
-        'منذ ${difference.inHours} ساعة',
+        'منذ $hours ساعة',
       );
     }
+    final days = _localizedAnaNumber(context, difference.inDays);
     return tr(
       context,
       '${difference.inDays} d ago',
-      'منذ ${difference.inDays} يوم',
+      'منذ $days يوم',
+    );
+  }
+
+  String _unreadSummary(BuildContext context) {
+    if (_unreadCount == 0) {
+      return tr(
+        context,
+        'All updates are opened',
+        'تم فتح كل التحديثات',
+      );
+    }
+
+    return tr(
+      context,
+      '$_unreadCount unopened update${_unreadCount == 1 ? '' : 's'}',
+      '${_localizedAnaNumber(context, _unreadCount)} تحديث غير مفتوح',
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final height = MediaQuery.of(context).size.height * 0.78;
+    final isArabicValue = isArabic(context);
 
-    return Container(
-      height: height,
-      padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.only(
-          topLeft: Radius.circular(24),
-          topRight: Radius.circular(24),
+    return Directionality(
+      textDirection: isArabicValue ? TextDirection.rtl : TextDirection.ltr,
+      child: Container(
+        height: height,
+        padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.only(
+            topLeft: Radius.circular(24),
+            topRight: Radius.circular(24),
+          ),
         ),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 44,
-                height: 5,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFD0C6E8),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-            Row(
-              children: [
-                Container(
+        child: SafeArea(
+          top: false,
+          child: Column(
+            crossAxisAlignment:
+            isArabicValue ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
                   width: 44,
-                  height: 44,
+                  height: 5,
                   decoration: BoxDecoration(
-                    color: const Color(0xFF8E7CFF).withValues(alpha: 0.12),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.notifications_rounded,
-                    color: Color(0xFF8E7CFF),
-                    size: 22,
+                    color: const Color(0xFFD0C6E8),
+                    borderRadius: BorderRadius.circular(20),
                   ),
                 ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        tr(context, 'Notifications', 'الإشعارات'),
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w800,
-                          color: Color(0xFF2A1E3B),
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        _unreadCount == 0
-                            ? tr(
-                          context,
-                          'All updates are opened',
-                          'تم فتح كل التحديثات',
-                        )
-                            : tr(
-                          context,
-                          '$_unreadCount unopened update${_unreadCount == 1 ? '' : 's'}',
-                          '$_unreadCount تحديث غير مفتوح',
-                        ),
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF7A6A5A),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                IconButton(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close_rounded),
-                  color: const Color(0xFF7A6A5A),
-                ),
-              ],
-            ),
-            const SizedBox(height: 18),
-            Expanded(
-              child: _notifications.isEmpty
-                  ? _EmptyNotificationsState()
-                  : ListView.separated(
-                physics: const BouncingScrollPhysics(),
-                itemCount: _notifications.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 12),
-                itemBuilder: (context, index) {
-                  final notification = _notifications[index];
-
-                  return GestureDetector(
-                    onTap: () => _markOneAsOpened(notification),
-                    child: _NotificationUpdateTile(
-                      notification: notification,
-                      timeAgo: _timeAgo(context, notification.scheduledAt),
-                    ),
-                  );
-                },
               ),
-            ),
-          ],
+              const SizedBox(height: 20),
+              Row(
+                textDirection:
+                isArabicValue ? TextDirection.rtl : TextDirection.ltr,
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF8E7CFF).withValues(alpha: 0.12),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.notifications_rounded,
+                      color: Color(0xFF8E7CFF),
+                      size: 22,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: isArabicValue
+                          ? CrossAxisAlignment.end
+                          : CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          tr(context, 'Notifications', 'الإشعارات'),
+                          textAlign:
+                          isArabicValue ? TextAlign.right : TextAlign.left,
+                          textDirection: isArabicValue
+                              ? TextDirection.rtl
+                              : TextDirection.ltr,
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF2A1E3B),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _unreadSummary(context),
+                          textAlign:
+                          isArabicValue ? TextAlign.right : TextAlign.left,
+                          textDirection: isArabicValue
+                              ? TextDirection.rtl
+                              : TextDirection.ltr,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF7A6A5A),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close_rounded),
+                    color: const Color(0xFF7A6A5A),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              Expanded(
+                child: _notifications.isEmpty
+                    ? _EmptyNotificationsState()
+                    : ListView.separated(
+                  physics: const BouncingScrollPhysics(),
+                  itemCount: _notifications.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 12),
+                  itemBuilder: (context, index) {
+                    final notification = _notifications[index];
+
+                    return GestureDetector(
+                      onTap: () => _markOneAsOpened(notification),
+                      child: _NotificationUpdateTile(
+                        notification: notification,
+                        timeAgo: _timeAgo(context, notification.scheduledAt),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -715,127 +770,152 @@ class _NotificationUpdateTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final isArabicValue = isArabic(context);
 
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: notification.isOpened ? const Color(0xFFF9F6FF) : Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: notification.isOpened
-              ? const Color(0xFFE5DEFF)
-              : const Color(0xFF8E7CFF),
-          width: notification.isOpened ? 1 : 1.5,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color:
-            Colors.black.withValues(alpha: notification.isOpened ? 0.03 : 0.07),
-            blurRadius: 12,
-            offset: const Offset(0, 5),
+    return Directionality(
+      textDirection: isArabicValue ? TextDirection.rtl : TextDirection.ltr,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: notification.isOpened ? const Color(0xFFF9F6FF) : Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: notification.isOpened
+                ? const Color(0xFFE5DEFF)
+                : const Color(0xFF8E7CFF),
+            width: notification.isOpened ? 1 : 1.5,
           ),
-        ],
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Stack(
-            clipBehavior: Clip.none,
-            children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF8E7CFF).withValues(alpha: 0.12),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  notification.icon,
-                  color: const Color(0xFF8E7CFF),
-                  size: 21,
-                ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(
+                alpha: notification.isOpened ? 0.03 : 0.07,
               ),
-              if (!notification.isOpened)
-                Positioned(
-                  top: -2,
-                  right: -2,
-                  child: Container(
-                    width: 11,
-                    height: 11,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFF5A7A),
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 2),
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              blurRadius: 12,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: Row(
+          textDirection: isArabicValue ? TextDirection.rtl : TextDirection.ltr,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Stack(
+              clipBehavior: Clip.none,
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        isArabicValue
-                            ? notification.titleAr
-                            : notification.titleEn,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w900,
-                          color: Color(0xFF2A1E3B),
-                        ),
-                      ),
-                    ),
-                    Text(
-                      timeAgo,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF9C90B3),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  isArabicValue ? notification.bodyAr : notification.bodyEn,
-                  style: const TextStyle(
-                    fontSize: 12.5,
-                    height: 1.35,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF7A6A5A),
-                  ),
-                ),
-                const SizedBox(height: 10),
                 Container(
-                  padding:
-                  const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  width: 42,
+                  height: 42,
                   decoration: BoxDecoration(
-                    color: notification.isOpened
-                        ? const Color(0xFFEFEAF8)
-                        : const Color(0xFF8E7CFF).withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(999),
+                    color: const Color(0xFF8E7CFF).withValues(alpha: 0.12),
+                    shape: BoxShape.circle,
                   ),
-                  child: Text(
-                    notification.isOpened
-                        ? tr(context, 'Opened', 'تم الفتح')
-                        : tr(context, 'New', 'جديد'),
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w900,
-                      color: notification.isOpened
-                          ? const Color(0xFF7A6A5A)
-                          : const Color(0xFF6A5CFF),
-                    ),
+                  child: Icon(
+                    notification.icon,
+                    color: const Color(0xFF8E7CFF),
+                    size: 21,
                   ),
                 ),
+                if (!notification.isOpened)
+                  Positioned(
+                    top: -2,
+                    right: isArabicValue ? null : -2,
+                    left: isArabicValue ? -2 : null,
+                    child: Container(
+                      width: 11,
+                      height: 11,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFF5A7A),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 2),
+                      ),
+                    ),
+                  ),
               ],
             ),
-          ),
-        ],
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: isArabicValue
+                    ? CrossAxisAlignment.end
+                    : CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    textDirection:
+                    isArabicValue ? TextDirection.rtl : TextDirection.ltr,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          isArabicValue
+                              ? notification.titleAr
+                              : notification.titleEn,
+                          textAlign:
+                          isArabicValue ? TextAlign.right : TextAlign.left,
+                          textDirection: isArabicValue
+                              ? TextDirection.rtl
+                              : TextDirection.ltr,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w900,
+                            color: Color(0xFF2A1E3B),
+                          ),
+                        ),
+                      ),
+                      Text(
+                        timeAgo,
+                        textAlign:
+                        isArabicValue ? TextAlign.left : TextAlign.right,
+                        textDirection: isArabicValue
+                            ? TextDirection.rtl
+                            : TextDirection.ltr,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF9C90B3),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    isArabicValue ? notification.bodyAr : notification.bodyEn,
+                    textAlign: isArabicValue ? TextAlign.right : TextAlign.left,
+                    textDirection:
+                    isArabicValue ? TextDirection.rtl : TextDirection.ltr,
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      height: 1.35,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF7A6A5A),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: notification.isOpened
+                          ? const Color(0xFFEFEAF8)
+                          : const Color(0xFF8E7CFF).withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      notification.isOpened
+                          ? tr(context, 'Opened', 'تم الفتح')
+                          : tr(context, 'New', 'جديد'),
+                      textDirection:
+                      isArabicValue ? TextDirection.rtl : TextDirection.ltr,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w900,
+                        color: notification.isOpened
+                            ? const Color(0xFF7A6A5A)
+                            : const Color(0xFF6A5CFF),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -844,47 +924,67 @@ class _NotificationUpdateTile extends StatelessWidget {
 class _EmptyNotificationsState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            width: 70,
-            height: 70,
-            decoration: BoxDecoration(
-              color: const Color(0xFF8E7CFF).withValues(alpha: 0.12),
-              shape: BoxShape.circle,
+    final isArabicValue = isArabic(context);
+
+    return Directionality(
+      textDirection: isArabicValue ? TextDirection.rtl : TextDirection.ltr,
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment:
+          isArabicValue ? CrossAxisAlignment.end : CrossAxisAlignment.center,
+          children: [
+            Center(
+              child: Container(
+                width: 70,
+                height: 70,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF8E7CFF).withValues(alpha: 0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.notifications_none_rounded,
+                  color: Color(0xFF8E7CFF),
+                  size: 34,
+                ),
+              ),
             ),
-            child: const Icon(
-              Icons.notifications_none_rounded,
-              color: Color(0xFF8E7CFF),
-              size: 34,
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: Text(
+                tr(context, 'No notifications yet', 'لا توجد إشعارات بعد'),
+                textAlign: isArabicValue ? TextAlign.right : TextAlign.center,
+                textDirection:
+                isArabicValue ? TextDirection.rtl : TextDirection.ltr,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w900,
+                  color: Color(0xFF2A1E3B),
+                ),
+              ),
             ),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            tr(context, 'No notifications yet', 'لا توجد إشعارات بعد'),
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w900,
-              color: Color(0xFF2A1E3B),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: Text(
+                tr(
+                  context,
+                  'Your daily task updates will appear here.',
+                  'تحديثات المهام اليومية هتظهر هنا.',
+                ),
+                textAlign: isArabicValue ? TextAlign.right : TextAlign.center,
+                textDirection:
+                isArabicValue ? TextDirection.rtl : TextDirection.ltr,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF7A6A5A),
+                ),
+              ),
             ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            tr(
-              context,
-              'Your daily task updates will appear here.',
-              'ستظهر تحديثات المهام اليومية هنا.',
-            ),
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF7A6A5A),
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
