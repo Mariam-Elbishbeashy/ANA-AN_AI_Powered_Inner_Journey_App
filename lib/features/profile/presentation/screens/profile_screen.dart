@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:ana_ifs_app/features/profile/presentation/screens/AboutANAScreen.dart';
 import 'package:ana_ifs_app/features/profile/presentation/screens/HelpSupportScreen.dart';
@@ -6,6 +7,7 @@ import 'package:ana_ifs_app/features/profile/presentation/screens/NotificationsS
 import 'package:ana_ifs_app/features/profile/presentation/screens/PrivacySecurityScreen.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import 'package:ana_ifs_app/l10n/app_strings.dart';
@@ -38,10 +40,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _isRetaking = false;
   bool _hasQuestionnaireResults = false;
   int _questionCount = 0;
+  String? _profilePhotoUrl;
+  String? _profilePhotoPath;
+  bool _isProfilePhotoSaving = false;
 
   final FirestoreService _firestoreService = FirestoreService();
+  final ImagePicker _imagePicker = ImagePicker();
   StreamSubscription<List<UserCharacter>>? _charactersSubscription;
   StreamSubscription<int>? _questionCountSubscription;
+  StreamSubscription<Map<String, dynamic>>? _profileSubscription;
 
   @override
   void initState() {
@@ -57,9 +64,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (cachedQuestionCount != null) {
       _questionCount = cachedQuestionCount;
     }
+    _profilePhotoUrl = _profilePhotoUrlFromValue(widget.user?.photoURL);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _startRealtimeCacheUpdates();
+      _startProfilePhotoListener();
       _updateLastActivitySilently();
     });
   }
@@ -190,7 +199,261 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void dispose() {
     _charactersSubscription?.cancel();
     _questionCountSubscription?.cancel();
+    _profileSubscription?.cancel();
     super.dispose();
+  }
+
+
+  String? _profilePhotoUrlFromValue(dynamic value) {
+    final url = value?.toString().trim();
+    return url == null || url.isEmpty ? null : url;
+  }
+
+  String? _profilePhotoPathFromValue(dynamic value) {
+    final path = value?.toString().trim();
+    return path == null || path.isEmpty ? null : path;
+  }
+
+  void _startProfilePhotoListener() {
+    _profileSubscription?.cancel();
+    _profileSubscription = _firestoreService.watchCurrentUserProfile().listen(
+          (profileData) {
+        if (!mounted) return;
+
+        setState(() {
+          _profilePhotoUrl = _profilePhotoUrlFromValue(
+            profileData['profilePhotoUrl'] ?? profileData['photoURL'],
+          );
+          _profilePhotoPath = _profilePhotoPathFromValue(
+            profileData['profilePhotoPath'],
+          );
+        });
+      },
+      onError: (error) {
+        print('👤 ProfileScreen: profile photo watch error: $error');
+      },
+    );
+  }
+
+
+  bool _isArabicWithoutListening() {
+    try {
+      return context.read<AppLanguageProvider>().isArabic;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  String _profilePhotoText(String english, String arabic) {
+    return _isArabicWithoutListening() ? arabic : english;
+  }
+
+  Future<void> _handleProfilePhotoTap() async {
+    if (_isProfilePhotoSaving) return;
+
+    final isArabicValue = _isArabicWithoutListening();
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        return Directionality(
+          textDirection: isArabicValue ? TextDirection.rtl : TextDirection.ltr,
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.only(
+                topLeft: Radius.circular(24),
+                topRight: Radius.circular(24),
+              ),
+            ),
+            child: SafeArea(
+              top: false,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment:
+                isArabicValue ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 44,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFD0C6E8),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Text(
+                    _profilePhotoText('Profile picture', 'صورة الملف الشخصي'),
+                    textAlign: isArabicValue ? TextAlign.right : TextAlign.left,
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF2A1E3B),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  _ProfilePhotoActionTile(
+                    icon: Icons.photo_library_rounded,
+                    title: _profilePhotoText('Choose a photo', 'اختار صورة'),
+                    subtitle: _profilePhotoText('Save it and show it across the app', 'احفظها واعرضها في كل التطبيق'),
+                    onTap: () {
+                      Navigator.pop(sheetContext);
+                      _pickAndSaveProfilePhoto();
+                    },
+                  ),
+                  if (_profilePhotoUrl != null)
+                    _ProfilePhotoActionTile(
+                      icon: Icons.delete_outline_rounded,
+                      title: _profilePhotoText('Remove photo', 'امسح الصورة'),
+                      subtitle: _profilePhotoText('Return to the initial purple circle', 'ارجع للدائرة البنفسجي بحرف اسمك'),
+                      isDestructive: true,
+                      onTap: () {
+                        Navigator.pop(sheetContext);
+                        _removeProfilePhoto();
+                      },
+                    ),
+                  _ProfilePhotoActionTile(
+                    icon: Icons.close_rounded,
+                    title: _profilePhotoText('Cancel', 'إلغاء'),
+                    subtitle: _profilePhotoText('Keep current photo', 'خلي الصورة الحالية'),
+                    onTap: () => Navigator.pop(sheetContext),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  String _mimeTypeForPickedImage(XFile pickedImage) {
+    final name = pickedImage.name.toLowerCase();
+    final path = pickedImage.path.toLowerCase();
+
+    if (name.endsWith('.png') || path.endsWith('.png')) {
+      return 'image/png';
+    }
+    if (name.endsWith('.webp') || path.endsWith('.webp')) {
+      return 'image/webp';
+    }
+    return 'image/jpeg';
+  }
+
+  Future<void> _pickAndSaveProfilePhoto() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null || _isProfilePhotoSaving) return;
+
+    try {
+      final pickedImage = await _imagePicker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 600,
+        maxHeight: 600,
+        imageQuality: 72,
+      );
+
+      if (pickedImage == null) return;
+
+      if (mounted) {
+        setState(() {
+          _isProfilePhotoSaving = true;
+        });
+      }
+
+      final imageBytes = await pickedImage.readAsBytes();
+      final mimeType = _mimeTypeForPickedImage(pickedImage);
+      final photoDataUrl = 'data:$mimeType;base64,${base64Encode(imageBytes)}';
+
+      // Firestore documents have a 1 MiB limit. Keep the selected photo small
+      // so the profile document can stay the single real-time source for all pages.
+      if (photoDataUrl.length > 850000) {
+        throw Exception('Selected profile picture is too large after compression.');
+      }
+
+      await _firestoreService.updateCurrentUserProfilePhoto(
+        profilePhotoUrl: photoDataUrl,
+        profilePhotoPath: null,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _profilePhotoUrl = photoDataUrl;
+        _profilePhotoPath = null;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _profilePhotoText('Profile picture updated', 'تم تحديث صورة الملف الشخصي'),
+          ),
+        ),
+      );
+    } catch (e) {
+      print('👤 ProfileScreen: Error saving profile photo: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _profilePhotoText('Could not update profile picture. Please choose a smaller image and try again.', 'ماقدرناش نحدّث صورة الملف الشخصي. اختار صورة أصغر وحاول تاني.'),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isProfilePhotoSaving = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _removeProfilePhoto() async {
+    if (_isProfilePhotoSaving) return;
+
+    final oldPath = _profilePhotoPath;
+
+    if (mounted) {
+      setState(() {
+        _isProfilePhotoSaving = true;
+      });
+    }
+
+    try {
+      await _firestoreService.removeCurrentUserProfilePhoto();
+
+      if (!mounted) return;
+      setState(() {
+        _profilePhotoUrl = null;
+        _profilePhotoPath = null;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _profilePhotoText('Profile picture removed', 'تم مسح صورة الملف الشخصي'),
+          ),
+        ),
+      );
+    } catch (e) {
+      print('👤 ProfileScreen: Error removing profile photo: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _profilePhotoText('Could not remove profile picture. Please try again.', 'ماقدرناش نمسح صورة الملف الشخصي. حاول تاني.'),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isProfilePhotoSaving = false;
+        });
+      }
+    }
   }
 
   String _currentAppLanguage() {
@@ -446,22 +709,56 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       const SizedBox(height: 8),
-                      CircleAvatar(
-                        radius: 48,
-                        backgroundColor: Colors.white,
-                        child: widget.user?.photoURL != null
-                            ? ClipOval(
-                          child: Image.network(
-                            widget.user!.photoURL!,
-                            width: 100,
-                            height: 100,
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) {
-                              return _buildDefaultAvatar();
-                            },
-                          ),
-                        )
-                            : _buildDefaultAvatar(),
+                      GestureDetector(
+                        onTap: _handleProfilePhotoTap,
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            CircleAvatar(
+                              radius: 48,
+                              backgroundColor: Colors.white,
+                              child: ClipOval(
+                                child: _buildProfilePhotoImage(),
+                              ),
+                            ),
+                            Positioned(
+                              right: -2,
+                              bottom: -2,
+                              child: Container(
+                                width: 30,
+                                height: 30,
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: const Color(0xFFE5DEFF),
+                                    width: 2,
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withValues(alpha: 0.12),
+                                      blurRadius: 8,
+                                      offset: const Offset(0, 3),
+                                    ),
+                                  ],
+                                ),
+                                child: _isProfilePhotoSaving
+                                    ? const Padding(
+                                  padding: EdgeInsets.all(7),
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Color(0xFF8E7CFF),
+                                  ),
+                                )
+                                    : const Icon(
+                                  Icons.camera_alt_rounded,
+                                  size: 16,
+                                  color: Color(0xFF8E7CFF),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                       const SizedBox(height: 10),
                       Text(
@@ -935,14 +1232,151 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  Widget _buildProfilePhotoImage() {
+    final photoValue = _profilePhotoUrl?.trim();
+
+    if (photoValue == null || photoValue.isEmpty) {
+      return _buildDefaultAvatar();
+    }
+
+    if (photoValue.startsWith('data:image/')) {
+      try {
+        final commaIndex = photoValue.indexOf(',');
+        if (commaIndex <= 0 || commaIndex >= photoValue.length - 1) {
+          return _buildDefaultAvatar();
+        }
+
+        final imageBytes = base64Decode(photoValue.substring(commaIndex + 1));
+        return Image.memory(
+          imageBytes,
+          width: 96,
+          height: 96,
+          fit: BoxFit.cover,
+          gaplessPlayback: true,
+          errorBuilder: (context, error, stackTrace) => _buildDefaultAvatar(),
+        );
+      } catch (e) {
+        return _buildDefaultAvatar();
+      }
+    }
+
+    return Image.network(
+      photoValue,
+      width: 96,
+      height: 96,
+      fit: BoxFit.cover,
+      errorBuilder: (context, error, stackTrace) => _buildDefaultAvatar(),
+    );
+  }
+
   Widget _buildDefaultAvatar() {
-    return Center(
-      child: Text(
-        _getFormattedName().substring(0, 1).toUpperCase(),
-        style: const TextStyle(
-          fontSize: 36,
-          fontWeight: FontWeight.w800,
-          color: Color(0xFF8E7CFF),
+    final formattedName = _getFormattedName().trim();
+    final initial = formattedName.isNotEmpty
+        ? formattedName.substring(0, 1).toUpperCase()
+        : 'U';
+
+    return Container(
+      width: 96,
+      height: 96,
+      decoration: const BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: LinearGradient(
+          colors: [Color(0xFF8E7CFF), Color(0xFF6A5CFF)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: Center(
+        child: Text(
+          initial,
+          style: const TextStyle(
+            fontSize: 36,
+            fontWeight: FontWeight.w800,
+            color: Colors.white,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+
+class _ProfilePhotoActionTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+  final bool isDestructive;
+
+  const _ProfilePhotoActionTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.isDestructive = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isArabicValue = isArabic(context);
+    final color = isDestructive
+        ? const Color(0xFFE84A5F)
+        : const Color(0xFF8E7CFF);
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        margin: const EdgeInsets.only(top: 10),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF9F6FF),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFE5DEFF)),
+        ),
+        child: Row(
+          textDirection: isArabicValue ? TextDirection.rtl : TextDirection.ltr,
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, color: color, size: 22),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment:
+                isArabicValue ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    textAlign: isArabicValue ? TextAlign.right : TextAlign.left,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      color: isDestructive
+                          ? const Color(0xFFE84A5F)
+                          : const Color(0xFF2A1E3B),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    textAlign: isArabicValue ? TextAlign.right : TextAlign.left,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF7A6A5A),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );

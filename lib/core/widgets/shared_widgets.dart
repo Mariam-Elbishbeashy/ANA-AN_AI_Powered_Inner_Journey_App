@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -146,6 +147,101 @@ class _TopHelloBarState extends State<TopHelloBar> {
         (parts[1].isNotEmpty ? parts[1][0] : '');
   }
 
+  String? _profilePhotoUrlFromData(Map<String, dynamic> data) {
+    final rawUrl = data['profilePhotoUrl'] ??
+        data['photoURL'] ??
+        FirebaseAuth.instance.currentUser?.photoURL;
+    final url = rawUrl?.toString().trim();
+    return url == null || url.isEmpty ? null : url;
+  }
+
+  Stream<Map<String, dynamic>> _profileStream() {
+    final user = FirebaseAuth.instance.currentUser;
+
+    if (user == null) {
+      return Stream<Map<String, dynamic>>.value(<String, dynamic>{});
+    }
+
+    return _firestore.collection('users').doc(user.uid).snapshots().map((doc) {
+      if (!doc.exists) return <String, dynamic>{};
+      return doc.data() ?? <String, dynamic>{};
+    });
+  }
+
+  Widget _buildProfilePhotoImage({
+    required String? profilePhotoUrl,
+    required Widget Function() fallback,
+  }) {
+    final photoValue = profilePhotoUrl?.trim();
+
+    if (photoValue == null || photoValue.isEmpty) {
+      return fallback();
+    }
+
+    if (photoValue.startsWith('data:image/')) {
+      try {
+        final commaIndex = photoValue.indexOf(',');
+        if (commaIndex <= 0 || commaIndex >= photoValue.length - 1) {
+          return fallback();
+        }
+
+        final imageBytes = base64Decode(photoValue.substring(commaIndex + 1));
+        return Image.memory(
+          imageBytes,
+          width: 44,
+          height: 44,
+          fit: BoxFit.cover,
+          gaplessPlayback: true,
+          errorBuilder: (context, error, stackTrace) => fallback(),
+        );
+      } catch (e) {
+        return fallback();
+      }
+    }
+
+    return Image.network(
+      photoValue,
+      width: 44,
+      height: 44,
+      fit: BoxFit.cover,
+      errorBuilder: (context, error, stackTrace) => fallback(),
+    );
+  }
+
+  Widget _buildTopAvatar(String? profilePhotoUrl) {
+    Widget buildInitials() {
+      return Center(
+        child: Text(
+          _initialsFromName(widget.name),
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
+            color: Colors.white,
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      width: 44,
+      height: 44,
+      decoration: const BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: LinearGradient(
+          colors: [Color(0xFF8E7CFF), Color(0xFF6A5CFF)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: ClipOval(
+        child: _buildProfilePhotoImage(
+          profilePhotoUrl: profilePhotoUrl,
+          fallback: buildInitials,
+        ),
+      ),
+    );
+  }
+
   Stream<List<AnaNotificationItem>> _notificationsStream() {
     final user = FirebaseAuth.instance.currentUser;
 
@@ -205,27 +301,15 @@ class _TopHelloBarState extends State<TopHelloBar> {
             padding: const EdgeInsets.fromLTRB(18, 10, 18, 6),
             child: Row(
               children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: const BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: LinearGradient(
-                      colors: [Color(0xFF8E7CFF), Color(0xFF6A5CFF)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                  ),
-                  child: Center(
-                    child: Text(
-                      _initialsFromName(widget.name),
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
+                StreamBuilder<Map<String, dynamic>>(
+                  stream: _profileStream(),
+                  builder: (context, profileSnapshot) {
+                    final profilePhotoUrl = _profilePhotoUrlFromData(
+                      profileSnapshot.data ?? <String, dynamic>{},
+                    );
+
+                    return _buildTopAvatar(profilePhotoUrl);
+                  },
                 ),
                 const SizedBox(width: 12),
                 Expanded(

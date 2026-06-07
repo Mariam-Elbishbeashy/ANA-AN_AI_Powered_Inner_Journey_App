@@ -1495,6 +1495,95 @@ class FirestoreService {
     }
   }
 
+
+  // Watch current user's profile fields in real time.
+  // Used by Profile and the shared top bar so profile photo changes
+  // appear immediately across all pages.
+  Stream<Map<String, dynamic>> watchCurrentUserProfile() {
+    final userId = currentUserId;
+    if (userId == null) {
+      return Stream<Map<String, dynamic>>.value(<String, dynamic>{});
+    }
+
+    return usersCollection.doc(userId).snapshots().map((doc) {
+      if (!doc.exists) return <String, dynamic>{};
+      return doc.data() as Map<String, dynamic>? ?? <String, dynamic>{};
+    });
+  }
+
+  // Save current user's profile photo in Firestore.
+  // The value can be either a normal http(s) URL or a compact data:image URL.
+  // Using Firestore here avoids Firebase Storage 404 bucket/session errors and
+  // keeps Profile + TopHelloBar synced from one real-time user document.
+  Future<void> updateCurrentUserProfilePhoto({
+    required String profilePhotoUrl,
+    String? profilePhotoPath,
+  }) async {
+    final userId = currentUserId;
+    if (userId == null) return;
+
+    try {
+      final trimmedUrl = profilePhotoUrl.trim();
+      if (trimmedUrl.isEmpty) return;
+
+      final userRef = usersCollection.doc(userId);
+      final data = <String, dynamic>{
+        'profilePhotoUrl': trimmedUrl,
+        'photoURL': trimmedUrl,
+        'updatedAt': DateTime.now().toIso8601String(),
+      };
+
+      final trimmedPath = profilePhotoPath?.trim();
+      if (trimmedPath != null && trimmedPath.isNotEmpty) {
+        data['profilePhotoPath'] = trimmedPath;
+      }
+
+      await userRef.set(data, SetOptions(merge: true));
+
+      if (trimmedPath == null || trimmedPath.isEmpty) {
+        await userRef.update({
+          'profilePhotoPath': FieldValue.delete(),
+        });
+      }
+
+      final canBeAuthPhotoUrl =
+          trimmedUrl.startsWith('http://') || trimmedUrl.startsWith('https://');
+      await _auth.currentUser?.updatePhotoURL(
+        canBeAuthPhotoUrl ? trimmedUrl : null,
+      );
+      await _auth.currentUser?.reload();
+    } catch (e) {
+      print('Error updating profile photo: $e');
+      rethrow;
+    }
+  }
+
+  // Remove current user's profile photo so the UI falls back to initials.
+  Future<void> removeCurrentUserProfilePhoto() async {
+    final userId = currentUserId;
+    if (userId == null) return;
+
+    try {
+      final userRef = usersCollection.doc(userId);
+
+      await userRef.set({
+        'updatedAt': DateTime.now().toIso8601String(),
+      }, SetOptions(merge: true));
+
+      await userRef.update({
+        'profilePhotoUrl': FieldValue.delete(),
+        'photoURL': FieldValue.delete(),
+        'profilePhotoPath': FieldValue.delete(),
+      });
+
+      await _auth.currentUser?.updatePhotoURL(null);
+      await _auth.currentUser?.reload();
+    } catch (e) {
+      print('Error removing profile photo: $e');
+      rethrow;
+    }
+  }
+
   // Check if current user is an admin
   Future<bool> isCurrentUserAdmin() async {
     final userId = currentUserId;
