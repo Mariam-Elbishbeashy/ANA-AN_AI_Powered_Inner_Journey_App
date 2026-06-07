@@ -511,9 +511,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
                         const SizedBox(height: 12),
 
-                        const Text(
-                          "Welcome!",
-                          style: TextStyle(
+                        Text(
+                          tr(context, "Welcome!", "مرحبا"),
+                          style: const TextStyle(
                             fontSize: 26,
                             fontWeight: FontWeight.w900,
                             color: Color(0xFF2A1E3B),

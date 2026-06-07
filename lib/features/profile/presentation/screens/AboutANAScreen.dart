@@ -6,7 +6,7 @@ class AboutANAScreen extends StatelessWidget {
   const AboutANAScreen({super.key});
 
   static const String _instagramUrl =
-      'https://www.instagram.com/anajourney26?utm_source=qr';
+      'https://www.instagram.com/anajourney26/';
   static const String _contactEmail = 'anajourney26@hotmail.com';
 
   @override
@@ -711,10 +711,15 @@ class AboutANAScreen extends StatelessWidget {
   }
 
   Future<void> _openUrl(String url, String message, BuildContext context) async {
+    final uri = Uri.parse(url);
+
     try {
-      if (await canLaunchUrl(Uri.parse(url))) {
-        await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-      } else {
+      final launched = await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+      );
+
+      if (!launched && context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(message),
@@ -722,11 +727,12 @@ class AboutANAScreen extends StatelessWidget {
           ),
         );
       }
-    } catch (e) {
+    } catch (_) {
+      if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error: $e'),
-          backgroundColor: Colors.red,
+          content: Text(message),
+          backgroundColor: const Color(0xFF8E7CFF),
         ),
       );
     }
@@ -1143,7 +1149,7 @@ class _ContactOption extends StatelessWidget {
 
     final arrowIcon = Icon(
       isArabicValue
-          ? Icons.arrow_back_ios_rounded
+          ? Icons.arrow_forward_ios_rounded
           : Icons.arrow_forward_ios_rounded,
       size: 16,
       color: const Color(0xFFD0C6E8),

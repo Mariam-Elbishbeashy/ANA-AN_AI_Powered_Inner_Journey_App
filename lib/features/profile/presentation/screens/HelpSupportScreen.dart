@@ -14,7 +14,7 @@ class HelpSupportScreen extends StatefulWidget {
 class _HelpSupportScreenState extends State<HelpSupportScreen> {
   static const String _supportEmail = 'anajourney26@hotmail.com';
   static const String _instagramUrl =
-      'https://www.instagram.com/anajourney26?igsh=MW85cDJyeGg1MDFoaw%3D%3D&utm_source=qr';
+      'https://www.instagram.com/anajourney26/';
 
   int _rating = 0;
   bool _hasRated = false;
@@ -37,7 +37,7 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
                   borderRadius: BorderRadius.circular(20),
                 ),
                 title: Text(
-                  isArabicValue ? 'قيّمي التطبيق' : 'Rate Our App',
+                  isArabicValue ? 'قيّم التطبيق' : 'Rate Our App',
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     fontSize: 20,
@@ -230,8 +230,7 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
     // For Android: market://details?id=YOUR_PACKAGE_NAME
   }
 
-  Future<void> _sendEmail() async {
-    final isArabicValue = isArabic(context);
+  Future<void> _sendEmail(bool isArabicValue) async {
     final uri = Uri(
       scheme: 'mailto',
       path: _supportEmail,
@@ -242,24 +241,28 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
 
     await _launchUri(
       uri,
+      isArabicValue: isArabicValue,
       fallbackMessage: isArabicValue
           ? 'مش قادرين نفتح البريد دلوقتي.'
           : 'Could not open your email app right now.',
     );
   }
 
-  Future<void> _openCommunity() async {
-    final isArabicValue = isArabic(context);
+  Future<void> _openCommunity(bool isArabicValue) async {
     await _launchUri(
       Uri.parse(_instagramUrl),
+      isArabicValue: isArabicValue,
       fallbackMessage: isArabicValue
-          ? 'مش قادرين نفتح إنستجرام دلوقتي.'
-          : 'Could not open Instagram right now.',
+          ? 'مش قادرين نفتح إنستجرام دلوقتي'
+          : 'Could not open Instagram',
     );
   }
 
-  Future<void> _launchUri(Uri uri, {required String fallbackMessage}) async {
-    final isArabicValue = isArabic(context);
+  Future<void> _launchUri(
+      Uri uri, {
+        required bool isArabicValue,
+        required String fallbackMessage,
+      }) async {
 
     try {
       final launched = await launchUrl(
@@ -391,18 +394,18 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
         icon: Icons.flag_rounded,
         title: isArabicValue ? 'أول مرة أستخدم أنا' : 'First time using ANA',
         subtitle: isArabicValue
-            ? 'ابدئي من هنا لو لسه بتتعرفي على التطبيق ومش عارفة تمشي منين.'
+            ? 'ابدأ من هنا لو لسه بتتعرف على التطبيق ومش عارف تبدأ منين.'
             : 'Start here if you are new and want to know where to begin.',
         points: isArabicValue
             ? const [
-          'سجّلي دخولك أو اعملي حساب جديد عشان رحلتك تتسجل باسمك.',
-          'ابدئي بالاستبيان الأول لأنه بيبني أول صورة عن شخصياتك الداخلية.',
-          'اختاري الإجابات اللي قريبة من إحساسك، مش الإجابات اللي شايفة إنها مثالية.',
+          'سجّل دخولك أو اعمل حساب جديد عشان رحلتك تتسجل باسمك.',
+          'ابدأ بالاستبيان الأول لأنه بيبني أول صورة عن شخصياتك الداخلية.',
+          'اختار الإجابات اللي قريبة من إحساسك، مش الإجابات اللي شايف إنها مثالية.',
           'بعد الاستبيان هتظهرلك الشخصيات الأساسية اللي ANA شايف إنها أوضح عندك.',
-          'ادخلي على خريطة الشخصيات عشان تفهمي مين نشطة، مين مستقرة، ومين غير نشطة.',
-          'ابدئي بجلسة بسيطة مع أكتر شخصية ظاهرة بدل ما تفتحي كل حاجة مرة واحدة.',
-          'لو مش عارفة تبدأي منين، شوفي المهام اليومية لأنها بتديكي خطوة صغيرة وواضحة.',
-          'ارجعي للصفحة دي في أي وقت لو حسيتي إن في ميزة مش واضحة.',
+          'ادخل على خريطة الشخصيات عشان تفهم مين نشط، مين مستقر، ومين غير نشط.',
+          'ابدأ بجلسة بسيطة مع أكتر شخصية ظاهرة بدل ما تفتح كل حاجة مرة واحدة.',
+          'لو مش عارف تبدأ منين، شوف المهام اليومية لأنها بتديك خطوة صغيرة وواضحة.',
+          'ارجع للصفحة دي في أي وقت لو حسيت إن في ميزة مش واضحة.',
         ]
             : const [
           'Sign in or create an account so your journey can be saved to your profile.',
@@ -419,19 +422,19 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
         icon: Icons.quiz_rounded,
         title: isArabicValue ? 'الاستبيان والنتائج' : 'Questionnaire and results',
         subtitle: isArabicValue
-            ? 'افتحي الجزء ده لو عايزة تفهمي الأسئلة، النتيجة، أو إعادة الاستبيان.'
+            ? 'افتح الجزء ده لو عايز تفهم الأسئلة، النتيجة، أو إعادة الاستبيان.'
             : 'Open this if you want to understand the questions, results, or retaking the questionnaire.',
         points: isArabicValue
             ? const [
           'الاستبيان مش اختبار، هو طريقة عشان ANA يفهم أنماطك بشكل مبدئي.',
           'كل سؤال بيقيس إحساس أو تصرف ممكن يظهر في مواقف مختلفة.',
-          'لو سؤال حسيتيه قريب من كذا إجابة، اختاري الإجابة الأقرب لحالتك أغلب الوقت.',
+          'لو سؤال حسيته قريب من كذا إجابة، اختار الإجابة الأقرب لحالتك أغلب الوقت.',
           'النتيجة بتطلع أول مجموعة شخصيات ممكن تكون مؤثرة على رحلتك.',
           'وجود شخصية في النتيجة مش معناه حكم ثابت، ده مجرد بداية لفهم أعمق.',
           'نتيجتك ممكن تتغير بعد الجلسات، وإعادة التأطير، والمتابعة المستمرة.',
-          'تقدري تعيدي الاستبيان من الإعدادات لو حسيتي إن حالتك أو ردودك اتغيرت.',
+          'تقدر تعيد الاستبيان من الإعدادات لو حسيت إن حالتك أو ردودك اتغيرت.',
           'بعد إعادة الاستبيان، ANA يحدّث الصورة العامة حسب إجاباتك الجديدة.',
-          'لو النتيجة مش مفهومة، افتحي خريطة الشخصيات واقري وصف كل شخصية بهدوء.',
+          'لو النتيجة مش مفهومة، افتح خريطة الشخصيات واقرأ وصف كل شخصية بهدوء.',
         ]
             : const [
           'The questionnaire is not a test; it helps ANA understand your patterns at the beginning.',
@@ -449,19 +452,19 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
         icon: Icons.view_in_ar_rounded,
         title: isArabicValue ? 'خريطة الشخصيات' : 'Character map',
         subtitle: isArabicValue
-            ? 'افتحي الجزء ده لو عايزة تفهمي حالة كل شخصية ومكانها في رحلتك.'
+            ? 'افتح الجزء ده لو عايز تفهم حالة كل شخصية ومكانها في رحلتك.'
             : 'Open this if you want to understand each character state and its role in your journey.',
         points: isArabicValue
             ? const [
-          'الخريطة بتعرض الشخصيات بشكل بصري عشان تشوفي الصورة العامة بسرعة.',
+          'الخريطة بتعرض الشخصيات بشكل بصري عشان تشوف الصورة العامة بسرعة.',
           'نشطة يعني الشخصية ظاهرة بقوة ومحتاجة اهتمام أو جلسة دلوقتي.',
           'مستقرة يعني الشخصية لسه موجودة، بس حالتها أهدى ومتوازنة أكتر.',
           'غير نشطة يعني الشخصية ما ظهرتش كتير في الفترة الأخيرة أو تأثيرها قل.',
-          'افتحي أي شخصية عشان تشوفي الوصف، الحالة، والجلسات المرتبطة بيها.',
-          'لو في أكتر من شخصية نشطة، ابدئي بالأقوى أو اللي حاسة إنها مأثرة عليكي أكتر.',
+          'افتح أي شخصية عشان تشوف الوصف، الحالة، والجلسات المرتبطة بيها.',
+          'لو في أكتر من شخصية نشطة، ابدأ بالأقوى أو اللي حاسس إنها مأثرة عليك أكتر.',
           'الخريطة بتتحدث مع الوقت حسب الاستبيان، الجلسات، وإعادة التأطير.',
           'مش لازم كل الشخصيات تظهر عندك في نفس الوقت، وده طبيعي.',
-          'استخدمي الخريطة كملخص سريع، وبعدها ادخلي على التفاصيل لو محتاجة تفهمي أكتر.',
+          'استخدم الخريطة كملخص سريع، وبعدها ادخل على التفاصيل لو محتاج تفهم أكتر.',
         ]
             : const [
           'The map shows your characters visually so you can see the bigger picture quickly.',
@@ -479,19 +482,19 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
         icon: Icons.auto_fix_high_rounded,
         title: isArabicValue ? 'إعادة التأطير' : 'Reframe',
         subtitle: isArabicValue
-            ? 'افتحي الجزء ده لو عايزة تفهمي موقف أو إحساس من زاوية أوضح.'
+            ? 'افتح الجزء ده لو عايز تفهم موقف أو إحساس من زاوية أوضح.'
             : 'Open this if you want to understand a feeling or situation from a clearer angle.',
         points: isArabicValue
             ? const [
-          'إعادة التأطير معمولة عشان تكتبي أو تسجلي موقف مضايقك وتفهميه بشكل أهدى.',
-          'ممكن تستخدمي كتابة، صوت، أو فيديو حسب اللي ظاهر ومتاح عندك في التطبيق.',
-          'حاولي تكتبي موقف واحد في كل مرة عشان التحليل يبقى أوضح.',
+          'إعادة التأطير معمولة عشان تكتب أو تسجل موقف مضايقك وتفهمه بشكل أهدى.',
+          'ممكن تستخدم كتابة، صوت، أو فيديو حسب اللي ظاهر ومتاح عندك في التطبيق.',
+          'حاول تكتب موقف واحد في كل مرة عشان التحليل يبقى أوضح.',
           'ANA بيحلل الإحساس، النبرة، أو الإشارات المتاحة ويربطها بأقرب شخصية داخلية.',
           'بعد التحليل ممكن يظهرلك اقتراح بجلسة مع شخصية معينة.',
           'لو عندك شخصيات نشطة كتير، إعادة التأطير ممكن تتقفل مؤقتاً عشان ما يحصلش تشتيت.',
-          'لو إعادة التأطير مقفولة، كمّلي الأول مع الشخصيات الحالية أو المهام اليومية.',
-          'استخدمي إعادة التأطير لما تكوني عايزة تفهمي معنى الإحساس، مش بس تسجليه.',
-          'النتيجة هدفها تساعدك تلاحظي نمطك، مش تحكم عليكي أو تشخصك.',
+          'لو إعادة التأطير مقفولة، كمّل الأول مع الشخصيات الحالية أو المهام اليومية.',
+          'استخدم إعادة التأطير لما تكون عايز تفهم معنى الإحساس، مش بس تسجله.',
+          'النتيجة هدفها تساعدك تلاحظ نمطك، مش تحكم عليك أو تشخصك.',
         ]
             : const [
           'Reframe helps you write or record a difficult situation and understand it more calmly.',
@@ -509,19 +512,19 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
         icon: Icons.chat_bubble_rounded,
         title: isArabicValue ? 'الجلسات والمرشد' : 'Sessions and Guider',
         subtitle: isArabicValue
-            ? 'افتحي الجزء ده لو عايزة تعرفي الدردشة ماشية إزاي وإمتى المرشد بيتدخل.'
+            ? 'افتح الجزء ده لو عايز تعرف الدردشة ماشية إزاي وإمتى المرشد بيتدخل.'
             : 'Open this if you want to know how chats work and when the Guider steps in.',
         points: isArabicValue
             ? const [
           'كل جلسة بتكون مع شخصية محددة عشان الحوار يبقى مركز ومش متلخبط.',
-          'ابدئي الجلسة بجملة بسيطة عن اللي حاسة بيه دلوقتي.',
-          'حاولي تردي بهدوء ومن غير ضغط، حتى لو الرد قصير.',
+          'ابدأ الجلسة بجملة بسيطة عن اللي حاسس بيه دلوقتي.',
+          'حاول ترد بهدوء ومن غير ضغط، حتى لو الرد قصير.',
           'لو الشخصية بتكرر نفس الفكرة، ANA ممكن يلاحظ إن الحوار محتاج تنظيم.',
           'المرشد بيتدخل لما الجلسة تحتاج تهدئة، تلخيص، أو خطوات أبسط.',
-          'المرشد مش بيغيّر إحساسك غصب، هو بيساعدك تشوفيه بأمان أكتر.',
-          'ممكن تكملي مع الشخصية بعد تدخل المرشد لو حسيتي إنك جاهزة.',
-          'لو حسيتي بتوتر عالي، اقفلي الجلسة وخدي نفس أو وقفة صغيرة.',
-          'لو في خطر حقيقي أو أزمة شديدة، تواصلي مع مختص أو جهة طوارئ فوراً.',
+          'المرشد مش بيغيّر إحساسك غصب، هو بيساعدك تشوفه بأمان أكتر.',
+          'ممكن تكمل مع الشخصية بعد تدخل المرشد لو حسيت إنك جاهز.',
+          'لو حسيت بتوتر عالي، اقفل الجلسة وخد نفس أو وقفة صغيرة.',
+          'لو في خطر حقيقي أو أزمة شديدة، تواصل مع مختص أو جهة طوارئ فوراً.',
         ]
             : const [
           'Each session is with one character so the conversation stays focused and clear.',
@@ -539,19 +542,19 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
         icon: Icons.insights_rounded,
         title: isArabicValue ? 'التقدم والرسوم' : 'Progress and charts',
         subtitle: isArabicValue
-            ? 'افتحي الجزء ده لو عايزة تفهمي الشدة، النبرة، والمشاعر مع الوقت.'
+            ? 'افتح الجزء ده لو عايز تفهم الشدة، النبرة، والمشاعر مع الوقت.'
             : 'Open this if you want to understand intensity, tone, and emotions over time.',
         points: isArabicValue
             ? const [
-          'صفحة التقدم بتجمع إشارات من الجلسات وإعادة التأطير عشان توريكي التغيير مع الوقت.',
+          'صفحة التقدم بتجمع إشارات من الجلسات وإعادة التأطير عشان توريك التغيير مع الوقت.',
           'الشدة بتوضح قد إيه الإحساس كان قوي في جلساتك الأخيرة.',
-          'النبرة بتساعدك تلاحظي هل كلامك كان أهدى، أضغط، أو متغير.',
+          'النبرة بتساعدك تلاحظ هل كلامك كان أهدى، أضغط، أو متغير.',
           'المشاعر بتوضح الأنماط اللي بتتكرر أكتر في رحلتك.',
-          'ممكن تشوفي اليوم أو الأسبوع حسب طريقة العرض المتاحة.',
-          'لو يوم فيه جلسات كتير، راجعي آخر الجلسات عشان تفهمي السبب مش الرقم بس.',
-          'ما تحكميش على تقدمك من يوم واحد، بصي على الاتجاه العام خلال أسبوع.',
+          'ممكن تشوف اليوم أو الأسبوع حسب طريقة العرض المتاحة.',
+          'لو يوم فيه جلسات كتير، راجع آخر الجلسات عشان تفهم السبب مش الرقم بس.',
+          'ما تحكمش على تقدمك من يوم واحد، بص على الاتجاه العام خلال أسبوع.',
           'لو في ارتفاع مفاجئ، ده ممكن يبقى إشارة إن في شخصية محتاجة اهتمام أكتر.',
-          'استخدمي الرسوم كأداة ملاحظة، مش كدرجات أو تقييم لشخصيتك.',
+          'استخدم الرسوم كأداة ملاحظة، مش كدرجات أو تقييم لشخصيتك.',
         ]
             : const [
           'The progress page collects signals from sessions and Reframe to show change over time.',
@@ -569,18 +572,18 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
         icon: Icons.task_alt_rounded,
         title: isArabicValue ? 'المهام اليومية والإنجازات' : 'Daily tasks and achievements',
         subtitle: isArabicValue
-            ? 'افتحي الجزء ده لو عايزة تعرفي تستخدمي المهام والإنجازات إزاي.'
+            ? 'افتح الجزء ده لو عايز تعرف تستخدم المهام والإنجازات إزاي.'
             : 'Open this if you want to know how to use tasks and achievements.',
         points: isArabicValue
             ? const [
-          'المهام اليومية معمولة عشان تديكي خطوة صغيرة بدل ما الرحلة تبقى تقيلة.',
-          'اختاري مهمة واحدة في اليوم لو حاسة إن طاقتك قليلة.',
+          'المهام اليومية معمولة عشان تديك خطوة صغيرة بدل ما الرحلة تبقى تقيلة.',
+          'اختار مهمة واحدة في اليوم لو حاسس إن طاقتك قليلة.',
           'المهمة ممكن تكون ملاحظة، تمرين بسيط، أو خطوة مرتبطة بشخصية معينة.',
-          'الالتزام مش معناه تعملي كل حاجة، معناه ترجعي لنفسك حتى بخطوة صغيرة.',
-          'الإنجازات بتظهر لما تكتشفي شخصيات، تكملي جلسات، أو تحافظي على الاستمرارية.',
-          'لو فاتك يوم، كمّلي عادي من غير ما تحسي إنك بدأتي من الصفر.',
-          'استخدمي الإنجازات كتشجيع، مش كضغط أو مقارنة.',
-          'راجعي المهام مع التقدم عشان تفهمي إيه اللي بيساعدك فعلاً.',
+          'الالتزام مش معناه تعمل كل حاجة، معناه ترجع لنفسك حتى بخطوة صغيرة.',
+          'الإنجازات بتظهر لما تكتشف شخصيات، تكمل جلسات، أو تحافظ على الاستمرارية.',
+          'لو فاتك يوم، كمّل عادي من غير ما تحس إنك بدأت من الصفر.',
+          'استخدم الإنجازات كتشجيع، مش كضغط أو مقارنة.',
+          'راجع المهام مع التقدم عشان تفهم إيه اللي بيساعدك فعلاً.',
         ]
             : const [
           'Daily tasks are designed to give you one small step instead of making the journey feel heavy.',
@@ -597,18 +600,18 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
         icon: Icons.lock_rounded,
         title: isArabicValue ? 'الخصوصية والأمان' : 'Privacy and safety',
         subtitle: isArabicValue
-            ? 'افتحي الجزء ده لو عايزة تعرفي بياناتك بتتستخدم إزاي وحدود التطبيق.'
+            ? 'افتح الجزء ده لو عايز تعرف بياناتك بتتستخدم إزاي وحدود التطبيق.'
             : 'Open this if you want to understand how your data is used and the app limits.',
         points: isArabicValue
             ? const [
           'بياناتك بتستخدم جوّه التطبيق عشان تحسين تجربتك ومتابعة تقدمك.',
           'الجلسات والنتائج بتساعد ANA يفهم الأنماط اللي بتظهر عندك مع الوقت.',
-          'ما تكتبيش معلومات حساسة جداً لو مش مرتاحة تحفظيها في التطبيق.',
+          'ما تكتبش معلومات حساسة جداً لو مش مرتاح تحفظها في التطبيق.',
           'ANA أداة مساعدة للفهم والتأمل، مش بديل عن دكتور أو معالج نفسي.',
-          'لو عندك أزمة شديدة أو إحساس بخطر، لازم تتواصلي مع شخص موثوق أو مختص فوراً.',
-          'لو حسيت إن جلسة فتحت موضوع تقيل، اقفليها وخدي وقتك قبل ما ترجعي.',
-          'استخدمي التطبيق في مكان هادي لما تكوني بتتكلمي عن مشاعر حساسة.',
-          'لو في مشكلة تقنية أو سؤال عن البيانات، ابعتي لنا من قسم تواصلي معانا.',
+          'لو عندك أزمة شديدة أو إحساس بخطر، لازم تتواصل مع شخص موثوق أو مختص فوراً.',
+          'لو حسيت إن جلسة فتحت موضوع تقيل، اقفلها وخد وقتك قبل ما ترجع.',
+          'استخدم التطبيق في مكان هادي لما تكون بتتكلم عن مشاعر حساسة.',
+          'لو في مشكلة تقنية أو سؤال عن البيانات، ابعت لنا من قسم تواصل معانا.',
         ]
             : const [
           'Your data is used inside the app to improve your experience and track your progress.',
@@ -632,7 +635,7 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
             icon: Icons.menu_book_rounded,
             title: isArabicValue ? 'دليل استخدام أنا' : 'ANA User Guide',
             subtitle: isArabicValue
-                ? 'افتحي الجزء اللي محتاجاه بس، وهتلاقي شرح واضح من غير ما تقري كل حاجة مرة واحدة.'
+                ? 'افتح الجزء اللي محتاجه بس، وهتلاقي شرح واضح من غير ما تقرأ كل حاجة مرة واحدة.'
                 : 'Open only the part you need and get clear guidance without reading everything at once.',
           ),
           const SizedBox(height: 16),
@@ -656,7 +659,7 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
             icon: Icons.help_rounded,
             title: isArabicValue ? 'الأسئلة الشائعة' : 'Frequently Asked Questions',
             subtitle: isArabicValue
-                ? 'إجابات سريعة على أكتر حاجات ممكن تحتاجيها جوّه التطبيق.'
+                ? 'إجابات سريعة على أكتر حاجات ممكن تحتاجها جوّه التطبيق.'
                 : 'Quick answers to the most common things you may need inside the app.',
           ),
           const SizedBox(height: 20),
@@ -678,7 +681,7 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
             alignment:
             isArabicValue ? Alignment.centerRight : Alignment.centerLeft,
             child: Text(
-              isArabicValue ? 'تواصلي معانا' : 'Contact Support',
+              isArabicValue ? 'تواصل معانا' : 'Contact Support',
               textAlign: isArabicValue ? TextAlign.right : TextAlign.left,
               textDirection:
               isArabicValue ? TextDirection.rtl : TextDirection.ltr,
@@ -692,7 +695,7 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
           const SizedBox(height: 6),
           Text(
             isArabicValue
-                ? 'لو عندك سؤال أو مشكلة، اختاري الطريقة الأنسب ليكي.'
+                ? 'لو عندك سؤال أو مشكلة، اختار الطريقة الأنسب ليك.'
                 : 'Choose the easiest way to reach ANA support.',
             textAlign: isArabicValue ? TextAlign.right : TextAlign.left,
             textDirection:
@@ -705,20 +708,27 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
           ),
           const SizedBox(height: 16),
           _ContactOption(
-            icon: Icons.email_rounded,
+            icon: const Icon(
+              Icons.email_rounded,
+              color: Color(0xFF8E7CFF),
+              size: 20,
+            ),
             title: isArabicValue ? 'البريد الإلكتروني' : 'Email',
             subtitle: _supportEmail,
             onTap: () {
-              _sendEmail();
+              _sendEmail(isArabicValue);
             },
           ),
           const Divider(height: 24),
           _ContactOption(
-            icon: Icons.camera_alt_rounded,
-            title: isArabicValue ? 'انضمي لمجتمع أنا' : 'Join ANA Community',
+            icon: const _InstagramIcon(
+              size: 20,
+              color: Color(0xFF8E7CFF),
+            ),
+            title: isArabicValue ? 'انضم لمجتمع أنا' : 'Join ANA Community',
             subtitle: '@anajourney26',
             onTap: () {
-              _openCommunity();
+              _openCommunity(isArabicValue);
             },
           ),
         ],
@@ -786,7 +796,7 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
                 Text(
                   _hasRated
                       ? (isArabicValue ? 'تم التقييم!' : 'Rated!')
-                      : (isArabicValue ? 'قيّمي التطبيق' : 'Rate App'),
+                      : (isArabicValue ? 'قيّم التطبيق' : 'Rate App'),
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
@@ -819,7 +829,7 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
       {
         'question': isArabicValue ? 'إيه هو تطبيق أنا؟' : 'What is ANA?',
         'answer': isArabicValue
-            ? 'تطبيق أنا بيساعدك تفهمي مشاعرك من خلال شخصيات داخلية، جلسات تأمل، إعادة التأطير، وخريطة بتوضح حالتك مع الوقت.'
+            ? 'تطبيق أنا بيساعدك تفهم مشاعرك من خلال شخصيات داخلية، جلسات تأمل، إعادة التأطير، وخريطة بتوضح حالتك مع الوقت.'
             : 'ANA helps you understand your emotions through inner characters, reflection sessions, Reframe, and a character map that changes over time.',
       },
       {
@@ -843,13 +853,13 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
             ? 'إزاي أعيد الاستبيان؟'
             : 'How can I retake the questionnaire?',
         'answer': isArabicValue
-            ? 'ادخلي على إعدادات الحساب، وبعدها اختاري إعادة الاستبيان. ده هيحدّث النتائج بناءً على إجاباتك الجديدة.'
+            ? 'ادخل على إعدادات الحساب، وبعدها اختار إعادة الاستبيان. ده هيحدّث النتائج بناءً على إجاباتك الجديدة.'
             : 'Go to Account Settings and choose Retake Questionnaire. Your results will update based on your new answers.',
       },
       {
         'question': isArabicValue ? 'إيه هي إعادة التأطير؟' : 'What is Reframe?',
         'answer': isArabicValue
-            ? 'إعادة التأطير مساحة تكتبي أو تسجلي فيها موقف أو إحساس، وتطبيق أنا يحلله عشان يساعدك تشوفيه بطريقة أوضح ويربطه بالشخصية المناسبة.'
+            ? 'إعادة التأطير مساحة تكتب أو تسجل فيها موقف أو إحساس، وتطبيق أنا يحلله عشان يساعدك تشوفه بطريقة أوضح ويربطه بالشخصية المناسبة.'
             : 'Reframe lets you write or record a feeling or situation. ANA analyzes it to help you see it more clearly and connect it to the right character.',
       },
       {
@@ -857,7 +867,7 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
             ? 'ليه أحياناً إعادة التأطير بتكون مقفولة؟'
             : 'Why is Reframe sometimes locked?',
         'answer': isArabicValue
-            ? 'لو عندك شخصيات نشطة كتير في نفس الوقت، التطبيق ممكن يوقف إعادة التأطير مؤقتاً عشان يشجعك تهدي وتكملي مع الشخصيات الحالية الأول.'
+            ? 'لو عندك شخصيات نشطة كتير في نفس الوقت، التطبيق ممكن يوقف إعادة التأطير مؤقتاً عشان يشجعك تهدى وتكمل مع الشخصيات الحالية الأول.'
             : 'If several characters are active at the same time, ANA may pause Reframe temporarily so you can slow down and work with the current characters first.',
       },
       {
@@ -865,7 +875,7 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
             ? 'إزاي أستخدم خريطة الشخصيات؟'
             : 'How do I use the character map?',
         'answer': isArabicValue
-            ? 'الخريطة بتعرض الشخصيات بطريقة بصرية. افتحي الشخصية من الخريطة عشان تشوفي تفاصيلها، حالتها، وتأثيرها على رحلتك.'
+            ? 'الخريطة بتعرض الشخصيات بطريقة بصرية. افتح الشخصية من الخريطة عشان تشوف تفاصيلها، حالتها، وتأثيرها على رحلتك.'
             : 'The map displays your characters visually. Open a character from the map to see its details, state, and role in your journey.',
       },
       {
@@ -879,7 +889,7 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
       {
         'question': isArabicValue ? 'مين هو المرشد؟' : 'Who is the Guider?',
         'answer': isArabicValue
-            ? 'المرشد هو مساعد داخل تطبيق أنا بيتدخل لما الحوار يحتاج تهدئة أو تنظيم، وبيقدملك خطوات بسيطة تكملي بيها بأمان.'
+            ? 'المرشد هو مساعد داخل تطبيق أنا بيتدخل لما الحوار يحتاج تهدئة أو تنظيم، وبيقدملك خطوات بسيطة تكمل بيها بأمان.'
             : 'The Guider is an ANA helper that steps in when a session needs grounding or structure, giving you simple steps to continue safely.',
       },
       {
@@ -901,7 +911,7 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
             ? 'هل تطبيق أنا بديل للعلاج النفسي؟'
             : 'Is ANA a replacement for therapy?',
         'answer': isArabicValue
-            ? 'لا، تطبيق أنا أداة مساعدة للتأمل وفهم الذات، لكنه مش بديل عن دكتور أو مختص. لو في خطر أو أزمة شديدة، لازم تتواصلي مع مختص أو جهة طوارئ فوراً.'
+            ? 'لا، تطبيق أنا أداة مساعدة للتأمل وفهم الذات، لكنه مش بديل عن دكتور أو مختص. لو في خطر أو أزمة شديدة، لازم تتواصل مع مختص أو جهة طوارئ فوراً.'
             : 'No. ANA is a self-reflection support tool, not a replacement for a therapist or clinician. If you are in danger or crisis, contact a professional or emergency service immediately.',
       },
       {
@@ -909,7 +919,7 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
             ? 'أعمل إيه لو في مشكلة في التطبيق؟'
             : 'What should I do if something is not working?',
         'answer': isArabicValue
-            ? 'جربي تقفلي التطبيق وتفتحيه تاني، اتأكدي من الإنترنت، ولو المشكلة مستمرة ابعتي لنا من قسم تواصلي معانا.'
+            ? 'جرّب تقفل التطبيق وتفتحه تاني، اتأكد من الإنترنت، ولو المشكلة مستمرة ابعت لنا من قسم تواصل معانا.'
             : 'Try closing and reopening the app, check your internet connection, and contact us from the support section if the issue continues.',
       },
     ];
@@ -1214,7 +1224,7 @@ class _GuidePoint extends StatelessWidget {
 }
 
 class _ContactOption extends StatelessWidget {
-  final IconData icon;
+  final Widget icon;
   final String title;
   final String subtitle;
   final VoidCallback onTap;
@@ -1248,7 +1258,8 @@ class _ContactOption extends StatelessWidget {
         color: const Color(0xFF8E7CFF).withValues(alpha: 0.1),
         shape: BoxShape.circle,
       ),
-      child: Icon(icon, color: const Color(0xFF8E7CFF), size: 20),
+      alignment: Alignment.center,
+      child: icon,
     );
 
     final textBlock = Expanded(
@@ -1303,6 +1314,81 @@ class _ContactOption extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+
+class _InstagramIcon extends StatelessWidget {
+  final double size;
+  final Color color;
+
+  const _InstagramIcon({
+    required this.size,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: size,
+      height: size,
+      child: CustomPaint(
+        painter: _InstagramIconPainter(color: color),
+      ),
+    );
+  }
+}
+
+class _InstagramIconPainter extends CustomPainter {
+  final Color color;
+
+  const _InstagramIconPainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final strokeWidth = size.width * 0.08;
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    final outerRect = Rect.fromLTWH(
+      size.width * 0.13,
+      size.height * 0.13,
+      size.width * 0.74,
+      size.height * 0.74,
+    );
+
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        outerRect,
+        Radius.circular(size.width * 0.22),
+      ),
+      paint,
+    );
+
+    canvas.drawCircle(
+      Offset(size.width * 0.50, size.height * 0.50),
+      size.width * 0.18,
+      paint,
+    );
+
+    final dotPaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+
+    canvas.drawCircle(
+      Offset(size.width * 0.70, size.height * 0.30),
+      size.width * 0.045,
+      dotPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _InstagramIconPainter oldDelegate) {
+    return oldDelegate.color != color;
   }
 }
 
