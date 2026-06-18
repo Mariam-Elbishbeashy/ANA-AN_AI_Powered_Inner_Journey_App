@@ -31,8 +31,6 @@ class GuiderSessionRepository {
   }) {
     print("📡 Streaming Guider sessions for uid: $uid");
 
-    // 🔥 FIX: Don't filter by type - just get all sessions and filter in code
-    // This ensures sessions without 'type' field still appear
     return _sessionsRef(uid)
         .orderBy('startedAt', descending: true)
         .limit(limit)
@@ -85,44 +83,44 @@ class GuiderSessionRepository {
             }
           }
 
+          final startedAt = _toDateTime(data['startedAt']) ?? DateTime.now();
+          final endedAt = _toDateTime(data['endedAt']);
+          final isActive = data['isActive'] ?? true;
           final duration = _getDuration(data);
-          final hasMessages = threadId.isNotEmpty;
-          final hasEmotionData = _hasEmotionData(data);
-          final hasEndedAt = data['endedAt'] != null;
+          final hasMessages = data['hasMessages'] ?? (threadId.isNotEmpty);
+          final messageCount = data['messageCount'] as int?;
+
+          // Check if there are any emotions detected
+          final hasFaceEmotion = (data['faceEmotion'] as Map<String, dynamic>?)?['totalDetections'] != null &&
+              (data['faceEmotion'] as Map<String, dynamic>?)?['totalDetections'] > 0;
+          final hasVoiceEmotion = (data['voiceTone'] as Map<String, dynamic>?)?['totalDetections'] != null &&
+              (data['voiceTone'] as Map<String, dynamic>?)?['totalDetections'] > 0;
+
+          final hasEmotionData = hasFaceEmotion || hasVoiceEmotion;
 
           // Always show sessions that have ANY content
-          final hasContent = hasMessages || duration > 0 || hasEmotionData || hasEndedAt;
+          final hasContent = hasMessages || duration > 0 || hasEmotionData || endedAt != null;
 
           // Also show if it was created recently (within last hour) - for new sessions
-          final startedAt = _toDateTime(data['startedAt']);
           final isRecent = startedAt != null &&
               DateTime.now().difference(startedAt).inHours < 1;
 
           if (hasContent || isRecent) {
             final session = GuiderSession(
               id: doc.id,
-              userId: uid,
-              characterId: data['characterId']?.toString(),
-              status: data['status']?.toString() ?? 'active',
-              title: data['title']?.toString(),
+              threadId: threadId,
               startedAt: startedAt,
-              endedAt: _toDateTime(data['endedAt']),
-              updatedAt: _toDateTime(data['updatedAt']),
+              endedAt: endedAt,
+              isActive: isActive,
               duration: duration,
-              emotionsTracked: data['emotionsTracked'] != null
-                  ? List<String>.from(data['emotionsTracked'])
-                  : null,
-              sessionSummary: data['sessionSummary'] as Map<String, dynamic>?,
               faceEmotion: data['faceEmotion'] as Map<String, dynamic>?,
               voiceTone: data['voiceTone'] as Map<String, dynamic>?,
-              intensityStart: (data['intensity'] as Map<String, dynamic>?)?['start']?.toDouble(),
-              intensityEnd: (data['intensity'] as Map<String, dynamic>?)?['end']?.toDouble(),
-              intensityDelta: (data['intensity'] as Map<String, dynamic>?)?['delta']?.toDouble(),
-              threadId: threadId,
+              hasMessages: hasMessages,
+              messageCount: messageCount,
             );
 
             sessions.add(session);
-            print("   ✅ Added session: ${session.id}, threadId: $threadId, status: ${session.status}");
+            print("   ✅ Added session: ${session.id}, threadId: $threadId, status: ${session.isActive ? 'active' : 'ended'}, hasMessages: $hasMessages");
           } else {
             print("   ⏭️ Skipped empty session: ${doc.id}");
           }
@@ -132,12 +130,8 @@ class GuiderSessionRepository {
         }
       }
 
-      // Sort by startedAt (newest first) - handle nulls
-      sessions.sort((a, b) {
-        final aDate = a.startedAt ?? DateTime(2000);
-        final bDate = b.startedAt ?? DateTime(2000);
-        return bDate.compareTo(aDate);
-      });
+      // Sort by startedAt (newest first)
+      sessions.sort((a, b) => b.startedAt.compareTo(a.startedAt));
 
       print("✅ Loaded ${sessions.length} Guider sessions");
       return sessions;
@@ -147,24 +141,106 @@ class GuiderSessionRepository {
     });
   }
 
+  /// Get a single Guider session by ID
+  Future<GuiderSession?> getSession({
+    required String uid,
+    required String sessionId,
+  }) async {
+    try {
+      final doc = await _sessionsRef(uid).doc(sessionId).get();
+      if (!doc.exists) return null;
+
+      final data = doc.data()!;
+      final threadId = data['threadId'] ?? '';
+
+      return GuiderSession(
+        id: doc.id,
+        threadId: threadId,
+        startedAt: _toDateTime(data['startedAt']) ?? DateTime.now(),
+        endedAt: _toDateTime(data['endedAt']),
+        isActive: data['isActive'] ?? true,
+        duration: _getDuration(data),
+        faceEmotion: data['faceEmotion'] as Map<String, dynamic>?,
+        voiceTone: data['voiceTone'] as Map<String, dynamic>?,
+        hasMessages: data['hasMessages'] ?? (threadId.isNotEmpty),
+        messageCount: data['messageCount'] as int?,
+      );
+    } catch (e) {
+      print("❌ Error getting session: $e");
+      return null;
+    }
+  }
+
+  /// Update session when it ends
+  // lib/features/guider/data/repositories/guider_session_repository.dart
+
+  /// Update session when it ends
+  Future<void> endSession({
+    required String uid,
+    required String sessionId,
+    required int duration,
+    required bool hasMessages,
+    int? messageCount,
+  }) async {
+    try {
+      final sessionRef = _sessionsRef(uid).doc(sessionId);
+
+      // First check if the session exists
+      final doc = await sessionRef.get();
+
+      if (doc.exists) {
+        await sessionRef.update({
+          'endedAt': FieldValue.serverTimestamp(),
+          'isActive': false,
+          'duration': duration,
+          'hasMessages': hasMessages,
+          'messageCount': messageCount,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      } else {
+        // Create the session if it doesn't exist
+        await sessionRef.set({
+          'startedAt': DateTime.now(),
+          'endedAt': DateTime.now(),
+          'isActive': false,
+          'duration': duration,
+          'hasMessages': hasMessages,
+          'messageCount': messageCount,
+          'characterType': 'guider',
+          'type': 'video',
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+      print("✅ Session ended: $sessionId, hasMessages: $hasMessages, duration: ${duration}s");
+    } catch (e) {
+      print("❌ Error ending session: $e");
+      rethrow;
+    }
+  }
+
+  /// Increment message count for a session
+  Future<void> incrementMessageCount({
+    required String uid,
+    required String sessionId,
+  }) async {
+    try {
+      await _sessionsRef(uid).doc(sessionId).update({
+        'messageCount': FieldValue.increment(1),
+        'hasMessages': true,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      print("❌ Error incrementing message count: $e");
+    }
+  }
+
   DateTime? _toDateTime(dynamic value) {
     if (value == null) return null;
     if (value is Timestamp) return value.toDate();
     if (value is DateTime) return value;
     if (value is String) return DateTime.tryParse(value);
     return null;
-  }
-
-  bool _hasEmotionData(Map<String, dynamic> data) {
-    final faceEmotion = data['faceEmotion'] as Map<String, dynamic>?;
-    final voiceTone = data['voiceTone'] as Map<String, dynamic>?;
-
-    final hasFaceEmotion = faceEmotion != null &&
-        (faceEmotion['allDetections'] as List?)?.isNotEmpty == true;
-    final hasVoiceEmotion = voiceTone != null &&
-        (voiceTone['allDetections'] as List?)?.isNotEmpty == true;
-
-    return hasFaceEmotion || hasVoiceEmotion;
   }
 
   int _getDuration(Map<String, dynamic> data) {
@@ -212,21 +288,67 @@ class GuiderSessionRepository {
 
       if (snapshot.docs.isEmpty) {
         print('⚠️ No messages found in thread: $threadId');
+        return [];
       }
 
-      return snapshot.docs.map((doc) {
+      final messages = <GuiderMessage>[];
+
+      for (final doc in snapshot.docs) {
         final data = doc.data();
-        return GuiderMessage(
+        String content = data['content'] ?? '';
+
+        // If content is encrypted, we'll decrypt in the UI layer
+        // Just store the raw content for now
+        messages.add(GuiderMessage(
           id: doc.id,
           role: data['role'] ?? 'user',
-          content: data['content'] ?? '',
+          content: content,
           sender: data['sender'],
+          characterId: data['characterId'],
+          sessionId: data['sessionId'],
           createdAt: _toDateTime(data['createdAt']),
-        );
-      }).toList();
+        ));
+      }
+
+      return messages;
     } catch (e) {
       print('❌ Error getting messages: $e');
       return [];
+    }
+  }
+
+  /// Save a message to a thread
+  Future<void> saveMessage({
+    required String uid,
+    required String threadId,
+    required String role,
+    required String content,
+    String? sender,
+    String? characterId,
+    String? sessionId,
+    bool encrypted = false,
+  }) async {
+    if (threadId.isEmpty) {
+      print('❌ saveMessage: threadId is empty');
+      return;
+    }
+
+    try {
+      final messageData = {
+        'role': role,
+        'content': content,
+        'sender': sender ?? (role == 'user' ? 'user' : 'assistant'),
+        'createdAt': FieldValue.serverTimestamp(),
+        if (characterId != null) 'characterId': characterId,
+        if (sessionId != null) 'sessionId': sessionId,
+        if (encrypted) 'encrypted': true,
+      };
+
+      await _messagesRef(uid, threadId).add(messageData);
+      print('✅ Message saved to thread: $threadId');
+    } catch (e) {
+      print('❌ Error saving message: $e');
+      rethrow;
     }
   }
 }

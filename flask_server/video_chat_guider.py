@@ -5,13 +5,15 @@ import json
 import logging
 from datetime import datetime, timezone
 import time
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 import traceback
 import requests
+from concurrent.futures import ThreadPoolExecutor
 
 import firebase_admin
 from firebase_admin import credentials, firestore
 from openai import OpenAI
+from video_transcript_store import append_video_message_encrypted, get_video_messages_decrypted
 
 OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-4o-mini')
 OPENAI_SUMMARY_MODEL = os.getenv('OPENAI_SUMMARY_MODEL', 'gpt-4o-mini')
@@ -19,6 +21,19 @@ openai_client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
 # Emotion detector server URL
 EMOTION_DETECTOR_URL = os.getenv('EMOTION_DETECTOR_URL', 'http://localhost:5002')
+
+# -----------------------------------------------------------------------------
+# Configuration (matching agents.py)
+# -----------------------------------------------------------------------------
+MEMORY_PROMPT_MAX_CHARS = max(200, int(os.getenv("MEMORY_PROMPT_MAX_CHARS", "1800")))
+CHAT_REPLY_MAX_TOKENS = max(80, int(os.getenv("CHAT_REPLY_MAX_TOKENS", "120")))
+AGENT_JSON_RESPONSE_MODE = str(os.getenv("AGENT_JSON_RESPONSE_MODE", "false")).strip().lower() in {"1", "true", "yes", "on"}
+FAST_MODE_DETERMINISTIC_WRITES = str(os.getenv("FAST_MODE_DETERMINISTIC_WRITES", "true")).strip().lower() in {"1", "true", "yes", "on"}
+FAST_MODE_PROGRESS_INTERVAL_SEC = max(30, int(os.getenv("FAST_MODE_PROGRESS_INTERVAL_SEC", "90")))
+FAST_MODE_TIMELINE_INTERVAL_SEC = max(60, int(os.getenv("FAST_MODE_TIMELINE_INTERVAL_SEC", "300")))
+
+_BACKGROUND_WORKERS = max(2, int(os.getenv("AGENT_BACKGROUND_WORKERS", "6")))
+_background_executor = ThreadPoolExecutor(max_workers=_BACKGROUND_WORKERS)
 
 # -----------------------------------------------------------------------------
 # Logging (terminal visibility)
@@ -44,7 +59,7 @@ guider_video_bp = Blueprint("guider_video_bp", __name__, url_prefix="/guider")
 
 
 # ============================================================================
-# Helper Functions (mirroring agent.py)
+# Helper Functions (matching agents.py)
 # ============================================================================
 
 def _now_iso() -> str:
@@ -63,6 +78,43 @@ def _json_default(obj):
         except Exception:
             pass
     return str(obj)
+
+
+def _clip_text(value: Any, max_chars: int) -> str:
+    text = str(value or "")
+    if max_chars > 0 and len(text) > max_chars:
+        return text[:max_chars].rstrip() + " ..."
+    return text
+
+
+def _prepare_model_messages(
+    messages: List[Dict[str, str]],
+    max_messages: int = 6,
+    max_chars_per_message: int = 280,
+) -> List[Dict[str, str]]:
+    tail = messages[-max_messages:] if len(messages) > max_messages else messages
+    prepared: List[Dict[str, str]] = []
+    for message in tail:
+        role = message.get("role")
+        content = message.get("content", "")
+        if role in ["user", "assistant"] and content:
+            prepared.append(
+                {
+                    "role": role,
+                    "content": _clip_text(content, max_chars_per_message),
+                }
+            )
+    return prepared
+
+
+def _messages_payload_stats(messages: List[Dict[str, str]]) -> Dict[str, int]:
+    chars = 0
+    for message in messages:
+        chars += len(str(message.get("content", "")))
+    return {
+        "count": len(messages),
+        "chars": chars,
+    }
 
 
 def _user_ref(uid: str):
@@ -101,8 +153,29 @@ def _plan_runs_ref(uid: str, character_id: str):
     return _character_plan_ref(uid, character_id).collection("agent_runs")
 
 
+def _run_background(task_name: str, fn, *args, **kwargs) -> None:
+    try:
+        fn(*args, **kwargs)
+    except Exception as e:
+        logger.info(
+            json.dumps(
+                {
+                    "event": "background_task_failed",
+                    "task": task_name,
+                    "ts": _now_iso(),
+                    "error": str(e),
+                },
+                ensure_ascii=False,
+            )
+        )
+
+
+def _submit_background(task_name: str, fn, *args, **kwargs) -> None:
+    _background_executor.submit(_run_background, task_name, fn, *args, **kwargs)
+
+
 # ============================================================================
-# Character Checklist Templates (mirroring agent.py)
+# Character Checklist Templates (matching agents.py)
 # ============================================================================
 
 CHARACTER_CHECKLIST_TEMPLATES: Dict[str, List[Dict[str, str]]] = {
@@ -159,7 +232,7 @@ CHARACTER_CHECKLIST_TEMPLATES: Dict[str, List[Dict[str, str]]] = {
 
 
 def ensure_character_checklist(uid: str, character_id: str) -> None:
-    """Ensures a per-character plan doc exists."""
+    """Ensures a per-character plan doc exists - matching agents.py."""
     doc_ref = _character_plan_ref(uid, character_id)
     snap = doc_ref.get()
     if snap.exists:
@@ -212,8 +285,26 @@ def ensure_character_checklist(uid: str, character_id: str) -> None:
     )
 
 
+def _get_character_plan_snapshot(uid: str, character_id: str) -> Dict[str, Any]:
+    """Returns a compact snapshot of the per-character checklist + focus - matching agents.py."""
+    try:
+        ensure_character_checklist(uid, character_id)
+        snap = _character_plan_ref(uid, character_id).get()
+        if not snap.exists:
+            return {}
+        d = snap.to_dict() or {}
+        return {
+            "status": d.get("status"),
+            "focus": d.get("focus") or {},
+            "checklistItems": d.get("checklistItems") or [],
+            "metrics": d.get("metrics") or {},
+        }
+    except Exception:
+        return {}
+
+
 # ============================================================================
-# Session Management (mirroring agent.py patterns)
+# Session Management
 # ============================================================================
 
 def _ensure_session_doc(uid: str, session_id: str, character_id: str = 'guider') -> None:
@@ -260,6 +351,12 @@ def _ensure_session_doc(uid: str, session_id: str, character_id: str = 'guider')
                 "uid": uid,
                 "sessionId": session_id
             }, ensure_ascii=False))
+        else:
+            # Update existing sessions to ensure fields exist
+            sref.set({
+                "characterType": "guider",
+                "type": "video",
+            }, merge=True)
     except Exception as e:
         logger.info(json.dumps({
             "event": "session_creation_failed",
@@ -292,38 +389,23 @@ def _ensure_thread_doc(uid: str, thread_id: str, session_id: str) -> None:
         }, ensure_ascii=False))
 
 
-def _save_message(uid: str, thread_id: str, role: str, content: str, sender: str = None) -> None:
-    """Save a message to Firestore."""
+def _save_message_encrypted(uid: str, thread_id: str, role: str, content: str,
+                            session_id: str = None, sender: str = None, character_id: str = None) -> None:
+    """Save an encrypted message to Firestore."""
+    if not thread_id:
+        return
+    if not content or content.strip() == '':
+        return
     try:
-        msg_ref = _messages_ref(uid, thread_id).document()
-        msg_data = {
-            "role": role,
-            "content": content,
-            "createdAt": firestore.SERVER_TIMESTAMP,
-        }
-        if sender:
-            msg_data["sender"] = sender
-
-        msg_ref.set(msg_data)
-
-        _threads_ref(uid).document(thread_id).set({
-            "lastMessageAt": firestore.SERVER_TIMESTAMP,
-            "updatedAt": firestore.SERVER_TIMESTAMP,
-        }, merge=True)
-
-        thread_doc = _threads_ref(uid).document(thread_id).get()
-        if thread_doc.exists:
-            session_id = thread_doc.to_dict().get('sessionId')
-            if session_id:
-                _session_ref(uid, session_id).set({
-                    "updatedAt": firestore.SERVER_TIMESTAMP,
-                    "lastMessageAt": firestore.SERVER_TIMESTAMP,
-                }, merge=True)
-
-                if role == 'user':
-                    _session_ref(uid, session_id).set({
-                        "userTurnCount": firestore.Increment(1),
-                    }, merge=True)
+        result = append_video_message_encrypted(
+            uid=uid,
+            thread_id=thread_id,
+            role=role,
+            content=content,
+            session_id=session_id,
+            sender=sender,
+            character_id=character_id,
+        )
     except Exception as e:
         logger.info(json.dumps({
             "event": "save_message_failed",
@@ -331,6 +413,10 @@ def _save_message(uid: str, thread_id: str, role: str, content: str, sender: str
             "error": str(e)
         }, ensure_ascii=False))
 
+
+# ============================================================================
+# Emotion Tracking (Video-specific)
+# ============================================================================
 
 def _update_face_emotion(uid: str, session_id: str, emotion: str, confidence: float) -> None:
     """Update face emotion data in Firestore."""
@@ -371,16 +457,6 @@ def _update_face_emotion(uid: str, session_id: str, emotion: str, confidence: fl
                 'updatedAt': firestore.SERVER_TIMESTAMP
             }
         }, merge=True)
-
-        logger.info(json.dumps({
-            "event": "face_emotion_updated",
-            "ts": _now_iso(),
-            "uid": uid,
-            "sessionId": session_id,
-            "emotion": emotion,
-            "confidence": confidence,
-            "dominant": dominant
-        }, ensure_ascii=False))
 
     except Exception as e:
         logger.info(json.dumps({
@@ -430,16 +506,6 @@ def _update_voice_emotion(uid: str, session_id: str, emotion: str, confidence: f
             }
         }, merge=True)
 
-        logger.info(json.dumps({
-            "event": "voice_emotion_updated",
-            "ts": _now_iso(),
-            "uid": uid,
-            "sessionId": session_id,
-            "emotion": emotion,
-            "confidence": confidence,
-            "dominant": dominant
-        }, ensure_ascii=False))
-
     except Exception as e:
         logger.info(json.dumps({
             "event": "voice_emotion_update_failed",
@@ -448,111 +514,8 @@ def _update_voice_emotion(uid: str, session_id: str, emotion: str, confidence: f
         }, ensure_ascii=False))
 
 
-def _log_agent_run(ref, payload: Dict[str, Any]) -> None:
-    """Writes an agent run doc (and never throws)."""
-    try:
-        ref.document().set({**payload, "createdAt": firestore.SERVER_TIMESTAMP}, merge=True)
-    except Exception as e:
-        logger.info(json.dumps({
-            "event": "agent_run_write_failed",
-            "ts": _now_iso(),
-            "error": str(e)
-        }, ensure_ascii=False))
-
-
-def _get_session_user_turn_count(uid: str, session_id: str) -> int:
-    try:
-        snap = _session_ref(uid, session_id).get()
-        if not snap.exists:
-            return 0
-        data = snap.to_dict() or {}
-        return int(data.get("userTurnCount") or 0)
-    except Exception:
-        return 0
-
-
-def _try_acquire_periodic_update(uid: str, session_id: str) -> int:
-    turn = _get_session_user_turn_count(uid, session_id)
-    if turn <= 0 or (turn % 3) != 0:
-        return 0
-
-    sref = _session_ref(uid, session_id)
-    transaction = db.transaction()
-
-    @firestore.transactional
-    def _txn(txn):
-        snap = sref.get(transaction=txn)
-        data = (snap.to_dict() or {}) if snap.exists else {}
-        periodic = data.get("periodic") or {}
-        last_turn = int(periodic.get("lastTurn") or 0)
-
-        if turn <= last_turn:
-            return 0
-
-        txn.set(
-            sref,
-            {
-                "periodic": {
-                    "lastTurn": turn,
-                    "lastAt": firestore.SERVER_TIMESTAMP,
-                },
-                "updatedAt": firestore.SERVER_TIMESTAMP,
-            },
-            merge=True,
-        )
-        return turn
-
-    try:
-        return int(_txn(transaction) or 0)
-    except Exception:
-        return 0
-
-
-def _write_session_intensity(uid: str, session_id: str, score: Dict[str, Any], turn: int) -> None:
-    try:
-        sref = _session_ref(uid, session_id)
-
-        transaction = db.transaction()
-
-        @firestore.transactional
-        def _txn(txn):
-            snap = sref.get(transaction=txn)
-            start_val = None
-            if snap.exists:
-                try:
-                    start_val = snap.get("intensity.start")
-                except Exception:
-                    data = snap.to_dict() or {}
-                    start_val = (data.get("intensity") or {}).get("start")
-
-            updates = {
-                "intensity.latest": score["intensity"],
-                "intensity.latestTurn": int(turn),
-                "intensity.signals": score.get("signals") or [],
-                "intensity.blend": score.get("blend") is True,
-                "intensity.updatedAt": _now_dt(),
-                "updatedAt": firestore.SERVER_TIMESTAMP,
-            }
-            if start_val is None:
-                updates["intensity.start"] = score["intensity"]
-                updates["intensity.startTurn"] = int(turn)
-
-            if snap.exists:
-                txn.update(sref, updates)
-            else:
-                txn.set(sref, updates, merge=True)
-
-        _txn(transaction)
-    except Exception as e:
-        logger.info(json.dumps({
-            "event": "session_intensity_write_failed",
-            "ts": _now_iso(),
-            "error": str(e)
-        }, ensure_ascii=False))
-
-
 # ============================================================================
-# Intensity Scoring (mirroring agent.py)
+# Intensity Scoring (matching agents.py)
 # ============================================================================
 
 def _extract_recent_user_text(messages: List[Dict[str, str]], max_chars: int = 1200) -> str:
@@ -685,8 +648,111 @@ def _update_character_plan_from_score(
     return {"focus": focus, "changedItems": changed}
 
 
+def _get_session_user_turn_count(uid: str, session_id: str) -> int:
+    try:
+        snap = _session_ref(uid, session_id).get()
+        if not snap.exists:
+            return 0
+        data = snap.to_dict() or {}
+        return int(data.get("userTurnCount") or 0)
+    except Exception:
+        return 0
+
+
+def _try_acquire_periodic_update(uid: str, session_id: str) -> int:
+    turn = _get_session_user_turn_count(uid, session_id)
+    if turn <= 0 or (turn % 3) != 0:
+        return 0
+
+    sref = _session_ref(uid, session_id)
+    transaction = db.transaction()
+
+    @firestore.transactional
+    def _txn(txn):
+        snap = sref.get(transaction=txn)
+        data = (snap.to_dict() or {}) if snap.exists else {}
+        periodic = data.get("periodic") or {}
+        last_turn = int(periodic.get("lastTurn") or 0)
+
+        if turn <= last_turn:
+            return 0
+
+        txn.set(
+            sref,
+            {
+                "periodic": {
+                    "lastTurn": turn,
+                    "lastAt": firestore.SERVER_TIMESTAMP,
+                },
+                "updatedAt": firestore.SERVER_TIMESTAMP,
+            },
+            merge=True,
+        )
+        return turn
+
+    try:
+        return int(_txn(transaction) or 0)
+    except Exception:
+        return 0
+
+
+def _write_session_intensity(uid: str, session_id: str, score: Dict[str, Any], turn: int) -> None:
+    try:
+        sref = _session_ref(uid, session_id)
+
+        transaction = db.transaction()
+
+        @firestore.transactional
+        def _txn(txn):
+            snap = sref.get(transaction=txn)
+            start_val = None
+            if snap.exists:
+                try:
+                    start_val = snap.get("intensity.start")
+                except Exception:
+                    data = snap.to_dict() or {}
+                    start_val = (data.get("intensity") or {}).get("start")
+
+            updates = {
+                "intensity.latest": score["intensity"],
+                "intensity.latestTurn": int(turn),
+                "intensity.signals": score.get("signals") or [],
+                "intensity.blend": score.get("blend") is True,
+                "intensity.updatedAt": _now_dt(),
+                "updatedAt": firestore.SERVER_TIMESTAMP,
+            }
+            if start_val is None:
+                updates["intensity.start"] = score["intensity"]
+                updates["intensity.startTurn"] = int(turn)
+
+            if snap.exists:
+                txn.update(sref, updates)
+            else:
+                txn.set(sref, updates, merge=True)
+
+        _txn(transaction)
+    except Exception as e:
+        logger.info(json.dumps({
+            "event": "session_intensity_write_failed",
+            "ts": _now_iso(),
+            "error": str(e)
+        }, ensure_ascii=False))
+
+
+def _log_agent_run(ref, payload: Dict[str, Any]) -> None:
+    """Writes an agent run doc (and never throws)."""
+    try:
+        ref.document().set({**payload, "createdAt": firestore.SERVER_TIMESTAMP}, merge=True)
+    except Exception as e:
+        logger.info(json.dumps({
+            "event": "agent_run_write_failed",
+            "ts": _now_iso(),
+            "error": str(e)
+        }, ensure_ascii=False))
+
+
 # ============================================================================
-# Memory Functions (mirroring agent.py)
+# Memory Functions (matching agents.py)
 # ============================================================================
 
 def load_agent_memory_summary(uid: str, character_id: str) -> str:
@@ -704,6 +770,27 @@ def save_agent_memory_summary(uid: str, character_id: str, summary: str) -> None
         'summary': summary,
         'updatedAt': firestore.SERVER_TIMESTAMP,
     }, merge=True)
+
+
+def _persist_agent_memory_summary(
+    uid: str,
+    character_id: str,
+    candidate_summary: str,
+    existing_summary: str,
+    messages: List[Dict[str, str]],
+) -> None:
+    if isinstance(candidate_summary, str):
+        summary = candidate_summary.strip()
+    elif isinstance(candidate_summary, list):
+        summary = "\n".join(str(item).strip() for item in candidate_summary if str(item).strip())
+    elif isinstance(candidate_summary, dict):
+        summary = json.dumps(candidate_summary, ensure_ascii=False)
+    else:
+        summary = str(candidate_summary or "").strip()
+    if not summary:
+        summary = (generate_updated_summary(existing_summary, messages) or "").strip()
+    if summary:
+        save_agent_memory_summary(uid, character_id, summary)
 
 
 def build_memory_summary_prompt(
@@ -772,212 +859,6 @@ def set_last_agent_run(uid: str) -> None:
     }, merge=True)
 
 
-# ============================================================================
-# Guider Agent (mirroring agent.py's run_agent_step pattern)
-# ============================================================================
-
-GUIDER_SYSTEM_PROMPT = """
-You are ANA, The Guider - a compassionate companion helping users explore their inner world using Internal Family Systems (IFS) principles.
-
-CRITICAL COMMUNICATION STYLE:
-- Keep responses SHORT (2-4 sentences max)
-- Ask ONE question at a time
-- Walk the user through step by step - don't explain everything at once
-- Be conversational and warm, like a gentle friend
-- Use simple, everyday language
-
-Your approach:
-- Listen first, then reflect back what you heard
-- Guide with curiosity, not lectures
-- One small step at a time
-- Let the user lead the pace
-
-You are NOT a therapist. You are a supportive companion.
-If someone is in crisis, gently encourage them to seek professional help.
-
-You have access to the user's conversations with their inner parts. Use this to personalize your guidance, but don't overwhelm them with information.
-
-PLAN MANAGEMENT RULES (IMPORTANT):
-- Create ONE plan after 3-4 exchanges when you understand the user's focus - then STOP creating new plans
-- After a plan exists, ONLY use update_plan_step to track progress - DO NOT create new plans
-- Only create a NEW plan if: (1) user explicitly shifts to a completely different inner part, OR (2) all steps are completed
-- When user makes progress or has insight: use update_plan_step with status="completed"
-- When user needs more work on a step: use update_plan_step with status="in_progress" and notes
-- CRITICAL: Do NOT create a plan on every message - maximum ONE plan per conversation topic
-- NEVER say the whole plan at once to the user, just walk the user through it step by step
-
-Example good response: "It sounds like your Workaholic has been very active lately. What does it feel like when that part takes over?"
-
-Example bad response: "Your Workaholic is significant because... [long explanation with 4 numbered points]"
-""".strip()
-
-
-def run_guider_agent_step(system_prompt: str, messages: List[Dict[str, str]]) -> Dict[str, Any]:
-    agent_messages = [
-        {'role': 'system', 'content': system_prompt},
-        {'role': 'system', 'content': (
-            'Return JSON with keys: "assistantMessage", "toolCalls", "memorySummary". '
-            '"toolCalls" is a list of {name, args}. '
-            '\n\nAvailable tools:'
-            '\n- create_healing_plan: args={title, targetCharacterId (optional), steps (list of step descriptions)}. '
-            'Use ONCE after 3-4 exchanges. DO NOT use again unless topic completely changes or plan is done.'
-            '\n- update_plan_step: args={stepId, status ("completed"/"in_progress"), notes (optional)}. '
-            'Use this to track progress on EXISTING plan steps. This is your main tool after plan is created.'
-            '\n- suggest_character_focus: args={characterId, reason}. '
-            'Use when you identify which inner part needs attention.'
-            '\n- add_timeline_event: args={type, title, summary}. '
-            'Use to record breakthroughs or important moments.'
-            '\n- update_progress_summary: args={currentStage, streakDays, notes}. '
-            'Use to track overall progress.'
-            '\n- set_last_agent_run: args={}. '
-            'Use to mark when you last interacted with the user.'
-            '\n\nIMPORTANT: After creating ONE plan, prefer update_plan_step over create_healing_plan.'
-            '\n\n"memorySummary" should be under 6 bullet points about the user\'s journey.'
-        )},
-    ]
-
-    for message in messages:
-        role = message.get('role')
-        content = message.get('content', '')
-        if role in ['user', 'assistant'] and content:
-            agent_messages.append({'role': role, 'content': content})
-
-    response = openai_client.chat.completions.create(
-        model=OPENAI_MODEL,
-        messages=agent_messages,
-        temperature=0.7,
-        response_format={"type": "json_object"},
-    )
-
-    raw = response.choices[0].message.content or '{}'
-    try:
-        return json.loads(raw)
-    except Exception:
-        return {'assistantMessage': '', 'toolCalls': [], 'memorySummary': ''}
-
-
-def has_active_plan(uid: str) -> bool:
-    try:
-        plans_ref = db.collection('users').document(uid).collection('plans')
-        active_plans = plans_ref.where('status', '==', 'active').limit(1).stream()
-        for _ in active_plans:
-            return True
-    except Exception:
-        pass
-    return False
-
-
-def run_guider_tool_calls(uid: str, tool_calls: List[Dict[str, Any]]) -> None:
-    for call in tool_calls:
-        name = call.get('name')
-        args = call.get('args') or {}
-        logger.info(json.dumps({
-            "event": "guider_tool_call",
-            "ts": _now_iso(),
-            "uid": uid,
-            "tool": name
-        }, ensure_ascii=False))
-
-        if name == 'create_healing_plan':
-            if has_active_plan(uid):
-                logger.info(json.dumps({
-                    "event": "create_plan_skipped",
-                    "ts": _now_iso(),
-                    "uid": uid,
-                    "reason": "active_plan_exists"
-                }, ensure_ascii=False))
-            else:
-                create_healing_plan(uid, args)
-        elif name == 'update_plan_step':
-            update_plan_step(uid, args)
-        elif name == 'suggest_character_focus':
-            logger.info(json.dumps({
-                "event": "suggest_character_focus",
-                "ts": _now_iso(),
-                "uid": uid,
-                "characterId": args.get('characterId')
-            }, ensure_ascii=False))
-        elif name == 'add_timeline_event':
-            add_timeline_event(uid, args)
-        elif name == 'update_progress_summary':
-            update_progress_summary(uid, args)
-        elif name == 'set_last_agent_run':
-            set_last_agent_run(uid)
-
-
-def create_healing_plan(uid: str, args: Dict[str, Any]) -> str:
-    plans_ref = db.collection('users').document(uid).collection('plans')
-
-    active_plans = plans_ref.where('status', '==', 'active').stream()
-    for plan in active_plans:
-        plans_ref.document(plan.id).update({'status': 'paused'})
-
-    steps = args.get('steps', [])
-    plan_steps = [
-        {'id': f'step_{i}', 'description': step, 'status': 'pending'}
-        for i, step in enumerate(steps)
-    ]
-
-    new_plan = {
-        'title': args.get('title', 'Healing Plan'),
-        'targetCharacterId': args.get('targetCharacterId'),
-        'status': 'active',
-        'steps': plan_steps,
-        'currentStepIndex': 0,
-        'createdAt': firestore.SERVER_TIMESTAMP,
-        'updatedAt': firestore.SERVER_TIMESTAMP,
-    }
-
-    doc_ref = plans_ref.add(new_plan)
-    logger.info(json.dumps({
-        "event": "healing_plan_created",
-        "ts": _now_iso(),
-        "uid": uid,
-        "planId": doc_ref[1].id,
-        "title": args.get('title', 'Healing Plan')
-    }, ensure_ascii=False))
-    return doc_ref[1].id
-
-
-def update_plan_step(uid: str, args: Dict[str, Any]) -> None:
-    plans_ref = db.collection('users').document(uid).collection('plans')
-    active_plans = plans_ref.where('status', '==', 'active').limit(1).stream()
-
-    for plan in active_plans:
-        plan_data = plan.to_dict() or {}
-        steps = plan_data.get('steps', [])
-        step_id = args.get('stepId')
-        new_status = args.get('status', 'completed')
-        notes = args.get('notes', '')
-
-        for step in steps:
-            if step.get('id') == step_id:
-                step['status'] = new_status
-                if notes:
-                    step['notes'] = notes
-                break
-
-        current_index = plan_data.get('currentStepIndex', 0)
-        if new_status == 'completed' and current_index < len(steps) - 1:
-            current_index += 1
-
-        plans_ref.document(plan.id).update({
-            'steps': steps,
-            'currentStepIndex': current_index,
-            'updatedAt': firestore.SERVER_TIMESTAMP,
-        })
-
-        logger.info(json.dumps({
-            "event": "plan_step_updated",
-            "ts": _now_iso(),
-            "uid": uid,
-            "planId": plan.id,
-            "stepId": step_id,
-            "status": new_status
-        }, ensure_ascii=False))
-        break
-
-
 def get_all_character_summaries(uid: str) -> Dict[str, str]:
     summaries = {}
     try:
@@ -1009,12 +890,126 @@ def build_guider_context(uid: str) -> str:
 
 
 # ============================================================================
+# Guider Agent (matching agents.py pattern)
+# ============================================================================
+
+GUIDER_SYSTEM_PROMPT = """
+You are ANA, The Guider - a compassionate companion helping users explore their inner world using Internal Family Systems (IFS) principles.
+
+CRITICAL COMMUNICATION STYLE:
+- Keep responses SHORT (2-4 sentences max)
+- Ask ONE question at a time
+- Walk the user through step by step - don't explain everything at once
+- Be conversational and warm, like a gentle friend
+- Use simple, everyday language
+
+Your approach:
+- Listen first, then reflect back what you heard
+- Guide with curiosity, not lectures
+- One small step at a time
+- Let the user lead the pace
+
+You are NOT a therapist. You are a supportive companion.
+If someone is in crisis, gently encourage them to seek professional help.
+
+You have access to the user's conversations with their inner parts. Use this to personalize your guidance, but don't overwhelm them with information.
+
+Example good response: "It sounds like your Workaholic has been very active lately. What does it feel like when that part takes over?"
+
+Example bad response: "Your Workaholic is significant because... [long explanation with 4 numbered points]"
+""".strip()
+
+
+def run_guider_agent_step(system_prompt: str, messages: List[Dict[str, str]]) -> Dict[str, Any]:
+    llm_started_at = time.time()
+    if AGENT_JSON_RESPONSE_MODE:
+        agent_messages = [
+            {'role': 'system', 'content': system_prompt},
+            {'role': 'system', 'content': (
+                'Return JSON with keys: "assistantMessage", "toolCalls", "memorySummary". '
+                '"toolCalls" is a list of {name, args}. '
+                'Available tools: update_progress_summary, add_timeline_event, set_last_agent_run. '
+                'For update_progress_summary, valid args are: currentStage, streakDays, '
+                'lastSessionAt, notes. '
+                '"memorySummary" should be under 6 bullet points.'
+            )},
+        ]
+    else:
+        agent_messages = [
+            {'role': 'system', 'content': _clip_text(system_prompt, 1200)},
+            {'role': 'system', 'content': (
+                'Reply naturally and briefly in-character (2-4 sentences max). '
+                'Do not output JSON, labels, or metadata.'
+            )},
+        ]
+    agent_messages.extend(_prepare_model_messages(messages))
+    payload_stats = _messages_payload_stats(agent_messages)
+
+    if AGENT_JSON_RESPONSE_MODE:
+        response = openai_client.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=agent_messages,
+            temperature=0.7,
+            response_format={"type": "json_object"},
+            max_tokens=CHAT_REPLY_MAX_TOKENS,
+        )
+    else:
+        response = openai_client.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=agent_messages,
+            temperature=0.7,
+            max_tokens=CHAT_REPLY_MAX_TOKENS,
+        )
+    llm_ms = int((time.time() - llm_started_at) * 1000)
+
+    raw = response.choices[0].message.content or '{}'
+    if AGENT_JSON_RESPONSE_MODE:
+        try:
+            parsed = json.loads(raw)
+            if not isinstance(parsed, dict):
+                parsed = {'assistantMessage': '', 'toolCalls': [], 'memorySummary': ''}
+        except Exception:
+            parsed = {'assistantMessage': '', 'toolCalls': [], 'memorySummary': ''}
+    else:
+        parsed = {
+            "assistantMessage": raw.strip(),
+            "toolCalls": [],
+            "memorySummary": "",
+        }
+    parsed["_meta"] = {
+        "llmMs": llm_ms,
+        "payloadMessages": payload_stats["count"],
+        "payloadChars": payload_stats["chars"],
+    }
+    return parsed
+
+
+def run_guider_tool_calls(uid: str, tool_calls: List[Dict[str, Any]]) -> None:
+    for call in tool_calls:
+        name = call.get('name')
+        args = call.get('args') or {}
+        logger.info(json.dumps({
+            "event": "guider_tool_call",
+            "ts": _now_iso(),
+            "uid": uid,
+            "tool": name
+        }, ensure_ascii=False))
+
+        if name == 'update_progress_summary':
+            update_progress_summary(uid, args)
+        elif name == 'add_timeline_event':
+            add_timeline_event(uid, args)
+        elif name == 'set_last_agent_run':
+            set_last_agent_run(uid)
+
+
+# ============================================================================
 # GUIDER VIDEO CALL ENDPOINTS
 # ============================================================================
 
 @guider_video_bp.route('/start_session', methods=['POST'])
 def start_video_session():
-    """Start a video session and also start emotion tracking."""
+    """Start a video session with proper thread_id for encryption"""
     try:
         data = request.json or {}
         uid = data.get('uid')
@@ -1026,10 +1021,32 @@ def start_video_session():
         if not uid or not session_id:
             return jsonify({'success': False, 'error': 'uid and sessionId are required'}), 400
 
+        # Ensure guider character plan exists
+        try:
+            ensure_character_checklist(uid, 'guider')
+            logger.info(json.dumps({
+                "event": "guider_character_plan_ensured",
+                "ts": _now_iso(),
+                "uid": uid,
+                "characterId": "guider"
+            }, ensure_ascii=False))
+        except Exception as e:
+            logger.info(json.dumps({
+                "event": "guider_character_plan_failed",
+                "ts": _now_iso(),
+                "error": str(e)
+            }, ensure_ascii=False))
+
+        # Create session document with thread_id
         _ensure_session_doc(uid, session_id, 'guider')
+
         if thread_id:
             _ensure_thread_doc(uid, thread_id, session_id)
+            _session_ref(uid, session_id).set({
+                'threadId': thread_id
+            }, merge=True)
 
+        # Start emotion tracking
         emotion_tracking = False
         try:
             requests.post(
@@ -1096,6 +1113,11 @@ def update_emotions():
 def guider_video_respond():
     """Guider video call endpoint - receives user message and returns Guider response."""
     t0 = time.time()
+    context_ms = 0
+    llm_ms = 0
+    payload_messages = 0
+    payload_chars = 0
+
     try:
         if not os.getenv('OPENAI_API_KEY'):
             return jsonify({'success': False, 'error': 'OPENAI_API_KEY is not set'}), 500
@@ -1110,16 +1132,20 @@ def guider_video_respond():
         session_id = data.get('sessionId')
         thread_id = data.get('threadId')
         conversation_history = data.get('conversationHistory', [])
-        force_plan_creation = data.get('forcePlanCreation', False)
+
+        # Ensure guider character plan exists
+        ensure_character_checklist(uid, 'guider')
 
         if session_id:
             _ensure_session_doc(uid, session_id, 'guider')
         if thread_id:
             _ensure_thread_doc(uid, thread_id, session_id)
 
+        # Save user message with encryption
         if thread_id and user_message:
-            _save_message(uid, thread_id, 'user', user_message, 'user')
+            _save_message_encrypted(uid, thread_id, 'user', user_message, session_id, 'user', 'guider')
 
+        # Load Guider memory and character context
         guider_memory = load_agent_memory_summary(uid, 'guider')
         character_context = build_guider_context(uid)
 
@@ -1128,12 +1154,16 @@ def guider_video_respond():
             if character_memory:
                 character_context += f"\n\nRecent work with {character_id}:\n{character_memory[:300]}"
 
+        # Build system prompt
         system_prompt = GUIDER_SYSTEM_PROMPT
         if character_context:
             system_prompt += f"\n\n--- USER'S INNER PARTS CONTEXT ---\n{character_context}"
         if guider_memory:
             system_prompt += f"\n\n--- YOUR MEMORY OF THIS USER ---\n{guider_memory}"
 
+        context_ms = int((time.time() - t0) * 1000)
+
+        # Build messages for AI
         messages = []
         for msg in conversation_history:
             if msg.get('role') == 'user':
@@ -1143,37 +1173,44 @@ def guider_video_respond():
 
         messages.append({'role': 'user', 'content': user_message})
 
+        # Get Guider response
         agent_result = run_guider_agent_step(system_prompt, messages)
+        llm_meta = (agent_result.get("_meta") or {}) if isinstance(agent_result, dict) else {}
+        llm_ms = int(llm_meta.get("llmMs") or 0)
+        payload_messages = int(llm_meta.get("payloadMessages") or 0)
+        payload_chars = int(llm_meta.get("payloadChars") or 0)
+        if isinstance(agent_result, dict):
+            agent_result.pop("_meta", None)
 
         assistant_message = agent_result.get('assistantMessage', '')
         tool_calls = agent_result.get('toolCalls') or []
         updated_summary = agent_result.get('memorySummary', '')
 
-        run_guider_tool_calls(uid, tool_calls)
+        # Run tool calls
+        if tool_calls:
+            _submit_background("run_tool_calls_video", run_guider_tool_calls, uid, tool_calls)
 
-        if force_plan_creation and not has_active_plan(uid):
-            create_healing_plan(uid, {
-                'title': f'Healing plan from video call',
-                'targetCharacterId': character_id,
-                'steps': [
-                    'Notice emotional patterns as they arise',
-                    'Practice grounding techniques when intensity rises',
-                    'Connect with the inner part that needs attention',
-                    'Track progress and celebrate small wins'
-                ]
-            })
-
+        # Save assistant message with encryption
         if thread_id and assistant_message:
-            _save_message(uid, thread_id, 'assistant', assistant_message, 'guider')
+            _save_message_encrypted(uid, thread_id, 'assistant', assistant_message, session_id, 'guider', 'guider')
 
-        if not updated_summary:
-            all_messages = conversation_history + [
-                {'role': 'user', 'content': user_message},
-                {'role': 'assistant', 'content': assistant_message, 'sender': 'guider'}
-            ]
-            updated_summary = generate_updated_summary(guider_memory, all_messages)
-        save_agent_memory_summary(uid, 'guider', updated_summary)
+        # Update memory summary in background
+        all_messages = conversation_history + [
+            {'role': 'user', 'content': user_message},
+            {'role': 'assistant', 'content': assistant_message, 'sender': 'guider'}
+        ]
 
+        _submit_background(
+            "persist_guider_memory_video",
+            _persist_agent_memory_summary,
+            uid,
+            'guider',
+            updated_summary,
+            guider_memory,
+            all_messages,
+        )
+
+        # Periodic updates
         turn_for_update = _try_acquire_periodic_update(uid, session_id) if session_id else 0
         if session_id and thread_id and turn_for_update:
             try:
@@ -1232,10 +1269,6 @@ def guider_video_respond():
                     "error": str(e)
                 }, ensure_ascii=False))
 
-        if len(assistant_message.split('.')) > 4:
-            sentences = assistant_message.split('.')
-            assistant_message = '.'.join(sentences[:4]) + '.'
-
         return jsonify({
             'success': True,
             'guiderMessage': assistant_message,
@@ -1247,14 +1280,59 @@ def guider_video_respond():
         return jsonify({'success': False, 'error': f'Guider video error: {str(e)}'}), 500
     finally:
         try:
-            logger.info(json.dumps({
-                "event": "request_timing",
-                "route": "/guider/respond",
-                "ts": _now_iso(),
-                "ms": int((time.time() - t0) * 1000),
-            }, ensure_ascii=False))
+            logger.info(
+                json.dumps(
+                    {
+                        "event": "request_timing",
+                        "route": "/guider/respond",
+                        "ts": _now_iso(),
+                        "ms": int((time.time() - t0) * 1000),
+                        "contextMs": context_ms,
+                        "llmMs": llm_ms,
+                        "payloadMessages": payload_messages,
+                        "payloadChars": payload_chars,
+                    },
+                    ensure_ascii=False,
+                )
+            )
         except Exception:
             pass
+
+
+@guider_video_bp.route('/get_messages', methods=['POST'])
+def get_guider_messages():
+    """Get decrypted messages for a Guider video session."""
+    try:
+        data = request.json or {}
+        uid = data.get('uid')
+        session_id = data.get('sessionId')
+        limit = data.get('limit', 100)
+
+        if not uid or not session_id:
+            return jsonify({'success': False, 'error': 'uid and sessionId are required'}), 400
+
+        snap = _session_ref(uid, session_id).get()
+        if not snap.exists:
+            return jsonify({'success': False, 'error': 'Session not found'}), 404
+
+        session_data = snap.to_dict() or {}
+        thread_id = session_data.get('threadId')
+
+        if not thread_id:
+            return jsonify({'success': False, 'error': 'No threadId found for session'}), 404
+
+        messages = get_video_messages_decrypted(uid=uid, thread_id=thread_id, limit=limit)
+
+        return jsonify({
+            'success': True,
+            'messages': messages,
+            'sessionId': session_id,
+            'threadId': thread_id,
+            'messageCount': len(messages),
+        })
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @guider_video_bp.route('/session_summary', methods=['POST'])
@@ -1414,6 +1492,29 @@ Return a warm, brief summary that captures:
         return jsonify({'success': False, 'error': f'Summary error: {str(e)}'}), 500
 
 
+@guider_video_bp.route('/decrypt_message', methods=['POST'])
+def decrypt_message():
+    """Decrypt a single message"""
+    try:
+        data = request.json or {}
+        uid = data.get('uid')
+        message_data = data.get('messageData', {})
+
+        if not uid or not message_data:
+            return jsonify({'success': False, 'error': 'uid and messageData required'}), 400
+
+        from video_crypto import decrypt_video_message
+        content = decrypt_video_message(uid, message_data)
+
+        return jsonify({
+            'success': True,
+            'content': content,
+        })
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @guider_video_bp.route('/health', methods=['GET'])
 def health():
     emotion_detector_ok = False
@@ -1439,7 +1540,6 @@ def health():
         ]
     })
 
-# Add this new endpoint to video_chat_guider.py
 
 @guider_video_bp.route('/migrate_sessions', methods=['POST'])
 def migrate_sessions():
@@ -1458,17 +1558,11 @@ def migrate_sessions():
         for session in sessions:
             session_data = session.to_dict() or {}
             if session_data.get('characterType') != 'guider':
-                # Update old sessions to have guider characterType
                 session.reference.update({
                     'characterType': 'guider',
                     'updatedAt': firestore.SERVER_TIMESTAMP
                 })
                 updated_count += 1
-                logger.info(json.dumps({
-                    "event": "session_migrated",
-                    "session_id": session.id,
-                    "uid": uid
-                }, ensure_ascii=False))
 
         return jsonify({
             'success': True,
@@ -1479,63 +1573,6 @@ def migrate_sessions():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-# Also update _ensure_session_doc to always set characterType
-def _ensure_session_doc(uid: str, session_id: str, character_id: str = 'guider') -> None:
-    """Ensure session document exists with proper fields."""
-    try:
-        sref = _session_ref(uid, session_id)
-        snap = sref.get()
-        if not snap.exists:
-            sref.set({
-                "id": session_id,
-                "characterId": character_id,
-                "characterType": "guider",  # Always set this
-                "status": "active",
-                "type": "video",
-                "title": "Video call with The Guider",
-                "startedAt": firestore.SERVER_TIMESTAMP,
-                "updatedAt": firestore.SERVER_TIMESTAMP,
-                "userTurnCount": 0,
-                "intensity": {},
-                "sessionSummary": {},
-                "periodic": {},
-                "faceEmotion": {
-                    "dominant": None,
-                    "averageConfidence": 0.0,
-                    "startEmotion": None,
-                    "startConfidence": 0.0,
-                    "endEmotion": None,
-                    "endConfidence": 0.0,
-                    "allDetections": []
-                },
-                "voiceTone": {
-                    "dominant": None,
-                    "averageConfidence": 0.0,
-                    "startEmotion": None,
-                    "startConfidence": 0.0,
-                    "endEmotion": None,
-                    "endConfidence": 0.0,
-                    "allDetections": []
-                }
-            }, merge=True)
-            logger.info(json.dumps({
-                "event": "session_created",
-                "ts": _now_iso(),
-                "uid": uid,
-                "sessionId": session_id
-            }, ensure_ascii=False))
-        else:
-            # Also update existing sessions that might be missing these fields
-            sref.set({
-                "characterType": "guider",
-                "type": "video",
-            }, merge=True)
-    except Exception as e:
-        logger.info(json.dumps({
-            "event": "session_creation_failed",
-            "ts": _now_iso(),
-            "error": str(e)
-        }, ensure_ascii=False))
 # For direct execution
 if __name__ == '__main__':
     app = Flask(__name__)

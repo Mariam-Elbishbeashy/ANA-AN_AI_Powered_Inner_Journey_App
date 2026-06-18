@@ -2276,7 +2276,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     final words = fullText.split(' ');
     int index = 0;
 
-    _typingTimer = Timer.periodic(const Duration(milliseconds: 150), (timer) { // REDUCED from 280
+    _typingTimer = Timer.periodic(const Duration(milliseconds: 230), (timer) { // REDUCED from 280
       if (index >= words.length) {
         timer.cancel();
         return;

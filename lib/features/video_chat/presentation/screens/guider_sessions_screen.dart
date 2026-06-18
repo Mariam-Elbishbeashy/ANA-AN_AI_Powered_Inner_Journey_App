@@ -1,4 +1,5 @@
 // lib/features/guider/presentation/screens/guider_sessions_screen.dart
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:ana_ifs_app/l10n/app_strings.dart';
@@ -215,21 +216,21 @@ class _GuiderSessionsScreenState extends State<GuiderSessionsScreen> {
 
                       final allSessions = snapshot.data ?? const <GuiderSession>[];
 
-                      // Filter sessions: show active sessions AND completed sessions with content
+                      // Only show sessions that have messages
                       final sessions = allSessions.where((session) {
+                        // Always show active sessions (they're ongoing)
                         if (session.isActive) return true;
-                        if (session.threadId.isNotEmpty) return true;
-                        if (session.duration > 0) return true;
-                        if (session.endedAt != null) return true;
 
-                        final hasFaceEmotion = (session.faceEmotion?['totalDetections'] ?? 0) > 0;
-                        final hasVoiceEmotion = (session.voiceTone?['totalDetections'] ?? 0) > 0;
-                        if (hasFaceEmotion || hasVoiceEmotion) return true;
+                        // Only show ended sessions if they have messages
+                        if (session.hasMessages == true) return true;
+                        if (session.messageCount != null && session.messageCount! > 0) return true;
+                        if (session.threadId.isNotEmpty && session.hasMessages == true) return true;
 
                         return false;
                       }).toList();
 
                       if (sessions.isEmpty) {
+                        // 🔥 REMOVED: The "Start a Session" button from empty state
                         return Center(
                           child: Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 28),
@@ -245,8 +246,8 @@ class _GuiderSessionsScreenState extends State<GuiderSessionsScreen> {
                                 Text(
                                   tr(
                                     context,
-                                    'No Guider sessions yet. Start your first session to begin.',
-                                    'لا توجد جلسات مرشد بعد. ابدأ أول جلسة لتبدأ.',
+                                    'No Guider sessions with messages yet. Start a session and have a conversation.',
+                                    'لا توجد جلسات مرشد بها رسائل بعد. ابدأ جلسة وابدأ محادثة.',
                                   ),
                                   textAlign: TextAlign.center,
                                   style: const TextStyle(
@@ -254,20 +255,7 @@ class _GuiderSessionsScreenState extends State<GuiderSessionsScreen> {
                                     height: 1.5,
                                   ),
                                 ),
-                                const SizedBox(height: 24),
-                                ElevatedButton.icon(
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFF8E7CFF),
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(14),
-                                    ),
-                                  ),
-                                  onPressed: _startNewSession,
-                                  icon: const Icon(Icons.videocam_rounded),
-                                  label: Text(tr(context, 'Start a Session', 'ابدأ جلسة')),
-                                ),
+                                // 🔥 REMOVED: The ElevatedButton.icon widget was here
                               ],
                             ),
                           ),
@@ -302,7 +290,7 @@ class _GuiderSessionsScreenState extends State<GuiderSessionsScreen> {
                             subtitle: subtitle,
                             statusLabel: statusLabel,
                             isActive: s.isActive,
-                            hasGuider: true, // Always true for Guider sessions
+                            hasGuider: true,
                             onTap: () => _openSession(s),
                           );
                         },
@@ -311,7 +299,7 @@ class _GuiderSessionsScreenState extends State<GuiderSessionsScreen> {
                   ),
                 ),
               ),
-              // Start New Session Button
+              // 🔥 KEPT: Bottom "Start a new Guider session" button (this stays)
               Padding(
                 padding: EdgeInsets.fromLTRB(
                   18,

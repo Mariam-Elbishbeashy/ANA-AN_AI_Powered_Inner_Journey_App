@@ -1,7 +1,11 @@
 // lib/features/guider/presentation/screens/guider_chat_history_screen.dart
+import 'dart:convert';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:ana_ifs_app/l10n/app_strings.dart';
+import 'package:http/http.dart' as http;
 import '../../domain/entities/guider_session.dart';
 import '../../domain/entities/guider_message.dart';
 import '../../data/repositories/guider_session_repository.dart';
@@ -48,29 +52,121 @@ class _GuiderChatHistoryScreenState extends State<GuiderChatHistoryScreen> {
       return;
     }
 
-    if (widget.session.threadId.isEmpty) {
-      setState(() {
-        _error = 'No chat history available for this session';
-        _isLoading = false;
-      });
-      return;
-    }
+    print("🔍 Session ID: ${widget.session.id}");
+    print("🔍 Thread ID from session: '${widget.session.threadId}'");
+
+    String threadId = widget.session.threadId;
 
     try {
-      final messages = await _repository.getMessages(
-        uid: user.uid,
-        threadId: widget.session.threadId,
-      );
+      print("📖 Loading messages from thread: $threadId");
+
+      final messagesRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('chat_threads')
+          .doc(threadId)
+          .collection('messages');
+
+      final snapshot = await messagesRef
+          .orderBy('createdAt', descending: false)
+          .get();
+
+      print("📊 Found ${snapshot.docs.length} messages in thread");
+
+      if (snapshot.docs.isEmpty) {
+        setState(() {
+          _messages = [];
+          _isLoading = false;
+        });
+        return;
+      }
+
+      final messages = <GuiderMessage>[];
+
+      // Decrypt each message
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        print("📄 Message doc: role=${data['role']}, hasCiphertext=${data['contentCiphertext'] != null}");
+
+        String content = data['content'] ?? '';
+
+        // If encrypted, decrypt via backend
+        if (data['contentCiphertext'] != null) {
+          try {
+            // 🔥 CRITICAL FIX: Convert Timestamp to ISO string
+            final cleanData = _cleanMessageData(data);
+
+            final decryptResponse = await http.post(
+              Uri.parse("http://192.168.100.7:5003/guider/decrypt_message"),
+              headers: {'Content-Type': 'application/json'},
+              body: json.encode({
+                'uid': user.uid,
+                'messageData': cleanData,
+              }),
+            ).timeout(const Duration(seconds: 5));
+
+            if (decryptResponse.statusCode == 200) {
+              final decryptData = json.decode(decryptResponse.body);
+              if (decryptData['success'] == true) {
+                content = decryptData['content'] ?? '';
+                print("✅ Decrypted message: ${content.substring(0, content.length > 30 ? 30 : content.length)}...");
+              }
+            } else {
+              print("⚠️ Decryption HTTP error: ${decryptResponse.statusCode}");
+              content = '[Encrypted message]';
+            }
+          } catch (e) {
+            print("⚠️ Decryption failed: $e");
+            content = '[Encrypted message]';
+          }
+        }
+
+        messages.add(GuiderMessage(
+          id: doc.id,
+          role: data['role'] ?? 'user',
+          content: content,
+          sender: data['sender'],
+          createdAt: (data['createdAt'] as Timestamp?)?.toDate(),
+        ));
+      }
+
       setState(() {
         _messages = messages;
         _isLoading = false;
       });
+
     } catch (e) {
+      print("❌ Error loading messages: $e");
       setState(() {
         _error = 'Error loading messages: $e';
         _isLoading = false;
       });
     }
+  }
+
+// 🔥 Helper method to clean Timestamp objects
+  Map<String, dynamic> _cleanMessageData(Map<String, dynamic> data) {
+    final clean = <String, dynamic>{};
+
+    for (final entry in data.entries) {
+      final key = entry.key;
+      final value = entry.value;
+
+      if (value is Timestamp) {
+        // Convert Timestamp to ISO string
+        clean[key] = value.toDate().toIso8601String();
+      } else if (value is Map) {
+        // Recursively clean nested maps
+        clean[key] = _cleanMessageData(Map<String, dynamic>.from(value));
+      } else if (value is List) {
+        // Clean lists if needed
+        clean[key] = value;
+      } else {
+        clean[key] = value;
+      }
+    }
+
+    return clean;
   }
 
   String _formatTime(DateTime? dt) {

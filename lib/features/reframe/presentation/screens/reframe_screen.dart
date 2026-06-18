@@ -56,11 +56,11 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
   int _activeCharacterCount = 0;
   int _inactiveCharacterCount = 0;
   int _stableCharacterCount = 0;
-// Add these variables at the top with your other variables
+  // Add these variables at the top with your other variables
   bool _hasCheckedRestriction = false;
   bool _isRestricted = false;
 
-// Add this with your other variables at the top
+  // Add this with your other variables at the top
   bool _shouldShowFullRestrictionPage = false;
 
   // Audio recording for video mode
@@ -76,6 +76,9 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
   // High confidence threshold
   final double _highConfidenceThreshold = 0.75;
 
+  // Add cache for Arabic names
+  final Map<String, String> _arabicNameCache = {};
+
   @override
   void initState() {
     super.initState();
@@ -87,7 +90,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
     _checkRestrictionForInputDisabling();
   }
 
-// New method - only checks restriction for disabling inputs, NOT for showing full page
+  // New method - only checks restriction for disabling inputs, NOT for showing full page
   Future<void> _checkRestrictionForInputDisabling() async {
     await _refreshCharacterData();
     if (mounted) {
@@ -100,7 +103,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
       });
     }
   }
-// Add a method to explicitly show restriction page when needed
+  // Add a method to explicitly show restriction page when needed
   void _showFullRestrictionPageIfNeeded() {
     if (_shouldRestrictAccess() && !_hasCheckedRestriction) {
       setState(() {
@@ -108,7 +111,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
       });
     }
   }
-// Add method to check restriction
+  // Add method to check restriction
   Future<void> _checkRestrictionOnReturn() async {
     await _refreshCharacterData();
     if (mounted) {
@@ -121,7 +124,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
     }
   }
 
-// Refresh character data from database (only reads, no writes)
+  // Refresh character data from database (only reads, no writes)
   Future<void> _refreshCharacterData() async {
     await _checkForCharacters();
   }
@@ -136,7 +139,6 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
     final currentState = characterData['currentState'] ?? 'active';
     return currentState == 'active';
   }
-
 
   Future<void> _checkForCharacters() async {
     try {
@@ -255,9 +257,48 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
     );
   }
 
-  // Helper methods for Arabic translations
   String _getArabicDisplayName(String englishName) {
+    print('🔍 Translating: "$englishName"');
+
+    // If the name is empty or null, return it
+    if (englishName.isEmpty) return englishName;
+
+    // Normalize the name: remove "The " prefix and trim
+    String lookupName = englishName.trim();
+    if (lookupName.toLowerCase().startsWith('the ')) {
+      lookupName = lookupName.substring(4).trim();
+    }
+
+    // Also try with "Part" removed if present
+    String lookupNameWithoutPart = lookupName;
+    if (lookupName.toLowerCase().endsWith(' part')) {
+      lookupNameWithoutPart = lookupName.substring(0, lookupName.length - 5).trim();
+    }
+
     final arabicNames = {
+      // With "The " prefix versions
+      'The Inner Critic': 'الناقد الداخلي',
+      'The Perfectionist': 'الكمالي',
+      'The People Pleaser': 'المُرضي',
+      'The Controller': 'المتحكم',
+      'The Stoic Part': 'حمّال أسيّة',
+      'The Workaholic': 'مدمن العمل',
+      'The Confused Part': 'الجزء الحيران',
+      'The Procrastinator': 'المماطل',
+      'The Overeater': 'الآكل المفرط',
+      'The Binger': 'المفرط',
+      'The Overeater/Binger': 'الآكل المفرط',
+      'The Excessive Gamer': 'اللاعب المفرط',
+      'The Lonely Part': 'الجزء الوحيد',
+      'The Fearful Part': 'الجزء الخائف',
+      'The Neglected Part': 'الجزء المهمل',
+      'The Ashamed Part': 'الجزء الخجول',
+      'The Overwhelmed Part': 'الجزء المرهق',
+      'The Dependent Part': 'الجزء المعتمد',
+      'The Jealous Part': 'الجزء الغيور',
+      'The Wounded Child': 'الطفل الجريح',
+
+      // Without "The " prefix versions
       'Inner Critic': 'الناقد الداخلي',
       'Perfectionist': 'الكمالي',
       'People Pleaser': 'المُرضي',
@@ -278,9 +319,134 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
       'Dependent Part': 'الجزء المعتمد',
       'Jealous Part': 'الجزء الغيور',
       'Wounded Child': 'الطفل الجريح',
+
+      // ADD THESE VARIATIONS - exact matches from your data
+      'InnerCritic': 'الناقد الداخلي',
+      'PeoplePleaser': 'المُرضي',
+      'LonelyPart': 'الجزء الوحيد',
+      'JealousPart': 'الجزء الغيور',
+      'AshamedPart': 'الجزء الخجول',
+      'Workaholic': 'مدمن العمل',
+      'Perfectionist': 'الكمالي',
+      'Procrastinator': 'المماطل',
+      'ExcessiveGamer': 'اللاعب المفرط',
+      'ConfusedPart': 'الجزء الحيران',
+      'DependentPart': 'الجزء المعتمد',
+      'FearfulPart': 'الجزء الخائف',
+      'NeglectedPart': 'الجزء المهمل',
+      'Overeater': 'الآكل المفرط',
+      'Binger': 'المفرط',
+      'OvereaterBinger': 'الآكل المفرط',
+      'OverwhelmedPart': 'الجزء المرهق',
+      'StoicPart': 'حمّال أسيّة',
+      'WoundedChild': 'الطفل الجريح',
+      'Controller': 'المتحكم',
+      'ControllerPart': 'المتحكم',
+
+      // Add lowercase variations
+      'inner critic': 'الناقد الداخلي',
+      'people pleaser': 'المُرضي',
+      'lonely part': 'الجزء الوحيد',
+      'jealous part': 'الجزء الغيور',
+      'ashamed part': 'الجزء الخجول',
+      'workaholic': 'مدمن العمل',
+      'perfectionist': 'الكمالي',
+      'procrastinator': 'المماطل',
+      'excessive gamer': 'اللاعب المفرط',
+      'confused part': 'الجزء الحيران',
+      'dependent part': 'الجزء المعتمد',
+      'fearful part': 'الجزء الخائف',
+      'neglected part': 'الجزء المهمل',
+      'overeater': 'الآكل المفرط',
+      'binger': 'المفرط',
+      'overeater/binger': 'الآكل المفرط',
+      'overwhelmed part': 'الجزء المرهق',
+      'stoic part': 'حمّال أسيّة',
+      'wounded child': 'الطفل الجريح',
+      'controller': 'المتحكم',
+      'controller part': 'المتحكم',
     };
 
-    return arabicNames[englishName] ?? englishName;
+    // Try exact match with original name first (includes "The ")
+    if (arabicNames.containsKey(englishName)) {
+      print('✅ Found exact match: "$englishName" -> "${arabicNames[englishName]}"');
+      return arabicNames[englishName]!;
+    }
+
+    // Try exact match with lookup name (without "The ")
+    if (arabicNames.containsKey(lookupName)) {
+      print('✅ Found match: "$lookupName" -> "${arabicNames[lookupName]}"');
+      return arabicNames[lookupName]!;
+    }
+
+    // Try with "Part" removed
+    if (arabicNames.containsKey(lookupNameWithoutPart)) {
+      print('✅ Found match without "Part": "$lookupNameWithoutPart" -> "${arabicNames[lookupNameWithoutPart]}"');
+      return arabicNames[lookupNameWithoutPart]!;
+    }
+
+    // Try case-insensitive match
+    final lowerLookupName = lookupName.toLowerCase();
+    for (final entry in arabicNames.entries) {
+      if (entry.key.toLowerCase() == lowerLookupName ||
+          entry.key.toLowerCase() == englishName.toLowerCase()) {
+        print('✅ Found case-insensitive match: "${entry.key}" -> "${entry.value}"');
+        return entry.value;
+      }
+    }
+
+    // Try partial match
+    for (final entry in arabicNames.entries) {
+      final keyLower = entry.key.toLowerCase();
+      if (lowerLookupName.contains(keyLower) || keyLower.contains(lowerLookupName)) {
+        print('✅ Found partial match: "${entry.key}" -> "${entry.value}"');
+        return entry.value;
+      }
+    }
+
+    // If no translation found, try to return a default translation
+    print('❌ No translation found for: "$englishName" (lookup: "$lookupName")');
+
+    // Return a generic translation based on the original name
+    if (englishName.toLowerCase().contains('critic')) {
+      return 'الناقد الداخلي';
+    } else if (englishName.toLowerCase().contains('pleaser')) {
+      return 'المُرضي';
+    } else if (englishName.toLowerCase().contains('lonely')) {
+      return 'الجزء الوحيد';
+    } else if (englishName.toLowerCase().contains('jealous')) {
+      return 'الجزء الغيور';
+    } else if (englishName.toLowerCase().contains('ashamed')) {
+      return 'الجزء الخجول';
+    } else if (englishName.toLowerCase().contains('workaholic')) {
+      return 'مدمن العمل';
+    } else if (englishName.toLowerCase().contains('perfectionist')) {
+      return 'الكمالي';
+    } else if (englishName.toLowerCase().contains('procrastinator')) {
+      return 'المماطل';
+    } else if (englishName.toLowerCase().contains('gamer')) {
+      return 'اللاعب المفرط';
+    } else if (englishName.toLowerCase().contains('confused')) {
+      return 'الجزء الحيران';
+    } else if (englishName.toLowerCase().contains('dependent')) {
+      return 'الجزء المعتمد';
+    } else if (englishName.toLowerCase().contains('fearful')) {
+      return 'الجزء الخائف';
+    } else if (englishName.toLowerCase().contains('neglected')) {
+      return 'الجزء المهمل';
+    } else if (englishName.toLowerCase().contains('overeater') || englishName.toLowerCase().contains('binger')) {
+      return 'الآكل المفرط';
+    } else if (englishName.toLowerCase().contains('overwhelmed')) {
+      return 'الجزء المرهق';
+    } else if (englishName.toLowerCase().contains('stoic')) {
+      return 'حمّال أسيّة';
+    } else if (englishName.toLowerCase().contains('wounded')) {
+      return 'الطفل الجريح';
+    } else if (englishName.toLowerCase().contains('controller')) {
+      return 'المتحكم';
+    }
+
+    return englishName;
   }
 
   String _getArabicDescription(String englishName) {
@@ -371,31 +537,16 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
 
   // Helper method to get English display name based on character name
   String _getEnglishDisplayName(String characterName) {
-    final englishNames = {
-      'Inner Critic': 'The Inner Critic',
-      'People Pleaser': 'The People Pleaser',
-      'Lonely Part': 'The Lonely Part',
-      'Jealous Part': 'The Jealous Part',
-      'Ashamed Part': 'The Ashamed Part',
-      'Workaholic': 'The Workaholic',
-      'Perfectionist': 'The Perfectionist',
-      'Procrastinator': 'The Procrastinator',
-      'Excessive Gamer': 'The Excessive Gamer',
-      'Confused Part': 'The Confused Part',
-      'Dependent Part': 'The Dependent Part',
-      'Fearful Part': 'The Fearful Part',
-      'Neglected Part': 'The Neglected Part',
-      'Overeater': 'The Overeater',
-      'Binger': 'The Binger',
-      'Overeater/Binger': 'The Overeater',
-      'Overwhelmed Part': 'The Overwhelmed Part',
-      'Stoic Part': 'The Stoic Part',
-      'Wounded Child': 'The Wounded Child',
-      'Controller': 'The Controller',
-      'Controller Part': 'The Controller',
-    };
-
-    return englishNames[characterName] ?? characterName;
+    // Remove "The " prefix if it exists
+    String displayName = characterName;
+    if (displayName.toLowerCase().startsWith('the ')) {
+      displayName = displayName.substring(4);
+    }
+    // Capitalize first letter
+    if (displayName.isNotEmpty) {
+      displayName = displayName[0].toUpperCase() + displayName.substring(1);
+    }
+    return displayName;
   }
 
   // Helper method to verify media files
@@ -479,7 +630,17 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
     }
   }
 
-  // Save high confidence characters to user collection
+  // Add this as a class method (outside any other method)
+  String _safeTr(BuildContext context, String en, String ar) {
+    try {
+      return tr(context, en, ar);
+    } catch (e) {
+      // Fallback to English if translation fails
+      return en;
+    }
+  }
+
+// Save high confidence characters to user collection
   Future<void> _saveHighConfidenceCharacters(
       Map<String, dynamic> analysisResult, {
         String? audioFilePath,
@@ -527,7 +688,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                   ),
                   const SizedBox(height: 20),
                   Text(
-                    tr(context, "Cannot Create More Characters", "لا يمكن إنشاء المزيد من الشخصيات"),
+                    _safeTr(context, "Cannot Create More Characters", "لا يمكن إنشاء المزيد من الشخصيات"),
                     textAlign: TextAlign.center,
                     style: const TextStyle(
                       fontSize: 20,
@@ -537,7 +698,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    tr(context,
+                    _safeTr(context,
                         "You already have $_activeCharacterCount active parts. Please nurture them before discovering new insights or reactivating inactive/stable parts.",
                         "لديك بالفعل $_activeCharacterCount جزء نشط. يرجى رعايتها قبل اكتشاف رؤى جديدة أو إعادة تفعيل الأجزاء غير النشطة/المستقرة."),
                     textAlign: TextAlign.center,
@@ -561,7 +722,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                         ),
                       ),
                       child: Text(
-                        tr(context, "Got It", "حسناً"),
+                        _safeTr(context, "Got It", "حسناً"),
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
@@ -644,38 +805,54 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
       print('📚 Existing characters in database: ${existingCharactersSnapshot.docs.length}');
       for (final doc in existingCharactersSnapshot.docs) {
         final data = doc.data();
-        print('   - ${data['characterName']} (state: ${data['currentState'] ?? 'active'})');
+        print('   - "${data['characterName']}" (state: ${data['currentState'] ?? 'active'})');
       }
 
-      // Create maps for quick lookup by character name
+      // Create maps for quick lookup by character name (using normalized keys)
       Map<String, Map<String, dynamic>> activeCharacters = {};
       Map<String, Map<String, dynamic>> inactiveCharacters = {};
       Map<String, Map<String, dynamic>> stableCharacters = {};
 
+      // Helper function to normalize a character name for matching
+      String normalizeName(String name) {
+        if (name.isEmpty) return '';
+        // Remove "The " prefix if it exists
+        String normalized = name.trim();
+        if (normalized.toLowerCase().startsWith('the ')) {
+          normalized = normalized.substring(4).trim();
+        }
+        // Convert to lowercase for case-insensitive matching
+        return normalized.toLowerCase();
+      }
+
       for (final doc in existingCharactersSnapshot.docs) {
         final data = doc.data();
-        final characterName = data['characterName']?.toString().toLowerCase().trim() ?? '';
+        final characterName = data['characterName']?.toString().trim() ?? '';
+        final normalizedKey = normalizeName(characterName);
         final currentState = data['currentState'] ?? 'active';
 
         if (characterName.isNotEmpty) {
           if (currentState == 'inactive') {
-            inactiveCharacters[characterName] = {
+            inactiveCharacters[normalizedKey] = {
               ...data,
               'docId': doc.id,
+              'originalName': characterName,
             };
-            print('   📌 Found INACTIVE: $characterName');
+            print('   📌 Found INACTIVE: "$characterName" (normalized: "$normalizedKey")');
           } else if (currentState == 'stable') {
-            stableCharacters[characterName] = {
+            stableCharacters[normalizedKey] = {
               ...data,
               'docId': doc.id,
+              'originalName': characterName,
             };
-            print('   📌 Found STABLE: $characterName');
+            print('   📌 Found STABLE: "$characterName" (normalized: "$normalizedKey")');
           } else if (currentState == 'active') {
-            activeCharacters[characterName] = {
+            activeCharacters[normalizedKey] = {
               ...data,
               'docId': doc.id,
+              'originalName': characterName,
             };
-            print('   📌 Found ACTIVE: $characterName');
+            print('   📌 Found ACTIVE: "$characterName" (normalized: "$normalizedKey")');
           }
         }
       }
@@ -720,8 +897,9 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
           continue;
         }
 
-        final characterNameLower = characterName.toLowerCase().trim();
-        print('\n🔍 Processing character: $characterName (lowercase: $characterNameLower)');
+        // Normalize the character name for lookup
+        final normalizedKey = normalizeName(characterName);
+        print('\n🔍 Processing character: "$characterName" (normalized: "$normalizedKey")');
 
         // Get confidence
         double confidence = 0.0;
@@ -734,16 +912,20 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
         }
 
         // FIRST: Check if character exists in ANY state (active, inactive, or stable)
+        // using the normalized key
 
         // CASE 1: Character is already ACTIVE - skip
-        if (activeCharacters.containsKey(characterNameLower)) {
-          print('⏭️ Character already active: $characterName');
+        if (activeCharacters.containsKey(normalizedKey)) {
+          final activeData = activeCharacters[normalizedKey]!;
+          print('⏭️ Character already active: "${activeData['originalName']}"');
           continue;
         }
 
         // CASE 2: Character is STABLE - reactivate it (preserve all original data)
-        if (stableCharacters.containsKey(characterNameLower)) {
-          print('   ✅ Found STABLE character: $characterName');
+        if (stableCharacters.containsKey(normalizedKey)) {
+          final stableData = stableCharacters[normalizedKey]!;
+          final originalName = stableData['originalName'] ?? characterName;
+          print('   ✅ Found STABLE character: "$originalName"');
 
           // Check if reactivating would exceed the limit
           if (totalActiveAfterOperations >= 3) {
@@ -777,7 +959,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                       ),
                       const SizedBox(height: 20),
                       Text(
-                        tr(context, "Active Character Limit", "حد الشخصيات النشطة"),
+                        _safeTr(context, "Active Character Limit", "حد الشخصيات النشطة"),
                         textAlign: TextAlign.center,
                         style: const TextStyle(
                           fontSize: 20,
@@ -787,7 +969,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                       ),
                       const SizedBox(height: 16),
                       Text(
-                        tr(context,
+                        _safeTr(context,
                             "You can only have up to 3 active characters at a time. Cannot reactivate more characters at this time.",
                             "يمكنك الحصول على 3 شخصيات نشطة فقط في المرة الواحدة. لا يمكن إعادة تفعيل المزيد من الشخصيات في هذا الوقت."),
                         textAlign: TextAlign.center,
@@ -805,7 +987,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Text(
-                          tr(context,
+                          _safeTr(context,
                               "Current active: $_activeCharacterCount of 3",
                               "النشط حالياً: $_activeCharacterCount من 3"),
                           style: const TextStyle(
@@ -824,10 +1006,9 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
           }
 
           // Reactivate the stable character WITHOUT changing other fields
-          final stableData = stableCharacters[characterNameLower]!;
           final docId = stableData['docId'];
 
-          print('🔄 Reactivating stable character: $characterName');
+          print('🔄 Reactivating stable character: "$originalName"');
           print('   Document ID: $docId');
           print('   Current state before: ${stableData['currentState']}');
 
@@ -845,13 +1026,15 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
           totalActiveAfterOperations++;
 
           // Remove from stable map so we don't process again
-          stableCharacters.remove(characterNameLower);
+          stableCharacters.remove(normalizedKey);
           continue;
         }
 
         // CASE 3: Character is INACTIVE - reactivate it (update with new data)
-        if (inactiveCharacters.containsKey(characterNameLower)) {
-          print('   ✅ Found INACTIVE character: $characterName');
+        if (inactiveCharacters.containsKey(normalizedKey)) {
+          final inactiveData = inactiveCharacters[normalizedKey]!;
+          final originalName = inactiveData['originalName'] ?? characterName;
+          print('   ✅ Found INACTIVE character: "$originalName"');
 
           // Check if reactivating would exceed the limit
           if (totalActiveAfterOperations >= 3) {
@@ -885,7 +1068,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                       ),
                       const SizedBox(height: 20),
                       Text(
-                        tr(context, "Active Character Limit", "حد الشخصيات النشطة"),
+                        _safeTr(context, "Active Character Limit", "حد الشخصيات النشطة"),
                         textAlign: TextAlign.center,
                         style: const TextStyle(
                           fontSize: 20,
@@ -895,7 +1078,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                       ),
                       const SizedBox(height: 16),
                       Text(
-                        tr(context,
+                        _safeTr(context,
                             "You can only have up to 3 active characters at a time. Cannot reactivate more characters at this time.",
                             "يمكنك الحصول على 3 شخصيات نشطة فقط في المرة الواحدة. لا يمكن إعادة تفعيل المزيد من الشخصيات في هذا الوقت."),
                         textAlign: TextAlign.center,
@@ -913,7 +1096,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Text(
-                          tr(context,
+                          _safeTr(context,
                               "Current active: $_activeCharacterCount of 3",
                               "النشط حالياً: $_activeCharacterCount من 3"),
                           style: const TextStyle(
@@ -932,10 +1115,9 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
           }
 
           // Reactivate the inactive character
-          final inactiveData = inactiveCharacters[characterNameLower]!;
           final docId = inactiveData['docId'];
 
-          print('🔄 Reactivating inactive character: $characterName');
+          print('🔄 Reactivating inactive character: "$originalName"');
           print('   Document ID: $docId');
 
           // Update the existing inactive character to active
@@ -951,7 +1133,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
           totalActiveAfterOperations++;
 
           // Remove from inactive map so we don't process again
-          inactiveCharacters.remove(characterNameLower);
+          inactiveCharacters.remove(normalizedKey);
           continue;
         }
 
@@ -989,7 +1171,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                     ),
                     const SizedBox(height: 20),
                     Text(
-                      tr(context, "Active Character Limit", "حد الشخصيات النشطة"),
+                      _safeTr(context, "Active Character Limit", "حد الشخصيات النشطة"),
                       textAlign: TextAlign.center,
                       style: const TextStyle(
                         fontSize: 20,
@@ -999,7 +1181,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                     ),
                     const SizedBox(height: 16),
                     Text(
-                      tr(context,
+                      _safeTr(context,
                           "You can only have up to 3 active characters at a time. Some characters were not added.",
                           "يمكنك الحصول على 3 شخصيات نشطة فقط في المرة الواحدة. لم تتم إضافة بعض الشخصيات."),
                       textAlign: TextAlign.center,
@@ -1019,7 +1201,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                       child: Column(
                         children: [
                           Text(
-                            tr(context,
+                            _safeTr(context,
                                 "Current active: $_activeCharacterCount of 3",
                                 "النشط حالياً: $_activeCharacterCount من 3"),
                             style: const TextStyle(
@@ -1029,7 +1211,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            tr(context,
+                            _safeTr(context,
                                 "Remaining slots: ${3 - _activeCharacterCount}",
                                 "المساحة المتبقية: ${3 - _activeCharacterCount}"),
                             style: const TextStyle(
@@ -1054,7 +1236,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
         newCharactersCount++;
         totalActiveAfterOperations++;
 
-        print('📝 Adding NEW character: $characterName (Rank: $rank)');
+        print('📝 Adding NEW character: "$characterName" (Rank: $rank)');
 
         // Get display names
         String displayNameEn = _getEnglishDisplayName(characterName);
@@ -1132,18 +1314,18 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
         if (mounted) {
           String message;
           if (newCharactersCount > 0 && (reactivatedFromInactiveCount > 0 || reactivatedFromStableCount > 0)) {
-            message = tr(context,
+            message = _safeTr(context,
                 '$newCharactersCount new and ${reactivatedFromInactiveCount + reactivatedFromStableCount} reactivated inner characters added!',
                 'تم إضافة $newCharactersCount شخصيات جديدة وإعادة تفعيل ${reactivatedFromInactiveCount + reactivatedFromStableCount} شخصيات!'
             );
           } else if (newCharactersCount > 0) {
-            message = tr(context,
+            message = _safeTr(context,
                 '$newCharactersCount new inner ${newCharactersCount == 1 ? 'character' : 'characters'} added!',
                 'تم إضافة $newCharactersCount من الشخصيات الداخلية الجديدة!'
             );
           } else if (reactivatedFromInactiveCount > 0 || reactivatedFromStableCount > 0) {
             int totalReactivated = reactivatedFromInactiveCount + reactivatedFromStableCount;
-            message = tr(context,
+            message = _safeTr(context,
                 '$totalReactivated inner ${totalReactivated == 1 ? 'character has' : 'characters have'} been reactivated!',
                 'تم إعادة تفعيل $totalReactivated من الشخصيات الداخلية!'
             );
@@ -1168,7 +1350,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              tr(context,
+              _safeTr(context,
                   'Analysis completed, but no new characters were added or reactivated',
                   'تم اكتمال التحليل، ولكن لم تتم إضافة أو إعادة تفعيل شخصيات جديدة'),
             ),
@@ -1185,35 +1367,13 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              tr(context, 'Error saving characters', 'حدث خطأ في حفظ الشخصيات'),
+              _safeTr(context, 'Error saving characters', 'حدث خطأ في حفظ الشخصيات'),
             ),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
           ),
         );
       }
-    }
-  }
-
-  // Helper method to get existing user characters
-  Future<List<UserCharacter>> _getUserCharacters() async {
-    try {
-      if (_currentUserId == null) {
-        return [];
-      }
-
-      final querySnapshot = await _firestore
-          .collection('user_characters')
-          .where('userId', isEqualTo: _currentUserId)
-          .get();
-
-      return querySnapshot.docs.map((doc) {
-        return UserCharacter.fromMap(doc.data() as Map<String, dynamic>, doc.id);
-      }).toList();
-
-    } catch (e) {
-      print('❌ Error getting user characters: $e');
-      return [];
     }
   }
 
@@ -1621,6 +1781,8 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
     }
   }
 
+  // ===================== FIXED VOICE RECORDING METHODS =====================
+
   Future<void> _startVoiceRecording() async {
     try {
       if (!await Permission.microphone.isGranted) {
@@ -1632,13 +1794,13 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       _audioFilePath = '${dir.path}/audio_$timestamp.wav';
 
-      // CRITICAL FIX: Use settings that match backend expectations
+      // ✅ FIXED: Use 16000Hz for speech recognition
       await _audioRecorder.start(
         const RecordConfig(
           encoder: AudioEncoder.wav,
-          sampleRate: 22050,  // Changed from 16000 to 22050 (standard for speech recognition)
+          sampleRate: 16000,  // ✅ 16kHz for speech recognition
           numChannels: 1,      // Mono
-          bitRate: 256000,
+          bitRate: 128000,     // 128kbps is sufficient for speech
         ),
         path: _audioFilePath!,
       );
@@ -1647,7 +1809,15 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
         _voiceRecording = true;
       });
 
-      print('🎤 Started voice recording at 22.05kHz mono');
+      print('🎤 Started voice recording at 16kHz mono');
+
+      // Auto-stop after 30 seconds to prevent long recordings
+      Future.delayed(const Duration(seconds: 30), () {
+        if (_voiceRecording) {
+          _stopVoiceRecording();
+          print('⏱️ Auto-stopped recording after 30 seconds');
+        }
+      });
     } catch (e) {
       print('Error starting voice recording: $e');
       setState(() {
@@ -1655,6 +1825,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
       });
     }
   }
+
   Future<void> _stopVoiceRecording() async {
     try {
       if (!_voiceRecording) return;
@@ -1665,7 +1836,22 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
       if (_audioFilePath != null) {
         final file = File(_audioFilePath!);
         if (await file.exists()) {
-          await _sendAudioToServer();
+          // Verify audio file before sending
+          final size = await file.length();
+          print('📊 Audio file size: $size bytes');
+
+          if (size > 1000) { // At least 1KB
+            await _sendAudioToServer();
+          } else {
+            print('❌ Audio file too small: $size bytes');
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Recording too short. Please speak longer and try again.'),
+                backgroundColor: Colors.orange,
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
         }
       }
 
@@ -1707,7 +1893,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
       final fileSize = await audioFile.length();
       print('📊 Audio file size: $fileSize bytes');
 
-      if (fileSize < 1000) {  // Less than 1KB is likely too small/empty
+      if (fileSize < 1000) {
         print('❌ Audio file too small: $fileSize bytes');
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -1740,9 +1926,24 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
         final result = jsonDecode(response.body);
         print('📊 API Response: ${result.containsKey('success') ? result['success'] : 'unknown'}');
 
-        // Check if speech was detected
         if (result['success'] == true) {
+          // ✅ Get both original and translated text
           final transcribedText = result['transcribed_text'] ?? '';
+          final translatedText = result['translated_text'] ?? '';
+          final isTranslated = result['is_translated'] ?? false;
+          final detectedLanguage = result['detected_language'] ?? 'english';
+
+          // ✅ For display: show the original transcribed text (Arabic if spoken in Arabic)
+          final displayText = transcribedText;
+
+          // ✅ For analysis: use translated text if available, otherwise use original
+          final analysisText = isTranslated && translatedText.isNotEmpty ? translatedText : transcribedText;
+
+          print('🔄 Original transcribed text: "$transcribedText"');
+          print('🔄 Translated text: "$translatedText"');
+          print('🔄 Using for analysis: "$analysisText"');
+          print('🔄 Is translated: $isTranslated');
+          print('🔄 Detected language: $detectedLanguage');
 
           if (transcribedText.isEmpty || transcribedText == 'No speech detected') {
             print('⚠️ No speech detected in recording');
@@ -1756,24 +1957,28 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
             );
           } else {
             print('✅ Transcribed: "$transcribedText"');
+            if (isTranslated) {
+              print('✅ Translated: "$translatedText"');
+            }
           }
 
           // Rest of your response handling...
           final voiceEmotions = result['voice_emotions'] ?? [];
           final primaryVoiceEmotion = result['primary_voice_emotion'] ?? 'Unknown';
           final primaryVoiceConfidence = result['primary_voice_confidence'] ?? 0.0;
-          final detectedLanguage = result['detected_language'] ?? 'english';
-          final isTranslated = result['is_translated'] ?? false;
 
           final analysisData = {
             'type': 'audio',
             'isLoading': false,
             'input': 'Voice recording',
+            // ✅ Store BOTH original and translated
+            'transcribed_text': transcribedText,  // Original Arabic speech
+            'translated_text': translatedText,    // English translation (if applicable)
+            'display_text': displayText,          // What to display
             'primary_character': result['primary_character'],
             'character_name': result['character_name'] ?? '',
             'confidence': result['confidence'] ?? 0.0,
             'inner_characters': result['inner_characters'] ?? [],
-            'transcribed_text': transcribedText,
             'voice_emotions': voiceEmotions,
             'primary_voice_emotion': primaryVoiceEmotion,
             'primary_voice_confidence': primaryVoiceConfidence,
@@ -1792,7 +1997,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
 
           await _saveToDatabase(
             inputType: 'voice',
-            transcript: transcribedText,
+            transcript: analysisText, // Use translated text for analysis
             language: detectedLanguage,
             analysisResult: analysisData,
             audioFilePath: _audioFilePath,
@@ -1844,71 +2049,59 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
       }
     }
   }
-// Add this method to test audio quality
-  Future<void> _testMicrophone() async {
+
+  // ===================== FIXED VIDEO RECORDING METHODS =====================
+
+  Future<void> _startHiddenAudioRecording() async {
     try {
+      final micStatus = await Permission.microphone.status;
+      if (!micStatus.isGranted) {
+        final newStatus = await Permission.microphone.request();
+        if (!newStatus.isGranted) {
+          _videoAudioFilePath = null;
+          return;
+        }
+      }
+
       final dir = await getApplicationDocumentsDirectory();
       final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final testPath = '${dir.path}/test_$timestamp.wav';
+      _videoAudioFilePath = '${dir.path}/video_audio_$timestamp.wav';
 
-      await _audioRecorder.start(
+      // ✅ FIXED: Use 16000Hz for speech recognition
+      await _videoAudioRecorder.start(
         const RecordConfig(
           encoder: AudioEncoder.wav,
-          sampleRate: 22050,
-          numChannels: 1,
+          sampleRate: 16000,  // ✅ 16kHz for speech recognition
+          numChannels: 1,     // Mono
+          bitRate: 128000,
         ),
-        path: testPath,
+        path: _videoAudioFilePath!,
       );
 
-      // Show recording indicator
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Recording... Please speak for 3 seconds'),
-          duration: Duration(seconds: 3),
-        ),
-      );
-
-      await Future.delayed(const Duration(seconds: 3));
-      await _audioRecorder.stop();
-
-      // Check file
-      final file = File(testPath);
-      if (await file.exists()) {
-        final size = await file.length();
-        print('✅ Test recording: $size bytes');
-
-        if (size < 5000) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Recording too short. Check microphone permissions and speak louder.'),
-              backgroundColor: Colors.orange,
-            ),
-          );
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('✓ Recording successful! ${(size/1024).toStringAsFixed(1)} KB'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-
-        // Clean up
-        await file.delete();
-      }
+      _videoAudioRecording = true;
+      print('🎤 Hidden audio recording started at 16kHz mono');
     } catch (e) {
-      print('Test error: $e');
-    }
-  }
-  void _toggleVoiceRecording() {
-    if (_voiceRecording) {
-      _stopVoiceRecording();
-    } else {
-      _startVoiceRecording();
+      print('❌ Error starting hidden audio recording: $e');
+      _videoAudioRecording = false;
+      _videoAudioFilePath = null;
     }
   }
 
-  // Video Recording & Analysis
+  Future<void> _stopHiddenAudioRecording() async {
+    if (!_videoAudioRecording) return;
+
+    try {
+      await _videoAudioRecorder.stop();
+      await Future.delayed(const Duration(milliseconds: 300));
+
+      _videoAudioRecording = false;
+
+    } catch (e) {
+      print('❌ Error stopping hidden audio recording: $e');
+      _videoAudioRecording = false;
+    }
+  }
+
   Future<void> _startVideoRecording() async {
     if (!_isCameraInitialized || _cameraController == null) {
       return;
@@ -1932,55 +2125,6 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
     } catch (e) {
       print('❌ Error starting video recording: $e');
       await _stopHiddenAudioRecording();
-    }
-  }
-
-  Future<void> _startHiddenAudioRecording() async {
-    try {
-      final micStatus = await Permission.microphone.status;
-      if (!micStatus.isGranted) {
-        final newStatus = await Permission.microphone.request();
-        if (!newStatus.isGranted) {
-          _videoAudioFilePath = null;
-          return;
-        }
-      }
-
-      final dir = await getApplicationDocumentsDirectory();
-      final timestamp = DateTime.now().millisecondsSinceEpoch;
-      _videoAudioFilePath = '${dir.path}/video_audio_$timestamp.wav';
-
-      // CHANGE: Use 22050Hz to match voice recording
-      await _videoAudioRecorder.start(
-        const RecordConfig(
-          encoder: AudioEncoder.wav,
-          sampleRate: 22050,  // Changed from 16000 to 22050
-          numChannels: 1,     // Mono
-          bitRate: 256000,
-        ),
-        path: _videoAudioFilePath!,
-      );
-
-      _videoAudioRecording = true;
-      print('🎤 Hidden audio recording started at 22.05kHz mono');
-    } catch (e) {
-      print('❌ Error starting hidden audio recording: $e');
-      _videoAudioRecording = false;
-      _videoAudioFilePath = null;
-    }
-  }
-  Future<void> _stopHiddenAudioRecording() async {
-    if (!_videoAudioRecording) return;
-
-    try {
-      await _videoAudioRecorder.stop();
-      await Future.delayed(const Duration(milliseconds: 300));
-
-      _videoAudioRecording = false;
-
-    } catch (e) {
-      print('❌ Error stopping hidden audio recording: $e');
-      _videoAudioRecording = false;
     }
   }
 
@@ -2012,8 +2156,6 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
       await _stopHiddenAudioRecording();
     }
   }
-
-  // Replace your _sendVideoWithAudioToServer method with this updated version
 
   Future<void> _sendVideoWithAudioToServer() async {
     setState(() {
@@ -2067,14 +2209,19 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
         final result = jsonDecode(response.body);
         print('📊 Full API Response: $result');
 
-        // DEBUG: Print all keys to see what's available
-        print('🔑 Response keys: ${result.keys}');
-
         if (result['success'] == true) {
-          // CRITICAL FIX: Check for different possible field names for inner characters
+          // ✅ Get both original and translated text
+          final transcribedText = result['transcribed_text'] ?? '';
+          final translatedText = result['translated_text'] ?? '';
+          final isTranslated = result['is_translated'] ?? false;
+          final detectedLanguage = result['detected_language'] ?? 'english';
+
+          print('🔄 Original transcribed text: "$transcribedText"');
+          print('🔄 Translated text: "$translatedText"');
+          print('🔄 Is translated: $isTranslated');
+
           List innerCharacters = [];
 
-          // Try different possible field names from the server
           if (result.containsKey('inner_characters') && result['inner_characters'] != null) {
             innerCharacters = result['inner_characters'] as List;
             print('✅ Found inner_characters: $innerCharacters');
@@ -2085,7 +2232,6 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
             innerCharacters = result['predictions'] as List;
             print('✅ Found predictions: $innerCharacters');
           } else if (result.containsKey('text_predictions') && result['text_predictions'] != null) {
-            // Parse text predictions from string format like "Ashamed Part (0.978), Inner Critic (0.011)"
             final textPredictions = result['text_predictions'].toString();
             innerCharacters = _parseTextPredictions(textPredictions);
             print('✅ Parsed text_predictions: $innerCharacters');
@@ -2097,17 +2243,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
             }
           }
 
-          // If still empty, try to extract from the result directly
           if (innerCharacters.isEmpty) {
-            // Check if the result itself has character predictions at top level
-            for (var key in result.keys) {
-              if (key.toLowerCase().contains('character') ||
-                  key.toLowerCase().contains('prediction')) {
-                print('🔍 Checking key: $key = ${result[key]}');
-              }
-            }
-
-            // Try to create a character from primary_character if available
             if (result.containsKey('primary_character') &&
                 result['primary_character'] != null &&
                 result['primary_character'] != 'Unknown') {
@@ -2125,19 +2261,19 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
           final voiceEmotions = result['voice_emotions'] ?? [];
           final primaryVoiceEmotion = result['primary_voice_emotion'] ?? 'Unknown';
           final primaryVoiceConfidence = result['primary_voice_confidence'] ?? 0.0;
-          final transcribedText = result['transcribed_text'] ?? '';
-          final detectedLanguage = result['detected_language'] ?? 'english';
-          final isTranslated = result['is_translated'] ?? false;
 
           final analysisData = {
             'type': 'video',
             'isLoading': false,
             'input': 'Video recording',
+            // ✅ Store BOTH original and translated
+            'transcribed_text': transcribedText,  // Original Arabic speech
+            'translated_text': translatedText,    // English translation (if applicable)
+            'display_text': transcribedText,      // What to display
             'primary_character': result['primary_character'] ?? 'Unknown',
             'character_name': result['character_name'] ?? '',
             'confidence': result['confidence'] ?? 0.0,
-            'inner_characters': innerCharacters, // Use our parsed inner characters
-            'transcribed_text': transcribedText,
+            'inner_characters': innerCharacters,
             'voice_emotions': voiceEmotions,
             'primary_voice_emotion': primaryVoiceEmotion,
             'primary_voice_confidence': primaryVoiceConfidence,
@@ -2165,7 +2301,6 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
             audioFilePath: _videoAudioFilePath,
           );
 
-          // Save high confidence characters with media
           await _saveHighConfidenceCharacters(
             analysisData,
             videoFilePath: _videoFilePath,
@@ -2193,11 +2328,9 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
     }
   }
 
-// Add this helper method to parse text predictions from string format
   List<Map<String, dynamic>> _parseTextPredictions(String predictionsText) {
     final List<Map<String, dynamic>> result = [];
 
-    // Format like: "Ashamed Part (0.978), Inner Critic (0.011), Confused Part (0.011)"
     final pattern = RegExp(r'([^(]+)\(([0-9.]+)\)');
     final matches = pattern.allMatches(predictionsText);
 
@@ -2257,6 +2390,119 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
       }
     });
   }
+
+  // Add this method to get character data from database
+  Future<Map<String, dynamic>?> _getCharacterFromDatabase(String characterName) async {
+    try {
+      if (_currentUserId == null) return null;
+
+      final querySnapshot = await _firestore
+          .collection('user_characters')
+          .where('userId', isEqualTo: _currentUserId)
+          .where('characterName', isEqualTo: characterName)
+          .limit(1)
+          .get();
+
+      if (querySnapshot.docs.isNotEmpty) {
+        return querySnapshot.docs.first.data();
+      }
+      return null;
+    } catch (e) {
+      print('❌ Error getting character from database: $e');
+      return null;
+    }
+  }
+  String _getLocalizedDisplayName(String characterName) {
+    // First check if the character name itself is already in Arabic
+    if (_isArabicText(characterName)) {
+      print('📝 Name is already in Arabic: "$characterName"');
+      return characterName;
+    }
+
+    // Check if the app is in Arabic mode
+    final isArabic = Localizations.localeOf(context).languageCode == 'ar';
+
+    print('🌐 Language is Arabic: $isArabic');
+    print('📝 Input name: "$characterName"');
+
+    if (isArabic) {
+      // Check if we have this character in our local cache
+      if (_arabicNameCache.containsKey(characterName)) {
+        final cachedName = _arabicNameCache[characterName]!;
+        print('📤 Using cached Arabic name: "$cachedName"');
+        return cachedName;
+      }
+
+      // If not in cache, translate it
+      final result = _getArabicDisplayName(characterName);
+      print('📤 Translated to Arabic: "$result"');
+
+      // Cache the result for future use
+      _arabicNameCache[characterName] = result;
+      return result;
+    } else {
+      // For English, remove "The " prefix if present
+      String displayName = characterName;
+      if (displayName.toLowerCase().startsWith('the ')) {
+        displayName = displayName.substring(4);
+      }
+      // Capitalize first letter
+      if (displayName.isNotEmpty) {
+        displayName = displayName[0].toUpperCase() + displayName.substring(1);
+      }
+      print('📤 English result (without "The"): "$displayName"');
+      return displayName;
+    }
+  }
+
+  // Also add method for localized descriptions
+  String _getLocalizedDescription(String englishName) {
+    final isArabic = Localizations.localeOf(context).languageCode == 'ar';
+
+    if (isArabic) {
+      return _getArabicDescription(englishName);
+    } else {
+      return _getEnglishDescription(englishName);
+    }
+  }
+
+  void _toggleVoiceRecording() {
+    if (_voiceRecording) {
+      _stopVoiceRecording();
+    } else {
+      _startVoiceRecording();
+    }
+  }
+
+  String _getLocalizedEmotionName(String englishEmotion) {
+    final isArabic = Localizations.localeOf(context).languageCode == 'ar';
+
+    if (!isArabic) return englishEmotion;
+
+    final arabicEmotions = {
+      'Happy': 'سعيد',
+      'Sad': 'حزين',
+      'Angry': 'غاضب',
+      'Fearful': 'خائف',
+      'Surprised': 'مندهش',
+      'Disgusted': 'مشمئز',
+      'Neutral': 'محايد',
+      'Joy': 'فرح',
+      'Anxious': 'قلق',
+      'Calm': 'هادئ',
+      'Excited': 'متحمس',
+      'Frustrated': 'محبط',
+      'Guilty': 'مذنب',
+      'Hopeful': 'متفائل',
+      'Peaceful': 'مسالم',
+      'Grateful': 'ممتن',
+      'Lonely': 'وحيد',
+      'Overwhelmed': 'مرهق',
+    };
+
+    return arabicEmotions[englishEmotion] ?? englishEmotion;
+  }
+
   Future<void> _testAudioRecording() async {
     try {
       final dir = await getApplicationDocumentsDirectory();
@@ -2272,21 +2518,17 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
         path: testPath,
       );
 
-      // Record for 2 seconds
       await Future.delayed(const Duration(seconds: 2));
       await _audioRecorder.stop();
 
-      // Check file
       final file = File(testPath);
       if (await file.exists()) {
         final size = await file.length();
         print('✅ Test audio recorded: $size bytes');
 
-        // Read and verify
         final bytes = await file.readAsBytes();
         print('   Audio bytes length: ${bytes.length}');
 
-        // Try to send to server for debugging
         final base64Audio = base64Encode(bytes);
         final response = await http.post(
           Uri.parse('${widget.serverUrl}/api/debug/test-audio'),
@@ -2304,6 +2546,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
       print('❌ Test audio error: $e');
     }
   }
+
   Future<void> _switchToMode(_ReframeMode newMode) async {
     if (newMode == _ReframeMode.video && _mode != _ReframeMode.video) {
       setState(() {
@@ -2340,12 +2583,8 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
   }
 
   // Build Method
-
-// Modify your build method
   @override
   Widget build(BuildContext context) {
-    // Show full restriction page ONLY on reload (when _shouldShowFullRestrictionPage is true)
-    // AND only after we've done the initial check
     if (_shouldShowFullRestrictionPage && _hasCheckedRestriction && _isRestricted) {
       return Scaffold(
         body: Column(
@@ -2417,173 +2656,174 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
       );
     }
 
-    // Normal UI - inputs will be disabled when _isRestricted is true
-    // But NO full restriction page
     return Scaffold(
-        body: Column(
-          children: [
-            TopHelloBar(
-              name: widget.name,
-              onLogout: widget.onLogout,
-              onSettings: () {
-                showModalBottomSheet(
-                  context: context,
-                  builder: (context) => SettingsBottomSheet(
-                    onRetakeQuestionnaire: widget.onRetakeQuestionnaire,
-                    onSwitchLanguage: widget.onSwitchLanguage,
-                  ),
-                );
-              },
-            ),
-            Expanded(
-              child: SingleChildScrollView(
-                controller: _scrollController,
-                padding: const EdgeInsets.fromLTRB(20, 20, 20, 40),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Container(
-                      width: 110,
-                      height: 110,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF8E7CFF).withValues(alpha: 0.12),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.category_rounded,
-                        size: 54,
-                        color: Color(0xFF8E7CFF),
-                      ),
+      body: Column(
+        children: [
+          TopHelloBar(
+            name: widget.name,
+            onLogout: widget.onLogout,
+            onSettings: () {
+              showModalBottomSheet(
+                context: context,
+                builder: (context) => SettingsBottomSheet(
+                  onRetakeQuestionnaire: widget.onRetakeQuestionnaire,
+                  onSwitchLanguage: widget.onSwitchLanguage,
+                ),
+              );
+            },
+          ),
+          Expanded(
+            child: SingleChildScrollView(
+              controller: _scrollController,
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 40),
+              physics: const BouncingScrollPhysics(),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 110,
+                    height: 110,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF8E7CFF).withValues(alpha: 0.12),
+                      shape: BoxShape.circle,
                     ),
-                    const SizedBox(height: 16),
-                    Text(
-                      tr(context, "Reframe", "إعادة الإطار"),
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF2A1E3B),
+                    child: const Icon(
+                      Icons.category_rounded,
+                      size: 54,
+                      color: Color(0xFF8E7CFF),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    tr(context, "Reframe", "إعادة الإطار"),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF2A1E3B),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    tr(
+                      context,
+                      "This space is for reflection. Speak freely, and let ANA gently reframe your inner parts based on what you share.",
+                      "هذه المساحة للتأمل. تحدث بحرية، ودع آنا تعيد صياغة أجزائك الداخلية برفق بناءً على ما تشاركه.",
+                    ),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      color: Color(0xFF4B3A66),
+                      height: 1.6,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+
+                  if (_activeCharacterCount > 0) ...[
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: _isRestricted
+                            ? const Color(0xFFFFF3E0)
+                            : const Color(0xFFF3EDFF),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            _isRestricted ? Icons.warning_amber_rounded : Icons.info_outline,
+                            size: 18,
+                            color: _isRestricted
+                                ? const Color(0xFFFF9800)
+                                : const Color(0xFF8E7CFF),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _isRestricted
+                                  ? tr(
+                                  context,
+                                  "Maximum active parts reached ($_activeCharacterCount/3). Please nurture existing parts first.",
+                                  "تم الوصول إلى الحد الأقصى للأجزاء النشطة ($_activeCharacterCount/3). يرجى رعاية الأجزاء الموجودة أولاً."
+                              )
+                                  : tr(
+                                  context,
+                                  "You have $_activeCharacterCount active part${_activeCharacterCount == 1 ? '' : 's'} to nurture",
+                                  "لديك $_activeCharacterCount جزء نشط للعناية به"
+                              ),
+                              style: TextStyle(
+                                color: _isRestricted
+                                    ? const Color(0xFFFF9800)
+                                    : const Color(0xFF8E7CFF),
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                     const SizedBox(height: 12),
-                    Text(
-                      tr(
-                        context,
-                        "This space is for reflection. Speak freely, and let ANA gently reframe your inner parts based on what you share.",
-                        "هذه المساحة للتأمل. تحدث بحرية، ودع آنا تعيد صياغة أجزائك الداخلية برفق بناءً على ما تشاركه.",
-                      ),
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        color: Color(0xFF4B3A66),
-                        height: 1.6,
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-
-                    // Character count info - Show warning when restricted
-                    if (_activeCharacterCount > 0) ...[
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: _isRestricted
-                              ? const Color(0xFFFFF3E0)
-                              : const Color(0xFFF3EDFF),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              _isRestricted ? Icons.warning_amber_rounded : Icons.info_outline,
-                              size: 18,
-                              color: _isRestricted
-                                  ? const Color(0xFFFF9800)
-                                  : const Color(0xFF8E7CFF),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                _isRestricted
-                                    ? tr(
-                                    context,
-                                    "Maximum active parts reached ($_activeCharacterCount/3). Please nurture existing parts first.",
-                                    "تم الوصول إلى الحد الأقصى للأجزاء النشطة ($_activeCharacterCount/3). يرجى رعاية الأجزاء الموجودة أولاً."
-                                )
-                                    : tr(
-                                    context,
-                                    "You have $_activeCharacterCount active part${_activeCharacterCount == 1 ? '' : 's'} to nurture",
-                                    "لديك $_activeCharacterCount جزء نشط للعناية به"
-                                ),
-                                style: TextStyle(
-                                  color: _isRestricted
-                                      ? const Color(0xFFFF9800)
-                                      : const Color(0xFF8E7CFF),
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 13,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                    ],
-
-                    // Mode selection cards - Disable when restricted
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _ModeCard(
-                            title: tr(context, "Chat", "دردشة"),
-                            icon: Icons.chat_bubble_rounded,
-                            selected: _mode == _ReframeMode.chat,
-                            enabled: !_isRestricted, // Disable when 3+ active characters
-                            onTap: () => _switchToMode(_ReframeMode.chat),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _ModeCard(
-                            title: tr(context, "Voice", "صوت"),
-                            icon: Icons.mic_rounded,
-                            selected: _mode == _ReframeMode.voice,
-                            enabled: !_isRestricted, // Disable when 3+ active characters
-                            onTap: () => _switchToMode(_ReframeMode.voice),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _ModeCard(
-                            title: tr(context, "Video", "فيديو"),
-                            icon: Icons.videocam_rounded,
-                            selected: _mode == _ReframeMode.video,
-                            enabled: !_isRestricted, // Disable when 3+ active characters
-                            onTap: () => _switchToMode(_ReframeMode.video),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 18),
-
-                    // Mode content - Pass disabled flag
-                    AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 220),
-                      child: _buildModeContent(context),
-                    ),
-
-                    // Analysis result
-                    if (_analysisResult.isNotEmpty && _analysisResult['type'] != null) ...[
-                      const SizedBox(height: 20),
-                      _buildAnalysisResultCard(),
-                    ],
                   ],
-                ),
+
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _ModeCard(
+                          title: tr(context, "Chat", "دردشة"),
+                          icon: Icons.chat_bubble_rounded,
+                          selected: _mode == _ReframeMode.chat,
+                          enabled: !_isRestricted,
+                          onTap: () => _switchToMode(_ReframeMode.chat),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _ModeCard(
+                          title: tr(context, "Voice", "صوت"),
+                          icon: Icons.mic_rounded,
+                          selected: _mode == _ReframeMode.voice,
+                          enabled: !_isRestricted,
+                          onTap: () => _switchToMode(_ReframeMode.voice),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _ModeCard(
+                          title: tr(context, "Video", "فيديو"),
+                          icon: Icons.videocam_rounded,
+                          selected: _mode == _ReframeMode.video,
+                          enabled: !_isRestricted,
+                          onTap: () => _switchToMode(_ReframeMode.video),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 220),
+                    child: _buildModeContent(context),
+                  ),
+
+                  if (_analysisResult.isNotEmpty && _analysisResult['type'] != null) ...[
+                    const SizedBox(height: 20),
+                    _buildAnalysisResultCard(),
+                  ],
+
+                  // ✅ Extra bottom padding for better scrolling
+                  const SizedBox(height: 30),
+                ],
               ),
             ),
-          ],
-        ));
-    }
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildModeContent(BuildContext context) {
     switch (_mode) {
       case _ReframeMode.chat:
@@ -2593,7 +2833,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
           hint: tr(context, "Write what you're feeling...", "اكتب ما تشعر به..."),
           isAnalyzing: _isAnalyzing,
           onAnalyze: _analyzeText,
-          isDisabled: _isRestricted, // Add this
+          isDisabled: _isRestricted,
         );
       case _ReframeMode.voice:
         return _VoiceInputCard(
@@ -2601,7 +2841,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
           recording: _voiceRecording,
           isAnalyzing: _isAnalyzing,
           onToggle: _toggleVoiceRecording,
-          isDisabled: _isRestricted, // Add this
+          isDisabled: _isRestricted,
         );
       case _ReframeMode.video:
         return _VideoInputCard(
@@ -2611,7 +2851,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
           isRecording: _videoRecording,
           isAnalyzing: _isAnalyzing,
           onToggleRecording: _toggleVideoRecording,
-          isDisabled: _isRestricted, // Add this
+          isDisabled: _isRestricted,
         );
     }
   }
@@ -2624,6 +2864,49 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
     final primaryCharacter = _analysisResult['primary_character'] ?? 'Unknown';
     final characterName = _analysisResult['character_name'] ?? '';
     final confidence = (_analysisResult['confidence'] ?? 0.0) * 100;
+
+    // ✅ FIX: Use character_name if it's available and in Arabic
+    // The API returns character_name in Arabic when the input is Arabic
+    String displayName = primaryCharacter;
+    final isArabic = Localizations.localeOf(context).languageCode == 'ar';
+
+    // If character_name exists and is not empty, use it
+    if (characterName.isNotEmpty) {
+      // If character_name is in Arabic, use it directly
+      if (_isArabicText(characterName)) {
+        displayName = characterName;
+        print('✅ Using Arabic character_name: "$displayName"');
+      } else if (isArabic) {
+        // If app is Arabic but character_name is English, translate it
+        displayName = _getLocalizedDisplayName(characterName);
+        print('✅ Translated character_name to Arabic: "$displayName"');
+      } else {
+        // English mode - remove "The" prefix
+        displayName = _getEnglishDisplayName(characterName);
+        print('✅ English display name: "$displayName"');
+      }
+    } else {
+      // No character_name provided, use primary_character
+      if (isArabic) {
+        displayName = _getLocalizedDisplayName(primaryCharacter);
+        print('✅ Translated primary_character to Arabic: "$displayName"');
+      } else {
+        displayName = _getEnglishDisplayName(primaryCharacter);
+        print('✅ English display name: "$displayName"');
+      }
+    }
+
+    // Also handle the localized character name (the second line)
+    String localizedCharacterName = '';
+    if (characterName.isNotEmpty && characterName != primaryCharacter) {
+      if (_isArabicText(characterName)) {
+        localizedCharacterName = characterName;
+      } else if (isArabic) {
+        localizedCharacterName = _getLocalizedDisplayName(characterName);
+      } else {
+        localizedCharacterName = _getEnglishDisplayName(characterName);
+      }
+    }
 
     return Container(
       width: double.infinity,
@@ -2643,7 +2926,6 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header
           Row(
             children: [
               Icon(
@@ -2727,9 +3009,8 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
               ),
             ),
           ] else ...[
-            // Input Preview
             if (_analysisResult['input'] != null) ...[
-              _buildSectionTitle('Input'),
+              _buildSectionTitle(tr(context, "Input", "النص المدخل")),
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),
@@ -2744,14 +3025,19 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                     color: Color(0xFF4B3A66),
                     fontSize: 14,
                   ),
+                  textDirection: _isArabicText(_analysisResult['input']?.toString() ?? '')
+                      ? TextDirection.rtl
+                      : TextDirection.ltr,
+                  textAlign: _isArabicText(_analysisResult['input']?.toString() ?? '')
+                      ? TextAlign.right
+                      : TextAlign.left,
                 ),
               ),
             ],
 
-            // Transcribed Text
             if (_analysisResult['transcribed_text'] != null &&
                 _analysisResult['transcribed_text'].toString().isNotEmpty) ...[
-              _buildSectionTitle('Transcribed Speech'),
+              _buildSectionTitle(tr(context, "Transcribed Speech", "النص المحوّل")),
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),
@@ -2762,17 +3048,27 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                 ),
                 child: Text(
                   _analysisResult['transcribed_text'].toString(),
-                  style: const TextStyle(
-                    color: Color(0xFF4B3A66),
+                  style: TextStyle(
+                    color: const Color(0xFF4B3A66),
                     fontSize: 14,
                     fontStyle: FontStyle.italic,
+                    // Add Arabic font support
+                    fontFamily: _isArabicText(_analysisResult['transcribed_text']?.toString() ?? '')
+                        ? 'Cairo'
+                        : null,
                   ),
+                  softWrap: true,
+                  overflow: TextOverflow.visible,
+                  textDirection: _isArabicText(_analysisResult['transcribed_text']?.toString() ?? '')
+                      ? TextDirection.rtl
+                      : TextDirection.ltr,
+                  textAlign: _isArabicText(_analysisResult['transcribed_text']?.toString() ?? '')
+                      ? TextAlign.right
+                      : TextAlign.left,
                 ),
               ),
             ],
-
-            // Primary Character
-            _buildSectionTitle('Primary Inner Character'),
+            _buildSectionTitle(tr(context, "Primary Inner Character", "الشخصية الداخلية الأساسية")),
             Container(
               padding: const EdgeInsets.all(16),
               margin: const EdgeInsets.only(bottom: 16),
@@ -2783,7 +3079,6 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
               ),
               child: Column(
                 children: [
-                  // Primary character image
                   Container(
                     width: 80,
                     height: 80,
@@ -2809,25 +3104,32 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                       ),
                     ),
                   ),
+                  // ✅ FIXED: Use the Arabic name from character_name when available
                   Text(
-                    primaryCharacter,
+                    displayName,
                     style: const TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.w700,
                       color: Color(0xFF2A1E3B),
                     ),
                     textAlign: TextAlign.center,
+                    textDirection: _isArabicText(displayName)
+                        ? TextDirection.rtl
+                        : TextDirection.ltr,
                   ),
-                  if (characterName.isNotEmpty) ...[
+                  if (localizedCharacterName.isNotEmpty) ...[
                     const SizedBox(height: 4),
                     Text(
-                      characterName,
+                      localizedCharacterName,
                       style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
                         color: Color(0xFF8E7CFF),
                       ),
                       textAlign: TextAlign.center,
+                      textDirection: _isArabicText(localizedCharacterName)
+                          ? TextDirection.rtl
+                          : TextDirection.ltr,
                     ),
                   ],
                   const SizedBox(height: 8),
@@ -2840,7 +3142,10 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    '${confidence.toStringAsFixed(1)}% confidence',
+                    tr(context,
+                        '${confidence.toStringAsFixed(1)}% confidence',
+                        '${confidence.toStringAsFixed(1)}% ثقة'
+                    ),
                     style: const TextStyle(
                       color: Color(0xFF4B3A66),
                       fontWeight: FontWeight.w600,
@@ -2850,9 +3155,8 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
               ),
             ),
 
-            // Top Inner Characters
             if (innerCharacters.isNotEmpty) ...[
-              _buildSectionTitle('Top Inner Characters'),
+              _buildSectionTitle(tr(context, "Top Inner Characters", "أفضل الشخصيات الداخلية")),
               const SizedBox(height: 12),
 
               SizedBox(
@@ -2862,12 +3166,37 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                   itemCount: innerCharacters.length.clamp(0, 5),
                   itemBuilder: (context, index) {
                     final character = innerCharacters[index];
-                    final charDisplayName = character['character']?.toString() ?? 'Unknown';
-                    final charName = character['character_name']?.toString() ?? '';
+                    String charDisplayName = character['character']?.toString() ?? 'Unknown';
+                    String charName = character['character_name']?.toString() ?? '';
                     final charConfidence = (character['confidence'] ?? 0.0) * 100;
                     final isPrimary = charDisplayName == primaryCharacter;
+                    final isArabic = Localizations.localeOf(context).languageCode == 'ar';
 
-                    final cardWidth = 150.0;
+                    // ✅ FIX: Use character_name if it's available
+                    if (charName.isNotEmpty) {
+                      // If character_name is in Arabic, use it directly
+                      if (_isArabicText(charName)) {
+                        charDisplayName = charName;
+                        print('✅ Using Arabic char_name for inner: "$charDisplayName"');
+                      } else if (isArabic) {
+                        // If app is Arabic but char_name is English, translate it
+                        charDisplayName = _getLocalizedDisplayName(charName);
+                        print('✅ Translated char_name to Arabic: "$charDisplayName"');
+                      } else {
+                        // English mode - remove "The" prefix
+                        charDisplayName = _getEnglishDisplayName(charName);
+                        print('✅ English display name for inner: "$charDisplayName"');
+                      }
+                    } else {
+                      // No character_name, use the character field
+                      if (isArabic) {
+                        charDisplayName = _getLocalizedDisplayName(charDisplayName);
+                      } else {
+                        charDisplayName = _getEnglishDisplayName(charDisplayName);
+                      }
+                    }
+
+                    final cardWidth = 157.0;
 
                     return Container(
                       width: cardWidth,
@@ -2888,10 +3217,8 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
               const SizedBox(height: 16),
             ],
 
-            // Emotions Section
             _buildEmotionsSection(),
 
-            // Analysis Info
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
@@ -2908,7 +3235,10 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Analysis completed at ${_analysisResult['timestamp'] != null ? DateTime.parse(_analysisResult['timestamp']).toString().substring(0, 16) : 'unknown time'}',
+                      tr(context,
+                          'Analysis completed at ${_analysisResult['timestamp'] != null ? DateTime.parse(_analysisResult['timestamp']).toString().substring(0, 16) : 'unknown time'}',
+                          'تم التحليل في ${_analysisResult['timestamp'] != null ? DateTime.parse(_analysisResult['timestamp']).toString().substring(0, 16) : 'وقت غير معروف'}'
+                      ),
                       style: const TextStyle(
                         color: Color(0xFF4B3A66),
                         fontSize: 12,
@@ -2931,6 +3261,53 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
     required bool isPrimary,
     required int index,
   }) {
+    // ✅ Get localized display name - this will now detect if already Arabic
+    final localizedName = _getLocalizedDisplayName(displayName);
+    final localizedCharacterName = characterName.isNotEmpty
+        ? _getLocalizedDisplayName(characterName)
+        : '';
+
+    // ✅ Use the original English name for image lookup, not the localized one
+    // The displayName parameter might be Arabic, but we need the English name for the image
+    String imageLookupName = displayName;
+
+    // If displayName is Arabic, find its English equivalent
+    if (_isArabicText(displayName)) {
+      final arabicToEnglish = {
+        'الناقد الداخلي': 'Inner Critic',
+        'الكمالي': 'Perfectionist',
+        'المُرضي': 'People Pleaser',
+        'المتحكم': 'Controller',
+        'حمّال أسيّة': 'Stoic Part',
+        'مدمن العمل': 'Workaholic',
+        'الجزء الحيران': 'Confused Part',
+        'المماطل': 'Procrastinator',
+        'الآكل المفرط': 'Overeater',
+        'المفرط': 'Binger',
+        'اللاعب المفرط': 'Excessive Gamer',
+        'الجزء الوحيد': 'Lonely Part',
+        'الجزء الخائف': 'Fearful Part',
+        'الجزء المهمل': 'Neglected Part',
+        'الجزء الخجول': 'Ashamed Part',
+        'الجزء المرهق': 'Overwhelmed Part',
+        'الجزء المعتمد': 'Dependent Part',
+        'الجزء الغيور': 'Jealous Part',
+        'الطفل الجريح': 'Wounded Child',
+      };
+
+      if (arabicToEnglish.containsKey(displayName)) {
+        imageLookupName = arabicToEnglish[displayName]!;
+      } else {
+        // Try partial match
+        for (final entry in arabicToEnglish.entries) {
+          if (displayName.contains(entry.key) || entry.key.contains(displayName)) {
+            imageLookupName = entry.value;
+            break;
+          }
+        }
+      }
+    }
+
     return GestureDetector(
       onTap: () {},
       child: AnimatedContainer(
@@ -2953,7 +3330,6 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Character Image Area
             Container(
               height: 120,
               width: double.infinity,
@@ -2973,7 +3349,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                   topRight: Radius.circular(16),
                 ),
                 child: Image.asset(
-                  _getImagePathForCharacter(displayName),
+                  _getImagePathForCharacter(imageLookupName),
                   fit: BoxFit.contain,
                   errorBuilder: (context, error, stackTrace) {
                     return Center(
@@ -2987,8 +3363,6 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                 ),
               ),
             ),
-
-            // Character Info Area
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.all(12),
@@ -2996,8 +3370,9 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
+                    // ✅ UPDATED: Use localized name with proper RTL support
                     Text(
-                      displayName,
+                      localizedName,
                       style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w700,
@@ -3006,11 +3381,13 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                       ),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
+                      textDirection: _isArabicText(localizedName)
+                          ? TextDirection.rtl
+                          : TextDirection.ltr,
                     ),
-
-                    if (characterName.isNotEmpty) ...[
+                    if (localizedCharacterName.isNotEmpty) ...[
                       Text(
-                        characterName,
+                        localizedCharacterName,
                         style: const TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
@@ -3019,9 +3396,11 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
+                        textDirection: _isArabicText(localizedCharacterName)
+                            ? TextDirection.rtl
+                            : TextDirection.ltr,
                       ),
                     ],
-
                     const SizedBox(height: 8),
                     LinearProgressIndicator(
                       value: charConfidence / 100,
@@ -3030,9 +3409,11 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                       minHeight: 4,
                       borderRadius: BorderRadius.circular(2),
                     ),
-
                     Text(
-                      '${charConfidence.toStringAsFixed(1)}% confidence',
+                      tr(context,
+                          '${charConfidence.toStringAsFixed(1)}% confidence',
+                          '${charConfidence.toStringAsFixed(1)}% ثقة'
+                      ),
                       style: const TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
@@ -3050,6 +3431,54 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
   }
 
   String _getImagePathForCharacter(String characterName) {
+    // If the name is Arabic, translate it back to English for image lookup
+    String lookupName = characterName;
+
+    // Check if the name is Arabic and translate it to English
+    if (_isArabicText(characterName)) {
+      // Find the English name by searching the Arabic translation map
+      final arabicNames = {
+        'الناقد الداخلي': 'Inner Critic',
+        'الكمالي': 'Perfectionist',
+        'المُرضي': 'People Pleaser',
+        'المتحكم': 'Controller',
+        'حمّال أسيّة': 'Stoic Part',
+        'مدمن العمل': 'Workaholic',
+        'الجزء الحيران': 'Confused Part',
+        'المماطل': 'Procrastinator',
+        'الآكل المفرط': 'Overeater',
+        'المفرط': 'Binger',
+        'اللاعب المفرط': 'Excessive Gamer',
+        'الجزء الوحيد': 'Lonely Part',
+        'الجزء الخائف': 'Fearful Part',
+        'الجزء المهمل': 'Neglected Part',
+        'الجزء الخجول': 'Ashamed Part',
+        'الجزء المرهق': 'Overwhelmed Part',
+        'الجزء المعتمد': 'Dependent Part',
+        'الجزء الغيور': 'Jealous Part',
+        'الطفل الجريح': 'Wounded Child',
+      };
+
+      if (arabicNames.containsKey(characterName)) {
+        lookupName = arabicNames[characterName]!;
+        print('🖼️ Translated Arabic name "$characterName" to English "$lookupName" for image lookup');
+      } else {
+        // Try partial match for Arabic names
+        for (final entry in arabicNames.entries) {
+          if (characterName.contains(entry.key) || entry.key.contains(characterName)) {
+            lookupName = entry.value;
+            print('🖼️ Partial match: "$characterName" -> "$lookupName" for image lookup');
+            break;
+          }
+        }
+      }
+    }
+
+    // Remove "The " prefix if it exists for lookup
+    if (lookupName.startsWith('The ')) {
+      lookupName = lookupName.substring(4);
+    }
+
     final imageMap = {
       'Inner Critic': 'assets/images/inner_critic.png',
       'People Pleaser': 'assets/images/people_pleaser.png',
@@ -3057,7 +3486,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
       'Jealous Part': 'assets/images/jealous.png',
       'Ashamed Part': 'assets/images/ashamed.png',
       'Workaholic': 'assets/images/workaholic.png',
-      'Perfectionist': 'assets/images/perfectionist.png',
+      'Perfectionist': 'assets/images/perfictionist.png',
       'Procrastinator': 'assets/images/procrastinator.png',
       'Excessive Gamer': 'assets/images/excessive_gamer.png',
       'Confused Part': 'assets/images/confused.png',
@@ -3074,11 +3503,15 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
       'Controller Part': 'assets/images/controller.png',
     };
 
+    if (imageMap.containsKey(lookupName)) {
+      return imageMap[lookupName]!;
+    }
+
     if (imageMap.containsKey(characterName)) {
       return imageMap[characterName]!;
     }
 
-    final lowerName = characterName.toLowerCase();
+    final lowerName = lookupName.toLowerCase();
     for (final entry in imageMap.entries) {
       final keyLower = entry.key.toLowerCase();
       if (lowerName.contains(keyLower) || keyLower.contains(lowerName)) {
@@ -3086,6 +3519,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
       }
     }
 
+    // Default fallback
     return 'assets/images/inner_critic.png';
   }
 
@@ -3093,7 +3527,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
     return Padding(
       padding: const EdgeInsets.only(bottom: 8.0),
       child: Text(
-        title,
+        title, // Pass the already localized title
         style: const TextStyle(
           fontSize: 16,
           fontWeight: FontWeight.w700,
@@ -3105,14 +3539,25 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
 
   Widget _buildEmotionsSection() {
     final emotions = <Map<String, dynamic>>[];
-
     final voiceEmotions = _analysisResult['voice_emotions'] ?? [];
+    final isArabic = Localizations.localeOf(context).languageCode == 'ar';
+
+    // ✅ Get detected language to show proper labels
+    final detectedLanguage = _analysisResult['detected_language'] ?? 'english';
+    final isInputArabic = detectedLanguage == 'arabic' ||
+        detectedLanguage == 'egyptian' ||
+        detectedLanguage == 'egyptian-transliterated';
+
+    // ✅ Use Arabic labels if app is Arabic OR input is Arabic
+    final useArabicLabels = isArabic || isInputArabic;
 
     if (_analysisResult['face_emotion'] != null &&
         _analysisResult['face_emotion'] != 'Unknown') {
       emotions.add({
-        'type': 'Face Emotion',
-        'emotion': _analysisResult['face_emotion'],
+        'type': useArabicLabels ? 'انطباع الوجه' : 'Face Emotion',
+        'emotion': useArabicLabels
+            ? _getLocalizedEmotionName(_analysisResult['face_emotion'])
+            : _analysisResult['face_emotion'],
         'confidence': _analysisResult['face_confidence'] ?? 0.0,
         'icon': Icons.face,
         'color': const Color(0xFF2196F3),
@@ -3123,8 +3568,10 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
         _analysisResult['hand_gesture_emotion'] != 'Neutral' &&
         _analysisResult['hand_gesture_emotion'] != 'Unknown') {
       emotions.add({
-        'type': 'Gesture Emotion',
-        'emotion': _analysisResult['hand_gesture_emotion'],
+        'type': useArabicLabels ? 'انطباع الإيماءة' : 'Gesture Emotion',
+        'emotion': useArabicLabels
+            ? _getLocalizedEmotionName(_analysisResult['hand_gesture_emotion'])
+            : _analysisResult['hand_gesture_emotion'],
         'confidence': _analysisResult['hand_gesture_confidence'] ?? 0.0,
         'icon': Icons.gesture,
         'color': const Color(0xFFFF9800),
@@ -3133,171 +3580,251 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
       children: [
         if (emotions.isNotEmpty) ...[
-          _buildSectionTitle('Detected Emotions'),
-          GridView.count(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            crossAxisCount: emotions.length <= 2 ? emotions.length : 3,
-            childAspectRatio: 1.2,
-            mainAxisSpacing: 12,
-            crossAxisSpacing: 12,
-            children: emotions.map((emotion) {
-              final confidence = emotion['confidence'] as double;
+          _buildSectionTitle(
+              tr(context, "Detected Emotions", useArabicLabels ? "المشاعر المكتشفة" : "Detected Emotions")
+          ),
+          const SizedBox(height: 8),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final availableWidth = constraints.maxWidth;
+              final int crossAxisCount = emotions.length <= 2 ? emotions.length :
+              availableWidth < 300 ? 2 : 3;
+              final double itemWidth = (availableWidth - (crossAxisCount - 1) * 8) / crossAxisCount;
+
+              return Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: emotions.map((emotion) {
+                  final confidence = emotion['confidence'] as double;
+                  return Container(
+                    width: itemWidth,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: (emotion['color'] as Color).withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: emotion['color'] as Color),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          emotion['icon'] as IconData,
+                          color: emotion['color'] as Color,
+                          size: availableWidth < 350 ? 18 : 22,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          emotion['type'].toString(),
+                          style: TextStyle(
+                            fontSize: availableWidth < 350 ? 10 : 12,
+                            color: const Color(0xFF4B3A66),
+                          ),
+                          textAlign: TextAlign.center,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          emotion['emotion'].toString(),
+                          style: TextStyle(
+                            fontSize: availableWidth < 350 ? 11 : 13,
+                            fontWeight: FontWeight.w700,
+                            color: emotion['color'] as Color,
+                          ),
+                          textAlign: TextAlign.center,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Expanded(
+                              child: LinearProgressIndicator(
+                                value: confidence.clamp(0.0, 1.0),
+                                backgroundColor: (emotion['color'] as Color).withValues(alpha: 0.2),
+                                color: emotion['color'] as Color,
+                                minHeight: 4,
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              '${(confidence * 100).toStringAsFixed(0)}%',
+                              style: TextStyle(
+                                fontSize: availableWidth < 350 ? 9 : 11,
+                                color: const Color(0xFF4B3A66),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              );
+            },
+          ),
+          const SizedBox(height: 12),
+        ],
+
+        if (voiceEmotions is List && voiceEmotions.isNotEmpty) ...[
+          _buildSectionTitle(
+              tr(context, "Voice Tone Emotions", useArabicLabels ? "مشاعر نبرة الصوت" : "Voice Tone Emotions")
+          ),
+          const SizedBox(height: 8),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final availableWidth = constraints.maxWidth;
+              final isSmallScreen = availableWidth < 350;
+
               return Container(
-                padding: const EdgeInsets.all(12),
+                width: double.infinity,
+                padding: EdgeInsets.all(isSmallScreen ? 10 : 14),
                 decoration: BoxDecoration(
-                  color: (emotion['color'] as Color).withValues(alpha: 0.1),
+                  color: const Color(0xFFF8F7FF),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: emotion['color'] as Color),
+                  border: Border.all(color: const Color(0xFF8E7CFF).withValues(alpha: 0.3)),
                 ),
                 child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(
-                      emotion['icon'] as IconData,
-                      color: emotion['color'] as Color,
-                      size: 24,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      emotion['type'].toString(),
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Color(0xFF4B3A66),
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      emotion['emotion'].toString(),
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: emotion['color'] as Color,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Expanded(
-                          child: LinearProgressIndicator(
-                            value: confidence,
-                            backgroundColor: (emotion['color'] as Color).withValues(alpha: 0.2),
-                            color: emotion['color'] as Color,
-                            minHeight: 4,
-                            borderRadius: BorderRadius.circular(2),
-                          ),
+                        Icon(
+                          Icons.volume_up_rounded,
+                          color: const Color(0xFF8E7CFF),
+                          size: isSmallScreen ? 18 : 22,
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          '${(confidence * 100).toStringAsFixed(1)}%',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: Color(0xFF4B3A66),
-                            fontWeight: FontWeight.w600,
+                          tr(context, "Voice Tone Analysis", useArabicLabels ? "تحليل نبرة الصوت" : "Voice Tone Analysis"),
+                          style: TextStyle(
+                            fontSize: isSmallScreen ? 13 : 15,
+                            fontWeight: FontWeight.w700,
+                            color: const Color(0xFF2A1E3B),
                           ),
                         ),
                       ],
                     ),
+                    const SizedBox(height: 12),
+                    ...voiceEmotions.map((emotion) {
+                      final emotionName = emotion['emotion']?.toString() ?? 'Unknown';
+                      // ✅ Use localized emotion name
+                      final localizedEmotionName = useArabicLabels
+                          ? _getLocalizedEmotionName(emotionName)
+                          : emotionName;
+                      final confidence = (emotion['confidence'] ?? 0.0) as double;
+                      final percentage = (confidence * 100);
+
+                      return Padding(
+                        padding: EdgeInsets.only(bottom: isSmallScreen ? 6 : 10),
+                        child: isSmallScreen
+                            ? _buildSmallVoiceEmotionRow(localizedEmotionName, confidence, percentage)
+                            : _buildVoiceEmotionRow(localizedEmotionName, confidence, percentage),
+                      );
+                    }).toList(),
                   ],
                 ),
               );
-            }).toList(),
+            },
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
         ],
+      ],
+    );
+  }
 
-        if (voiceEmotions is List && voiceEmotions.isNotEmpty) ...[
-          _buildSectionTitle('Voice Tone Emotions'),
-          const SizedBox(height: 8),
-
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF8F7FF),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0xFF8E7CFF).withValues(alpha: 0.3)),
+// Helper method for voice emotion row (large screens)
+  Widget _buildVoiceEmotionRow(String emotionName, double confidence, double percentage) {
+    return Row(
+      children: [
+        Expanded(
+          flex: 2,
+          child: Text(
+            emotionName,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF2A1E3B),
             ),
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    Icon(
-                      Icons.volume_up_rounded,
-                      color: const Color(0xFF8E7CFF),
-                      size: 24,
-                    ),
-                    const SizedBox(width: 12),
-                    Text(
-                      'Voice Tone Analysis',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF2A1E3B),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-
-                Column(
-                  children: voiceEmotions.map((emotion) {
-                    final emotionName = emotion['emotion']?.toString() ?? 'Unknown';
-                    final confidence = (emotion['confidence'] ?? 0.0) as double;
-                    final percentage = (confidence * 100);
-
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              emotionName,
-                              style: const TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                                color: Color(0xFF2A1E3B),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Text(
-                            '${percentage.toStringAsFixed(0)}%',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700,
-                              color: percentage > 50
-                                  ? const Color(0xFF4CAF50)
-                                  : const Color(0xFF757575),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          SizedBox(
-                            width: 120,
-                            child: LinearProgressIndicator(
-                              value: confidence,
-                              backgroundColor: const Color(0xFFE0E0E0),
-                              color: percentage > 50
-                                  ? const Color(0xFF4CAF50)
-                                  : const Color(0xFF8E7CFF),
-                              minHeight: 8,
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  }).toList(),
-                ),
-              ],
-            ),
+            overflow: TextOverflow.ellipsis,
           ),
-          const SizedBox(height: 16),
-        ],
+        ),
+        const SizedBox(width: 8),
+        Text(
+          '${percentage.toStringAsFixed(0)}%',
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: percentage > 50
+                ? const Color(0xFF4CAF50)
+                : const Color(0xFF757575),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          flex: 3,
+          child: LinearProgressIndicator(
+            value: confidence.clamp(0.0, 1.0),
+            backgroundColor: const Color(0xFFE0E0E0),
+            color: percentage > 50
+                ? const Color(0xFF4CAF50)
+                : const Color(0xFF8E7CFF),
+            minHeight: 6,
+            borderRadius: BorderRadius.circular(3),
+          ),
+        ),
+      ],
+    );
+  }
+
+// Helper method for voice emotion row (small screens)
+  Widget _buildSmallVoiceEmotionRow(String emotionName, double confidence, double percentage) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Expanded(
+              child: Text(
+                emotionName,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF2A1E3B),
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              '${percentage.toStringAsFixed(0)}%',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: percentage > 50
+                    ? const Color(0xFF4CAF50)
+                    : const Color(0xFF757575),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        LinearProgressIndicator(
+          value: confidence.clamp(0.0, 1.0),
+          backgroundColor: const Color(0xFFE0E0E0),
+          color: percentage > 50
+              ? const Color(0xFF4CAF50)
+              : const Color(0xFF8E7CFF),
+          minHeight: 4,
+          borderRadius: BorderRadius.circular(2),
+        ),
       ],
     );
   }
@@ -3370,12 +3897,12 @@ class _ModeCard extends StatelessWidget {
   }
 }
 
-class _ChatInputCard extends StatelessWidget {
+class _ChatInputCard extends StatefulWidget {
   final TextEditingController controller;
   final String hint;
   final bool isAnalyzing;
   final VoidCallback onAnalyze;
-  final bool isDisabled; // Add this
+  final bool isDisabled;
 
   const _ChatInputCard({
     super.key,
@@ -3383,18 +3910,75 @@ class _ChatInputCard extends StatelessWidget {
     required this.hint,
     required this.isAnalyzing,
     required this.onAnalyze,
-    this.isDisabled = false, // Default to false
+    this.isDisabled = false,
   });
 
   @override
+  State<_ChatInputCard> createState() => _ChatInputCardState();
+}
+
+class _ChatInputCardState extends State<_ChatInputCard> {
+  bool _isRTL = false;
+  final FocusNode _focusNode = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_onTextChanged);
+    _checkTextDirection(widget.controller.text);
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onTextChanged);
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  void _onTextChanged() {
+    _checkTextDirection(widget.controller.text);
+  }
+
+  void _checkTextDirection(String text) {
+    if (text.isEmpty) {
+      if (_isRTL != false) {
+        setState(() {
+          _isRTL = false;
+        });
+      }
+      return;
+    }
+
+    final arabicPattern = RegExp(r'[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]');
+    final hasArabic = arabicPattern.hasMatch(text);
+    final arabicNumbers = RegExp(r'[\u0660-\u0669]');
+    final hasArabicNumbers = arabicNumbers.hasMatch(text);
+
+    final isRTL = hasArabic || hasArabicNumbers;
+
+    if (isRTL != _isRTL) {
+      setState(() {
+        _isRTL = isRTL;
+      });
+
+      if (isRTL) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          final textLength = widget.controller.text.length;
+          widget.controller.selection = TextSelection.collapsed(offset: textLength);
+        });
+      }
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final hasText = controller.text.trim().isNotEmpty;
-    final canAnalyze = hasText && !isAnalyzing && !isDisabled;
+    final hasText = widget.controller.text.trim().isNotEmpty;
+    final canAnalyze = hasText && !widget.isAnalyzing && !widget.isDisabled;
 
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: isDisabled ? const Color(0xFFF5F5F5) : Colors.white,
+        color: widget.isDisabled ? const Color(0xFFF5F5F5) : Colors.white,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
           color: const Color(0xFFE5DEFF),
@@ -3409,27 +3993,56 @@ class _ChatInputCard extends StatelessWidget {
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          TextField(
-            controller: controller,
-            maxLines: 4,
-            enabled: !isDisabled, // Disable when restricted
-            decoration: InputDecoration(
-              hintText: hint,
-              border: InputBorder.none,
-              hintStyle: TextStyle(
-                color: const Color(0xFF4B3A66).withValues(alpha: 0.5),
+          ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: 200,
+              minHeight: 80,
+            ),
+            child: Directionality(
+              textDirection: _isRTL ? TextDirection.rtl : TextDirection.ltr,
+              child: TextField(
+                controller: widget.controller,
+                focusNode: _focusNode,
+                maxLines: null,
+                minLines: 3,
+                keyboardType: TextInputType.multiline,
+                textInputAction: TextInputAction.newline,
+                enabled: !widget.isDisabled,
+                textDirection: _isRTL ? TextDirection.rtl : TextDirection.ltr,
+                textAlign: _isRTL ? TextAlign.right : TextAlign.left,
+                textAlignVertical: TextAlignVertical.top,
+                decoration: InputDecoration(
+                  hintText: widget.hint,
+                  border: InputBorder.none,
+                  hintStyle: TextStyle(
+                    color: const Color(0xFF4B3A66).withValues(alpha: 0.5),
+                  ),
+                  hintTextDirection: _isRTL ? TextDirection.rtl : TextDirection.ltr,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 12,
+                  ),
+                ),
+                style: TextStyle(
+                  color: const Color(0xFF4B3A66),
+                  fontSize: 16,
+                  height: 1.5,
+                  fontFamily: _isRTL ? 'Cairo' : null,
+                ),
+                onChanged: (text) {},
+                scrollPhysics: const ClampingScrollPhysics(),
+                scrollPadding: const EdgeInsets.all(20),
               ),
             ),
-            style: const TextStyle(
-              color: Color(0xFF4B3A66),
-            ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
+
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
-              onPressed: canAnalyze ? onAnalyze : null,
+              onPressed: canAnalyze ? widget.onAnalyze : null,
               style: ElevatedButton.styleFrom(
                 backgroundColor: canAnalyze ? const Color(0xFF8E7CFF) : const Color(0xFFCCCCCC),
                 foregroundColor: Colors.white,
@@ -3438,8 +4051,9 @@ class _ChatInputCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 elevation: 0,
+                minimumSize: const Size(double.infinity, 50),
               ),
-              child: isAnalyzing
+              child: widget.isAnalyzing
                   ? const SizedBox(
                 width: 20,
                 height: 20,
@@ -3464,7 +4078,43 @@ class _ChatInputCard extends StatelessWidget {
               ),
             ),
           ),
-          if (isDisabled) ...[
+
+          if (_isRTL && !widget.isDisabled) ...[
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF3EDFF),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.text_format,
+                        size: 12,
+                        color: Color(0xFF8E7CFF),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        'RTL',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: const Color(0xFF8E7CFF),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
+
+          if (widget.isDisabled) ...[
             const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.all(8),
@@ -3505,14 +4155,14 @@ class _VoiceInputCard extends StatelessWidget {
   final bool recording;
   final bool isAnalyzing;
   final VoidCallback onToggle;
-  final bool isDisabled; // Add this
+  final bool isDisabled;
 
   const _VoiceInputCard({
     super.key,
     required this.recording,
     required this.isAnalyzing,
     required this.onToggle,
-    this.isDisabled = false, // Default to false
+    this.isDisabled = false,
   });
 
   @override
@@ -3635,7 +4285,7 @@ class _VideoInputCard extends StatelessWidget {
   final bool isRecording;
   final bool isAnalyzing;
   final VoidCallback onToggleRecording;
-  final bool isDisabled; // Add this
+  final bool isDisabled;
 
   const _VideoInputCard({
     super.key,
@@ -3644,7 +4294,7 @@ class _VideoInputCard extends StatelessWidget {
     required this.isRecording,
     required this.isAnalyzing,
     required this.onToggleRecording,
-    this.isDisabled = false, // Default to false
+    this.isDisabled = false,
   });
 
   @override
@@ -3715,7 +4365,9 @@ class _VideoInputCard extends StatelessWidget {
           child: Row(
             children: [
               GestureDetector(
-                onTap: (isCameraInitialized && !isAnalyzing && !isDisabled) ? onToggleRecording : null,
+                onTap: (isCameraInitialized && !isAnalyzing && !isDisabled)
+                    ? onToggleRecording
+                    : null,
                 child: Container(
                   width: 52,
                   height: 52,
@@ -3745,26 +4397,36 @@ class _VideoInputCard extends StatelessWidget {
                       isDisabled
                           ? tr(context, "Access Restricted", "الوصول مقيد")
                           : !isCameraInitialized
-                          ? tr(context, "Camera initializing...", "جاري تهيئة الكاميرا...")
+                          ? tr(context, "Camera initializing...",
+                          "جاري تهيئة الكاميرا...")
                           : isRecording
-                          ? tr(context, "Recording...", "جارٍ التسجيل...")
-                          : tr(context, "Ready to record video", "جاهز لتسجيل فيديو"),
+                          ? tr(context, "Recording...",
+                          "جارٍ التسجيل...")
+                          : tr(context, "Ready to record video",
+                          "جاهز لتسجيل فيديو"),
                       style: TextStyle(
                         fontSize: 16,
-                        color: isDisabled ? Colors.grey : const Color(0xFF4B3A66),
+                        color: isDisabled
+                            ? Colors.grey
+                            : const Color(0xFF4B3A66),
                         fontWeight: FontWeight.w600,
                       ),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       isDisabled
-                          ? tr(context, "You have 3 active parts", "لديك 3 أجزاء نشطة")
+                          ? tr(context, "You have 3 active parts",
+                          "لديك 3 أجزاء نشطة")
                           : isRecording
-                          ? tr(context, "Tap stop when finished", "اضغط إيقاف عند الانتهاء")
-                          : tr(context, "Look at the camera and speak", "انظر إلى الكاميرا وتحدث"),
+                          ? tr(context, "Tap stop when finished",
+                          "اضغط إيقاف عند الانتهاء")
+                          : tr(context, "Look at the camera and speak",
+                          "انظر إلى الكاميرا وتحدث"),
                       style: TextStyle(
                         fontSize: 12,
-                        color: isDisabled ? Colors.grey : const Color(0xFF4B3A66).withValues(alpha: 0.7),
+                        color: isDisabled
+                            ? Colors.grey
+                            : const Color(0xFF4B3A66).withValues(alpha: 0.7),
                       ),
                     ),
                   ],
@@ -3812,56 +4474,28 @@ class _VideoInputCard extends StatelessWidget {
     );
   }
 
-  // Keep existing _buildCameraPreview and _buildCameraPlaceholder methods
+  // ✅ UPDATED: Shows camera without zoom/crop/filters
   Widget _buildCameraPreview(BuildContext context) {
     final cameraController = this.cameraController;
     if (cameraController == null || !cameraController.value.isInitialized) {
       return _buildCameraPlaceholder(context);
     }
 
-    return Stack(
-      children: [
-        Center(
-          child: AspectRatio(
-            aspectRatio: cameraController.value.aspectRatio,
-            child: CameraPreview(cameraController),
-          ),
+    final screenWidth = MediaQuery.of(context).size.width;
+    final padding = 20.0;
+    final videoWidth = screenWidth - (2 * padding);
+    final containerHeight = 200.0;
+
+    return Container(
+      width: videoWidth,
+      height: containerHeight,
+      color: Colors.black,
+      child: Center(
+        child: AspectRatio(
+          aspectRatio: cameraController.value.aspectRatio,
+          child: CameraPreview(cameraController),
         ),
-        if (isRecording) ...[
-          Positioned(
-            top: 12,
-            left: 12,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.red.withValues(alpha: 0.8),
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 8,
-                    height: 8,
-                    decoration: const BoxDecoration(
-                      color: Colors.white,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    tr(context, "REC", "تسجيل"),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ],
+      ),
     );
   }
 

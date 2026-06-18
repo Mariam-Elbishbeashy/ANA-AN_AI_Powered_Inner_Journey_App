@@ -195,7 +195,54 @@ try:
     print(f"✓ Text model loaded. Classes: {label_encoder_text.classes_}")
 except Exception as e:
     print(f"✗ Error loading text model: {e}")
+# Add this after the other initialization code
+ARABIC_CHARACTER_NAMES = {
+    'Inner Critic': 'الناقد الداخلي',
+    'Perfectionist': 'الكمالي',
+    'People Pleaser': 'المُرضي',
+    'Controller': 'المتحكم',
+    'Stoic Part': 'حمّال أسيّة',
+    'Workaholic': 'مدمن العمل',
+    'Confused Part': 'الجزء الحيران',
+    'Procrastinator': 'المماطل',
+    'Overeater': 'الآكل المفرط',
+    'Binger': 'المفرط',
+    'Overeater/Binger': 'الآكل المفرط',
+    'Excessive Gamer': 'اللاعب المفرط',
+    'Lonely Part': 'الجزء الوحيد',
+    'Fearful Part': 'الجزء الخائف',
+    'Neglected Part': 'الجزء المهمل',
+    'Ashamed Part': 'الجزء الخجول',
+    'Overwhelmed Part': 'الجزء المرهق',
+    'Dependent Part': 'الجزء المعتمد',
+    'Jealous Part': 'الجزء الغيور',
+    'Wounded Child': 'الطفل الجريح',
+}
 
+def get_arabic_name(english_name):
+    """Get Arabic translation of character name"""
+    if not english_name:
+        return english_name
+
+    # Try exact match
+    if english_name in ARABIC_CHARACTER_NAMES:
+        return ARABIC_CHARACTER_NAMES[english_name]
+
+    # Try without "The " prefix
+    if english_name.startswith('The '):
+        without_the = english_name[4:]
+        if without_the in ARABIC_CHARACTER_NAMES:
+            return ARABIC_CHARACTER_NAMES[without_the]
+
+    # Try lowercase match
+    for key, value in ARABIC_CHARACTER_NAMES.items():
+        if key.lower() == english_name.lower():
+            return value
+        if english_name.lower().startswith('the ') and key.lower() == english_name[4:].lower():
+            return value
+
+    # Return original if no translation found
+    return english_name
 # ======================= AUDIO HELPER FUNCTIONS (from working code) =======================
 def validate_base64_data(base64_string, min_size=1024):
     """Validate base64 data"""
@@ -220,8 +267,8 @@ def decode_audio_base64(base64_string):
         # Remove whitespace and newlines
         base64_string = base64_string.strip()
 
-        # Check minimum size (reduced to 500 bytes for very short recordings)
-        if len(base64_string) < 100:  # Much lower threshold
+        # Check minimum size
+        if len(base64_string) < 100:
             print(f"   Audio base64 too short: {len(base64_string)} chars")
             return None, None
 
@@ -230,7 +277,7 @@ def decode_audio_base64(base64_string):
         print(f"   Decoded {len(audio_bytes)} bytes of audio data")
 
         # Check if we have enough data
-        if len(audio_bytes) < 1000:  # Less than 1KB is probably too small
+        if len(audio_bytes) < 1000:
             print(f"   Audio data too small: {len(audio_bytes)} bytes")
             return None, None
 
@@ -257,11 +304,11 @@ def decode_audio_base64(base64_string):
             if len(audio.shape) > 1:
                 audio = np.mean(audio, axis=1)
 
-            # Resample to 22050Hz if needed (for consistency)
-            if sample_rate != 22050:
-                audio = librosa.resample(audio, orig_sr=sample_rate, target_sr=22050)
-                sample_rate = 22050
-                print(f"   Resampled to {sample_rate}Hz")
+            # ✅ RESAMPLE TO 16000Hz for speech recognition
+            if sample_rate != 16000:
+                audio = librosa.resample(audio, orig_sr=sample_rate, target_sr=16000)
+                sample_rate = 16000
+                print(f"   Resampled to {sample_rate}Hz for speech recognition")
 
             os.unlink(tmp_path)
             return audio, sample_rate
@@ -281,10 +328,10 @@ def decode_audio_base64(base64_string):
 
                     print(f"   Read via wave: {len(audio)} samples, {sample_rate}Hz")
 
-                    # Resample if needed
-                    if sample_rate != 22050:
-                        audio = librosa.resample(audio, orig_sr=sample_rate, target_sr=22050)
-                        sample_rate = 22050
+                    # ✅ RESAMPLE TO 16000Hz
+                    if sample_rate != 16000:
+                        audio = librosa.resample(audio, orig_sr=sample_rate, target_sr=16000)
+                        sample_rate = 16000
                         print(f"   Resampled to {sample_rate}Hz")
 
                     os.unlink(tmp_path)
@@ -819,82 +866,81 @@ def preprocess_text_for_analysis(text):
         print(f"Text preprocessing error: {e}")
         return text, False, None
 
-def speech_to_text_with_arabic_support(audio, sample_rate=22050):
+def speech_to_text_with_arabic_support(audio, sample_rate=16000):
     """Convert speech to text with enhanced Arabic/Egyptian support"""
     try:
         if audio is None or len(audio) == 0:
-            return "", False, None
+            return "", "", False, None  # (original, translated, is_translated, lang)
 
         # Normalize audio
         max_amp = np.max(np.abs(audio))
         if max_amp < 0.01:
-            return "", False, None
+            return "", "", False, None
 
         # Boost quiet audio
         if max_amp < 0.1:
             audio = audio * (0.1 / max_amp)
+            audio = np.clip(audio, -1.0, 1.0)
 
         recognizer = sr.Recognizer()
 
-        # Convert to 16-bit PCM
-        audio_16bit = (audio * 32767).astype(np.int16)
-        audio_data = sr.AudioData(audio_16bit.tobytes(), sample_rate, 2)
+        # Convert to proper format
+        audio = np.clip(audio, -1.0, 1.0)
+        audio_int16 = (audio * 32767).astype(np.int16)
 
-        detected_language = None
-        is_translated = False
+        audio_data = sr.AudioData(
+            audio_int16.tobytes(),
+            sample_rate,
+            2
+        )
 
-        # Try Egyptian Arabic recognition first (most specific)
+        # Try Egyptian Arabic recognition first
         try:
-            text = recognizer.recognize_google(audio_data, language="ar-EG")  # Egyptian Arabic
+            text = recognizer.recognize_google(audio_data, language="ar-EG")
             if text and len(text.strip()) > 3:
-                print(f"   Detected Egyptian Arabic speech")
+                print(f"   Detected Egyptian Arabic speech: '{text}'")
                 english_text = translate_arabic_to_english(text, 'egyptian')
-                return english_text, True, 'egyptian'
-        except sr.UnknownValueError:
+                return text, english_text, True, 'egyptian'  # ✅ Return original + translation
+        except Exception:
             pass
-        except Exception as e:
-            print(f"   Egyptian Arabic recognition error: {e}")
 
         # Try Modern Standard Arabic
         try:
-            text = recognizer.recognize_google(audio_data, language="ar-SA")  # Saudi Arabic (MSA)
+            text = recognizer.recognize_google(audio_data, language="ar-SA")
             if text and len(text.strip()) > 3:
-                print(f"   Detected Modern Standard Arabic speech")
+                print(f"   Detected Modern Standard Arabic speech: '{text}'")
                 english_text = translate_arabic_to_english(text, 'arabic')
-                return english_text, True, 'arabic'
-        except sr.UnknownValueError:
+                return text, english_text, True, 'arabic'
+        except Exception:
             pass
-        except Exception as e:
-            print(f"   MSA recognition error: {e}")
 
         # Try English recognition
         try:
             text = recognizer.recognize_google(audio_data, language="en-US")
             if text and len(text.strip()) > 3:
-                print(f"   Detected English speech")
-                return text, False, 'english'
-        except sr.UnknownValueError:
+                print(f"   Detected English speech: '{text}'")
+                return text, text, False, 'english'  # ✅ Both are the same for English
+        except Exception:
             pass
-        except Exception as e:
-            print(f"   English recognition error: {e}")
 
         # Try Arabic without specific dialect
         try:
             text = recognizer.recognize_google(audio_data, language="ar")
             if text and len(text.strip()) > 3:
-                print(f"   Detected Arabic speech (generic)")
-                # Check if it's Egyptian
+                print(f"   Detected Arabic speech (generic): '{text}'")
                 is_egyptian, arabic_type = detect_arabic_text(text)
                 english_text = translate_arabic_to_english(text, arabic_type if is_egyptian else 'arabic')
-                return english_text, True, arabic_type if is_egyptian else 'arabic'
-        except:
+                return text, english_text, True, arabic_type if is_egyptian else 'arabic'
+        except Exception:
             pass
 
-        return "", False, None
+        print("   No speech detected in any language")
+        return "", "", False, None
 
     except Exception as e:
         print(f"Speech recognition error: {e}")
-        return "", False, None
+        traceback.print_exc()
+        return "", "", False, None
 
 # ======================= VOICE EMOTION FUNCTIONS (from working code) =======================
 def extract_audio_features(audio, sr=22050):
@@ -1270,7 +1316,7 @@ def process_video_analysis(video_path, audio_base64=None, text_input=""):
                         for gest, conf in gesture_top[:3]
                     ]
 
-        # Get most common predictions across frames
+        # Get most common predictions across frames for face emotion
         if face_predictions_all:
             emotions = [p['emotion'] for p in face_predictions_all if p['emotion'] not in ['Error', 'Model Not Loaded', 'Preprocessing Failed']]
             if emotions:
@@ -1281,9 +1327,9 @@ def process_video_analysis(video_path, audio_base64=None, text_input=""):
                 results['face_emotion'] = most_common_emotion
                 results['face_confidence'] = float(avg_confidence)
 
-        # Improved hand gesture aggregation - FIXED INDENTATION
+        # Get most common predictions across frames for hand gesture
         if hand_predictions_all:
-            # Filter out invalid predictions
+            # Filter out invalid gestures
             valid_gestures = []
             for p in hand_predictions_all:
                 gesture = p['gesture']
@@ -1330,16 +1376,21 @@ def process_video_analysis(video_path, audio_base64=None, text_input=""):
                 results['voice_emotions'] = voice_predictions
                 print(f"   Voice emotions: {voice_predictions}")
 
-                # Speech to text with Arabic support
-                speech_text, is_translated, detected_lang = speech_to_text_with_arabic_support(audio)
+                # ✅ FIXED: Get both original and translated text (4 values)
+                original_text, translated_text, is_translated, detected_lang = speech_to_text_with_arabic_support(audio)
 
                 # Log the result
-                if speech_text:
-                    print(f"   ✓ Transcribed text: '{speech_text[:200]}'")
+                if original_text:
+                    print(f"   ✓ Original text: '{original_text[:200]}'")
+                    if is_translated and translated_text:
+                        print(f"   ✓ Translated text: '{translated_text[:200]}'")
                 else:
                     print(f"   ✗ No speech transcribed")
 
-                results['transcribed_text'] = speech_text
+                # Store both original and translated
+                results['transcribed_text'] = original_text  # Original speech
+                results['transcribed_original'] = original_text
+                results['translated_text'] = translated_text  # English translation
                 results['is_translated'] = is_translated
                 results['detected_language'] = detected_lang
 
@@ -1348,14 +1399,17 @@ def process_video_analysis(video_path, audio_base64=None, text_input=""):
                     'sample_rate': sr,
                     'is_translated': is_translated,
                     'detected_language': detected_lang,
-                    'has_transcript': bool(speech_text)
+                    'has_transcript': bool(original_text)
                 }
             else:
                 print("   Failed to decode audio")
 
         # Process text input if provided
         analysis_text = text_input
-        if not analysis_text and results['transcribed_text']:
+        # ✅ Use translated text for analysis if available
+        if not analysis_text and results.get('translated_text'):
+            analysis_text = results['translated_text']
+        elif not analysis_text and results.get('transcribed_text'):
             analysis_text = results['transcribed_text']
 
         if analysis_text and len(analysis_text.strip()) > 10:
@@ -1363,19 +1417,28 @@ def process_video_analysis(video_path, audio_base64=None, text_input=""):
             results['is_translated'] = results['is_translated'] or text_is_translated
             results['detected_language'] = results['detected_language'] or text_lang
 
+            # ✅ Check if input is Arabic
+            is_arabic_input = results['is_translated'] or results['detected_language'] in ['arabic', 'egyptian', 'egyptian-transliterated']
+
             if text_predictions:
                 results['primary_character'] = text_predictions[0]['character']
-                results['character_name'] = text_predictions[0]['character']
+                # ✅ If Arabic input, return Arabic name
+                results['character_name'] = get_arabic_name(text_predictions[0]['character']) if is_arabic_input else text_predictions[0]['character']
                 results['confidence'] = float(text_predictions[0]['confidence'])
                 results['inner_characters'] = [
                     {
                         'rank': i + 1,
                         'character': p['character'],
-                        'character_name': p['character'],
+                        # ✅ If Arabic input, return Arabic name
+                        'character_name': get_arabic_name(p['character']) if is_arabic_input else p['character'],
                         'confidence': float(p['confidence'])
                     }
                     for i, p in enumerate(text_predictions)
                 ]
+
+                print(f"   Arabic input: {is_arabic_input}")
+                print(f"   Primary character: {results['primary_character']}")
+                print(f"   Character name (localized): {results['character_name']}")
 
         # Clean up temp video file
         try:
@@ -1444,16 +1507,22 @@ def analyze_audio():
         # Get voice emotion predictions
         voice_predictions = predict_voice_emotion(audio)
 
-        # Get speech-to-text with Arabic support
-        speech_text, is_translated, detected_lang = speech_to_text_with_arabic_support(audio)
+        # Get speech-to-text with Arabic support - ✅ Get both original and translated
+        original_text, translated_text, is_translated, detected_lang = speech_to_text_with_arabic_support(audio)
+
+        # Use translated text for analysis
+        analysis_text = translated_text if is_translated and translated_text else original_text
 
         # Text analysis from speech
         text_predictions = []
         text_is_translated = False
         text_lang = None
 
-        if speech_text and len(speech_text.strip()) > 10:
-            text_predictions, text_is_translated, text_lang = predict_text_character(speech_text, top_k=3)
+        if analysis_text and len(analysis_text.strip()) > 10:
+            text_predictions, text_is_translated, text_lang = predict_text_character(analysis_text, top_k=3)
+
+        # Check if input is Arabic
+        is_arabic_input = is_translated or text_is_translated or detected_lang in ['arabic', 'egyptian']
 
         # Build response
         result = {
@@ -1463,22 +1532,24 @@ def analyze_audio():
             'voice_emotions': voice_predictions,
             'primary_voice_emotion': voice_predictions[0]["emotion"] if voice_predictions else "Unknown",
             'primary_voice_confidence': voice_predictions[0]["confidence"] if voice_predictions else 0.0,
-            'transcribed_text': speech_text,
+            # ✅ Keep original text for display
+            'transcribed_text': original_text,  # Original speech (Arabic or English)
+            'translated_text': translated_text,  # English translation (if applicable)
             'is_translated': is_translated or text_is_translated,
             'detected_language': detected_lang or text_lang,
-            'has_speech': bool(speech_text and len(speech_text.strip()) > 5),
+            'has_speech': bool(original_text and len(original_text.strip()) > 5),
             'processing_time': time.time()
         }
 
         if text_predictions:
             result['primary_character'] = text_predictions[0]['character']
-            result['character_name'] = text_predictions[0]['character']
+            result['character_name'] = get_arabic_name(text_predictions[0]['character']) if is_arabic_input else text_predictions[0]['character']
             result['confidence'] = float(text_predictions[0]['confidence'])
             result['inner_characters'] = [
                 {
                     'rank': i + 1,
                     'character': p['character'],
-                    'character_name': p['character'],
+                    'character_name': get_arabic_name(p['character']) if is_arabic_input else p['character'],
                     'confidence': float(p['confidence'])
                 }
                 for i, p in enumerate(text_predictions)
@@ -1490,8 +1561,11 @@ def analyze_audio():
             result['inner_characters'] = []
 
         print(f"✅ Audio analysis complete")
+        print(f"   Original text: '{original_text[:100]}'")
+        print(f"   Translated text: '{translated_text[:100]}'")
         print(f"   Language detected: {result['detected_language']}")
         print(f"   Translated: {result['is_translated']}")
+
         return jsonify(result)
 
     except Exception as e:
@@ -1532,6 +1606,9 @@ def analyze_text():
                 'error': 'No predictions generated'
             }), 400
 
+        # ✅ Check if input is Arabic
+        is_arabic_input = is_translated or detected_lang in ['arabic', 'egyptian', 'egyptian-transliterated']
+
         result = {
             'success': True,
             'analysis_type': 'text',
@@ -1539,13 +1616,15 @@ def analyze_text():
             'is_translated': is_translated,
             'detected_language': detected_lang,
             'primary_character': predictions[0]['character'],
-            'character_name': predictions[0]['character'],
+            # ✅ If Arabic input, return Arabic name
+            'character_name': get_arabic_name(predictions[0]['character']) if is_arabic_input else predictions[0]['character'],
             'confidence': float(predictions[0]['confidence']),
             'inner_characters': [
                 {
                     'rank': i + 1,
                     'character': p['character'],
-                    'character_name': p['character'],
+                    # ✅ If Arabic input, return Arabic name
+                    'character_name': get_arabic_name(p['character']) if is_arabic_input else p['character'],
                     'confidence': float(p['confidence'])
                 }
                 for i, p in enumerate(predictions)
@@ -1556,6 +1635,8 @@ def analyze_text():
         print(f"✅ Text analysis complete")
         print(f"   Language detected: {result['detected_language']}")
         print(f"   Translated: {result['is_translated']}")
+        if is_arabic_input:
+            print(f"   Arabic name: {result['character_name']}")
         return jsonify(result)
 
     except Exception as e:

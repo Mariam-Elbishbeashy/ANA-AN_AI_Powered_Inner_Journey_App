@@ -265,6 +265,7 @@ class _AnaShellState extends State<AnaShell> {
     ];
 
     return Scaffold(
+      resizeToAvoidBottomInset: false, // ✅ THIS IS THE KEY FIX
       backgroundColor: const Color(0xFFF9F6FF),
       body: Stack(
         children: [
@@ -275,8 +276,7 @@ class _AnaShellState extends State<AnaShell> {
               children: pages,
             ),
           ),
-
-          // Bottom nav bar
+          // Bottom nav bar - Now fixed at bottom
           Positioned(
             left: 0,
             right: 0,
