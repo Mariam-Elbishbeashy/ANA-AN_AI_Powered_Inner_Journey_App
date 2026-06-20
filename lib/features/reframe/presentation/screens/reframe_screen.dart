@@ -29,7 +29,7 @@ class ReframeScreen extends StatefulWidget {
     required this.onLogout,
     required this.onRetakeQuestionnaire,
     this.onSwitchLanguage,
-    this.serverUrl = 'http://192.168.100.7:5005',
+    this.serverUrl = 'http://10.0.2.2:5005',
     this.onNavigateToHome,
   });
 
@@ -74,7 +74,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
   String? _currentUserId;
 
   // High confidence threshold
-  final double _highConfidenceThreshold = 0.75;
+  final double _highConfidenceThreshold = 0.40;
 
   // Add cache for Arabic names
   final Map<String, String> _arabicNameCache = {};
@@ -255,6 +255,97 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
         ),
       ),
     );
+  }
+
+  // ===================== FIXED LOCALIZATION METHODS =====================
+
+  // Helper method to detect if text is Arabic
+  bool _isArabicText(String text) {
+    if (text.isEmpty) return false;
+    final arabicPattern = RegExp(r'[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]');
+    return arabicPattern.hasMatch(text);
+  }
+
+  // Helper method to get English display name (without "The" prefix)
+  String _getEnglishDisplayName(String characterName) {
+    // Remove "The " prefix if it exists
+    String displayName = characterName;
+    if (displayName.toLowerCase().startsWith('the ')) {
+      displayName = displayName.substring(4);
+    }
+    // Capitalize first letter
+    if (displayName.isNotEmpty) {
+      displayName = displayName[0].toUpperCase() + displayName.substring(1);
+    }
+    return displayName;
+  }
+
+  // ✅ FIXED: Respect app language setting
+  String _getLocalizedDisplayName(String characterName) {
+    // Check if the app is in Arabic mode
+    final isAppArabic = Localizations.localeOf(context).languageCode == 'ar';
+
+    // If app is NOT Arabic, always return English
+    if (!isAppArabic) {
+      return _getEnglishDisplayName(characterName);
+    }
+
+    // App IS Arabic - translate to Arabic
+    // First check if the character name itself is already in Arabic
+    if (_isArabicText(characterName)) {
+      return characterName;
+    }
+
+    // Check cache
+    if (_arabicNameCache.containsKey(characterName)) {
+      return _arabicNameCache[characterName]!;
+    }
+
+    // Translate to Arabic
+    final result = _getArabicDisplayName(characterName);
+    _arabicNameCache[characterName] = result;
+    return result;
+  }
+
+  // ✅ FIXED: Respect app language setting for descriptions
+  String _getLocalizedDescription(String englishName) {
+    final isAppArabic = Localizations.localeOf(context).languageCode == 'ar';
+
+    if (isAppArabic) {
+      return _getArabicDescription(englishName);
+    } else {
+      return _getEnglishDescription(englishName);
+    }
+  }
+
+  // ✅ FIXED: Respect app language setting for emotions
+  String _getLocalizedEmotionName(String englishEmotion) {
+    final isAppArabic = Localizations.localeOf(context).languageCode == 'ar';
+
+    if (!isAppArabic) return englishEmotion;
+
+    final arabicEmotions = {
+      'Happy': 'سعيد',
+      'Sad': 'حزين',
+      'Angry': 'غاضب',
+      'Fearful': 'خائف',
+      'Surprised': 'مندهش',
+      'Disgusted': 'مشمئز',
+      'Neutral': 'محايد',
+      'Joy': 'فرح',
+      'Anxious': 'قلق',
+      'Calm': 'هادئ',
+      'Excited': 'متحمس',
+      'Frustrated': 'محبط',
+      'Guilty': 'مذنب',
+      'Hopeful': 'متفائل',
+      'Peaceful': 'مسالم',
+      'Grateful': 'ممتن',
+      'Lonely': 'وحيد',
+      'Overwhelmed': 'مرهق',
+    };
+
+    return arabicEmotions[englishEmotion] ?? englishEmotion;
   }
 
   String _getArabicDisplayName(String englishName) {
@@ -526,108 +617,6 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
 
     return englishDescriptions[englishName] ??
         'An inner part that has been identified through reflection. This part holds emotions, beliefs, or patterns that influence your thoughts and behaviors.';
-  }
-
-  // Helper method to detect if text is Arabic
-  bool _isArabicText(String text) {
-    if (text.isEmpty) return false;
-    final arabicPattern = RegExp(r'[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]');
-    return arabicPattern.hasMatch(text);
-  }
-
-  // Helper method to get English display name based on character name
-  String _getEnglishDisplayName(String characterName) {
-    // Remove "The " prefix if it exists
-    String displayName = characterName;
-    if (displayName.toLowerCase().startsWith('the ')) {
-      displayName = displayName.substring(4);
-    }
-    // Capitalize first letter
-    if (displayName.isNotEmpty) {
-      displayName = displayName[0].toUpperCase() + displayName.substring(1);
-    }
-    return displayName;
-  }
-
-  // Helper method to verify media files
-  Future<bool> _verifyMediaFile(String? filePath) async {
-    if (filePath == null || filePath.isEmpty) {
-      return false;
-    }
-
-    try {
-      final file = File(filePath);
-      if (!await file.exists()) {
-        print('❌ File does not exist: $filePath');
-        return false;
-      }
-
-      final fileSize = await file.length();
-      if (fileSize == 0) {
-        print('❌ File is empty: $filePath');
-        return false;
-      }
-
-      print('✅ File verified: $filePath (${fileSize} bytes)');
-      return true;
-    } catch (e) {
-      print('❌ Error verifying file: $e');
-      return false;
-    }
-  }
-
-  // Upload media file to Firebase Storage
-  Future<String?> _uploadMediaFile(
-      String filePath,
-      String mediaType,
-      String sessionId,
-      ) async {
-    try {
-      // Verify file exists and has content
-      if (!await _verifyMediaFile(filePath)) {
-        return null;
-      }
-
-      final file = File(filePath);
-
-      // Create a unique filename with timestamp to avoid collisions
-      final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final fileExtension = filePath.split('.').last;
-      final fileName = '${mediaType}_$timestamp.$fileExtension';
-      final storagePath = 'users/$_currentUserId/characters/$mediaType/$sessionId/$fileName';
-
-      print('📤 Uploading $mediaType to: $storagePath');
-
-      // Upload to Firebase Storage with metadata
-      final ref = _storage.ref().child(storagePath);
-
-      // Add metadata
-      final metadata = firebase_storage.SettableMetadata(
-        contentType: mediaType == 'audio' ? 'audio/wav' : 'video/mp4',
-        customMetadata: {
-          'userId': _currentUserId ?? '',
-          'sessionId': sessionId,
-          'uploadedAt': DateTime.now().toIso8601String(),
-        },
-      );
-
-      final uploadTask = await ref.putFile(file, metadata);
-
-      // Verify upload was successful
-      if (uploadTask.state == firebase_storage.TaskState.success) {
-        // Get the download URL
-        final downloadUrl = await ref.getDownloadURL();
-        print('✅ Media uploaded successfully: $downloadUrl');
-        return downloadUrl;
-      } else {
-        print('❌ Upload failed with state: ${uploadTask.state}');
-        return null;
-      }
-
-    } catch (e) {
-      print('❌ Error uploading media file: $e');
-      return null;
-    }
   }
 
   // Add this as a class method (outside any other method)
@@ -2412,59 +2401,6 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
       return null;
     }
   }
-  String _getLocalizedDisplayName(String characterName) {
-    // First check if the character name itself is already in Arabic
-    if (_isArabicText(characterName)) {
-      print('📝 Name is already in Arabic: "$characterName"');
-      return characterName;
-    }
-
-    // Check if the app is in Arabic mode
-    final isArabic = Localizations.localeOf(context).languageCode == 'ar';
-
-    print('🌐 Language is Arabic: $isArabic');
-    print('📝 Input name: "$characterName"');
-
-    if (isArabic) {
-      // Check if we have this character in our local cache
-      if (_arabicNameCache.containsKey(characterName)) {
-        final cachedName = _arabicNameCache[characterName]!;
-        print('📤 Using cached Arabic name: "$cachedName"');
-        return cachedName;
-      }
-
-      // If not in cache, translate it
-      final result = _getArabicDisplayName(characterName);
-      print('📤 Translated to Arabic: "$result"');
-
-      // Cache the result for future use
-      _arabicNameCache[characterName] = result;
-      return result;
-    } else {
-      // For English, remove "The " prefix if present
-      String displayName = characterName;
-      if (displayName.toLowerCase().startsWith('the ')) {
-        displayName = displayName.substring(4);
-      }
-      // Capitalize first letter
-      if (displayName.isNotEmpty) {
-        displayName = displayName[0].toUpperCase() + displayName.substring(1);
-      }
-      print('📤 English result (without "The"): "$displayName"');
-      return displayName;
-    }
-  }
-
-  // Also add method for localized descriptions
-  String _getLocalizedDescription(String englishName) {
-    final isArabic = Localizations.localeOf(context).languageCode == 'ar';
-
-    if (isArabic) {
-      return _getArabicDescription(englishName);
-    } else {
-      return _getEnglishDescription(englishName);
-    }
-  }
 
   void _toggleVoiceRecording() {
     if (_voiceRecording) {
@@ -2472,35 +2408,6 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
     } else {
       _startVoiceRecording();
     }
-  }
-
-  String _getLocalizedEmotionName(String englishEmotion) {
-    final isArabic = Localizations.localeOf(context).languageCode == 'ar';
-
-    if (!isArabic) return englishEmotion;
-
-    final arabicEmotions = {
-      'Happy': 'سعيد',
-      'Sad': 'حزين',
-      'Angry': 'غاضب',
-      'Fearful': 'خائف',
-      'Surprised': 'مندهش',
-      'Disgusted': 'مشمئز',
-      'Neutral': 'محايد',
-      'Joy': 'فرح',
-      'Anxious': 'قلق',
-      'Calm': 'هادئ',
-      'Excited': 'متحمس',
-      'Frustrated': 'محبط',
-      'Guilty': 'مذنب',
-      'Hopeful': 'متفائل',
-      'Peaceful': 'مسالم',
-      'Grateful': 'ممتن',
-      'Lonely': 'وحيد',
-      'Overwhelmed': 'مرهق',
-    };
-
-    return arabicEmotions[englishEmotion] ?? englishEmotion;
   }
 
   Future<void> _testAudioRecording() async {
@@ -2865,44 +2772,38 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
     final characterName = _analysisResult['character_name'] ?? '';
     final confidence = (_analysisResult['confidence'] ?? 0.0) * 100;
 
-    // ✅ FIX: Use character_name if it's available and in Arabic
-    // The API returns character_name in Arabic when the input is Arabic
-    String displayName = primaryCharacter;
-    final isArabic = Localizations.localeOf(context).languageCode == 'ar';
+    // ✅ FIXED: Always respect app language
+    final isAppArabic = Localizations.localeOf(context).languageCode == 'ar';
 
-    // If character_name exists and is not empty, use it
-    if (characterName.isNotEmpty) {
-      // If character_name is in Arabic, use it directly
-      if (_isArabicText(characterName)) {
+    String displayName;
+
+    if (isAppArabic) {
+      // App is Arabic - use Arabic name
+      if (characterName.isNotEmpty && _isArabicText(characterName)) {
         displayName = characterName;
-        print('✅ Using Arabic character_name: "$displayName"');
-      } else if (isArabic) {
-        // If app is Arabic but character_name is English, translate it
+      } else if (characterName.isNotEmpty) {
         displayName = _getLocalizedDisplayName(characterName);
-        print('✅ Translated character_name to Arabic: "$displayName"');
       } else {
-        // English mode - remove "The" prefix
-        displayName = _getEnglishDisplayName(characterName);
-        print('✅ English display name: "$displayName"');
+        displayName = _getLocalizedDisplayName(primaryCharacter);
       }
     } else {
-      // No character_name provided, use primary_character
-      if (isArabic) {
-        displayName = _getLocalizedDisplayName(primaryCharacter);
-        print('✅ Translated primary_character to Arabic: "$displayName"');
+      // App is English - always show English
+      if (characterName.isNotEmpty) {
+        displayName = _getEnglishDisplayName(characterName);
       } else {
         displayName = _getEnglishDisplayName(primaryCharacter);
-        print('✅ English display name: "$displayName"');
       }
     }
 
     // Also handle the localized character name (the second line)
     String localizedCharacterName = '';
     if (characterName.isNotEmpty && characterName != primaryCharacter) {
-      if (_isArabicText(characterName)) {
-        localizedCharacterName = characterName;
-      } else if (isArabic) {
-        localizedCharacterName = _getLocalizedDisplayName(characterName);
+      if (isAppArabic) {
+        if (_isArabicText(characterName)) {
+          localizedCharacterName = characterName;
+        } else {
+          localizedCharacterName = _getLocalizedDisplayName(characterName);
+        }
       } else {
         localizedCharacterName = _getEnglishDisplayName(characterName);
       }
@@ -3104,7 +3005,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                       ),
                     ),
                   ),
-                  // ✅ FIXED: Use the Arabic name from character_name when available
+                  // ✅ FIXED: Use localized name based on app language
                   Text(
                     displayName,
                     style: const TextStyle(
@@ -3170,29 +3071,23 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                     String charName = character['character_name']?.toString() ?? '';
                     final charConfidence = (character['confidence'] ?? 0.0) * 100;
                     final isPrimary = charDisplayName == primaryCharacter;
-                    final isArabic = Localizations.localeOf(context).languageCode == 'ar';
 
-                    // ✅ FIX: Use character_name if it's available
-                    if (charName.isNotEmpty) {
-                      // If character_name is in Arabic, use it directly
-                      if (_isArabicText(charName)) {
-                        charDisplayName = charName;
-                        print('✅ Using Arabic char_name for inner: "$charDisplayName"');
-                      } else if (isArabic) {
-                        // If app is Arabic but char_name is English, translate it
-                        charDisplayName = _getLocalizedDisplayName(charName);
-                        print('✅ Translated char_name to Arabic: "$charDisplayName"');
+                    // ✅ FIXED: Respect app language for inner characters
+                    String localizedCharName;
+                    if (isAppArabic) {
+                      if (charName.isNotEmpty && _isArabicText(charName)) {
+                        localizedCharName = charName;
+                      } else if (charName.isNotEmpty) {
+                        localizedCharName = _getLocalizedDisplayName(charName);
                       } else {
-                        // English mode - remove "The" prefix
-                        charDisplayName = _getEnglishDisplayName(charName);
-                        print('✅ English display name for inner: "$charDisplayName"');
+                        localizedCharName = _getLocalizedDisplayName(charDisplayName);
                       }
                     } else {
-                      // No character_name, use the character field
-                      if (isArabic) {
-                        charDisplayName = _getLocalizedDisplayName(charDisplayName);
+                      // English mode
+                      if (charName.isNotEmpty) {
+                        localizedCharName = _getEnglishDisplayName(charName);
                       } else {
-                        charDisplayName = _getEnglishDisplayName(charDisplayName);
+                        localizedCharName = _getEnglishDisplayName(charDisplayName);
                       }
                     }
 
@@ -3204,7 +3099,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                         right: index < innerCharacters.length.clamp(0, 5) - 1 ? 12 : 0,
                       ),
                       child: _buildCharacterCard(
-                        displayName: charDisplayName,
+                        displayName: localizedCharName,
                         characterName: charName,
                         charConfidence: charConfidence,
                         isPrimary: isPrimary,
@@ -3261,7 +3156,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
     required bool isPrimary,
     required int index,
   }) {
-    // ✅ Get localized display name - this will now detect if already Arabic
+    // ✅ Get localized display name - this will now respect app language
     final localizedName = _getLocalizedDisplayName(displayName);
     final localizedCharacterName = characterName.isNotEmpty
         ? _getLocalizedDisplayName(characterName)
@@ -3540,7 +3435,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
   Widget _buildEmotionsSection() {
     final emotions = <Map<String, dynamic>>[];
     final voiceEmotions = _analysisResult['voice_emotions'] ?? [];
-    final isArabic = Localizations.localeOf(context).languageCode == 'ar';
+    final isAppArabic = Localizations.localeOf(context).languageCode == 'ar';
 
     // ✅ Get detected language to show proper labels
     final detectedLanguage = _analysisResult['detected_language'] ?? 'english';
@@ -3548,8 +3443,8 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
         detectedLanguage == 'egyptian' ||
         detectedLanguage == 'egyptian-transliterated';
 
-    // ✅ Use Arabic labels if app is Arabic OR input is Arabic
-    final useArabicLabels = isArabic || isInputArabic;
+    // ✅ Use Arabic labels if app is Arabic
+    final useArabicLabels = isAppArabic;
 
     if (_analysisResult['face_emotion'] != null &&
         _analysisResult['face_emotion'] != 'Unknown') {
@@ -3714,7 +3609,7 @@ class _ReframeScreenState extends State<ReframeScreen> with WidgetsBindingObserv
                     const SizedBox(height: 12),
                     ...voiceEmotions.map((emotion) {
                       final emotionName = emotion['emotion']?.toString() ?? 'Unknown';
-                      // ✅ Use localized emotion name
+                      // ✅ Use localized emotion name based on app language
                       final localizedEmotionName = useArabicLabels
                           ? _getLocalizedEmotionName(emotionName)
                           : emotionName;

@@ -109,7 +109,12 @@ flutter:
      - assets/animations/innner.mp4
      - assets/animations/lonly.mp4
      - assets/animations/inner.webm
+     - assets/animations/ashamed.mp4
      - assets/images/
+     - assets/animations/Perfectionist.mp4
+
+     - assets/animations/stoic.mp4
+     - assets/animations/Procrastinator.mp4
      - assets/images/characters_full_body/
      - assets/data/
      - assets/models/
